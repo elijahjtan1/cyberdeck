@@ -2,8 +2,9 @@
 """320x240 RGB565 camera + system monitor for Eli's ILI9341 Pi.
 
 Run: sudo python3 panel_app.py
-Optional: --calibrate, --fps 15, --touch /dev/input/eventN, --status-only
+Optional: --calibrate, --fps 15, --touch /dev/input/eventN, --status-only, --data DIR
 No desktop preview or console switching. Hardware imports happen only at startup.
+Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.md).
 """
 import argparse
 import json
@@ -25,13 +26,19 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 W, H = 320, 240
 BG, PANEL, TEXT, MUTED, ACCENT = '#101923', '#253747', '#eef5fa', '#a9bbc9', '#44d4ad'
+DANGER, WARN = '#d8443c', '#f0b347'
+SERVICE = 'cyberdeck-panel'
 DEFAULT_OPTIONS = {'pixel_level': 100, 'history_seconds': 60,
                    'saver_style': 'off', 'saver_delay': 60,
-                   'saver_speed': 'normal', 'saver_level': 70}
+                   'saver_speed': 'normal', 'saver_level': 70,
+                   'photo_size': 'full', 'snap_timer': 0, 'alerts': 'on'}
 OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'saver_style': ('radar', 'stars', 'black', 'off'),
                  'saver_delay': (30, 60, 300), 'saver_speed': ('slow', 'normal', 'fast'),
-                 'saver_level': (100, 70, 40)}
+                 'saver_level': (100, 70, 40), 'photo_size': ('full', 'preview'),
+                 'snap_timer': (0, 3, 10), 'alerts': ('on', 'off')}
+PHOTO_TYPES = ('.jpg', '.jpeg', '.png')
+MIN_FREE_BYTES = 200 * 2**20  # Refuse new photos rather than filling the SD card.
 
 
 def load_options(path):
@@ -70,7 +77,8 @@ def command_output(args):
 def decode_throttle(output):
     match = re.fullmatch(r'throttled=(0x[0-9a-fA-F]+)', output)
     if not match:
-        return {'power': 'Unknown', 'limits': 'Unknown', 'prior_alerts': 'Unknown'}
+        return {'power': 'Unknown', 'limits': 'Unknown', 'prior_alerts': 'Unknown',
+                'flags': None}
     flags = int(match[1], 16)
     active = []
     if flags & 4:
@@ -81,16 +89,57 @@ def decode_throttle(output):
         active.append('Temp limit')
     return {'power': 'LOW VOLTAGE' if flags & 1 else 'No undervoltage',
             'limits': ', '.join(active) or 'None active',
-            'prior_alerts': 'Yes, since boot' if flags & 0xf0000 else 'None since boot'}
+            'prior_alerts': 'Yes, since boot' if flags & 0xf0000 else 'None since boot',
+            'flags': flags}
+
+
+def health_alerts(rows, now=None):
+    """Return (level, text) pairs for the banner, most serious first."""
+    now = time.monotonic() if now is None else now
+    alerts = []
+    if rows.get('power') == 'LOW VOLTAGE':
+        alerts.append(('critical', 'LOW VOLTAGE'))
+    elif rows.get('undervolt_seen_at') is not None and now-rows['undervolt_seen_at'] < 300:
+        # The sticky firmware bit flipped since launch: a dip happened between polls.
+        alerts.append(('warning', 'VOLTAGE DIPPED'))
+    temp = rows.get('temp_c')
+    if temp is not None:
+        if temp >= 80:
+            alerts.append(('critical', f'HOT {temp:.0f} C'))
+        elif temp >= 75:
+            alerts.append(('warning', f'WARM {temp:.0f} C'))
+    limits = rows.get('limits')
+    if limits not in (None, 'Unknown', 'None active'):
+        alerts.append(('warning', 'THROTTLED' if 'Throttled' in limits else
+                       'CPU CAPPED' if 'Capped' in limits else 'TEMP LIMIT'))
+    free = rows.get('disk_free_gib')
+    if free is not None:
+        if free < .25:
+            alerts.append(('critical', f'STORAGE {free*1024:.0f} MB'))
+        elif free < 1 or rows.get('disk_used_percent', 0) >= 95:
+            alerts.append(('warning', f'LOW STORAGE {free:.1f} GB'))
+    alerts.sort(key=lambda alert: alert[0] != 'critical')
+    return alerts
 
 
 class HealthPoller:
     """Bounded slow commands run away from the camera/touch rendering loop."""
     def __init__(self):
         self.snapshot = {'ip': 'Checking...', 'wifi': 'Checking...', 'sync': 'Unknown',
-                         **decode_throttle('')}
+                         'undervolt_seen_at': None, **decode_throttle('')}
+        self.previous_flags = None
+        self.undervolt_seen_at = None
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def note_throttle(self, flags, now=None):
+        if flags is not None:
+            new_sticky = (self.previous_flags is not None and flags & 0x10000
+                          and not self.previous_flags & 0x10000)
+            if flags & 1 or new_sticky:
+                self.undervolt_seen_at = time.monotonic() if now is None else now
+            self.previous_flags = flags
+        return self.undervolt_seen_at
 
     def start(self):
         self.thread.start()
@@ -117,6 +166,7 @@ class HealthPoller:
             synced = command_output(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'])
             values['sync'] = {'yes': 'Synchronized', 'no': 'Not synchronized'}.get(synced, 'Unknown')
             values.update(decode_throttle(command_output(['vcgencmd', 'get_throttled'])))
+            values['undervolt_seen_at'] = self.note_throttle(values['flags'])
             self.snapshot = values
             self.stop_event.wait(10)
 
@@ -136,7 +186,7 @@ def font(size):
     return ImageFont.load_default()
 
 
-FONT, SMALL = font(15), font(12)
+FONT, SMALL, HUGE = font(15), font(12), font(46)
 
 
 def rgb565(image):
@@ -150,11 +200,20 @@ def user_owns(path):
         os.chown(path, int(os.environ['SUDO_UID']), int(os.environ['SUDO_GID']))
 
 
+def find_panel_framebuffer(root=Path('/sys/class/graphics')):
+    """fb0 normally, but boot order can renumber framebuffers when HDMI is attached."""
+    for base in sorted(root.glob('fb[0-9]*'), key=lambda p: int(p.name[2:])):
+        try:
+            if 'ili9341' in (base / 'name').read_text().lower():
+                return base
+        except OSError:
+            continue
+    raise RuntimeError('ILI9341 framebuffer not found. Stopping.')
+
+
 class Framebuffer:
     def __init__(self):
-        base = Path('/sys/class/graphics/fb0')
-        if 'ili9341' not in (base / 'name').read_text().lower():
-            raise RuntimeError('/dev/fb0 is not the ILI9341 screen. Stopping.')
+        base = find_panel_framebuffer()
         if (base / 'virtual_size').read_text().strip() != '320,240':
             raise RuntimeError('Expected a 320x240 framebuffer. Keep rotate=270.')
         if int((base / 'bits_per_pixel').read_text()) != 16:
@@ -162,7 +221,7 @@ class Framebuffer:
         self.stride = int((base / 'stride').read_text())
         if self.stride < W * 2:
             raise RuntimeError('Unexpected framebuffer stride.')
-        self.file = open('/dev/fb0', 'r+b', buffering=0)
+        self.file = open(Path('/dev') / base.name, 'r+b', buffering=0)
         self.pixel_level = 100
 
     def show(self, image):
@@ -185,6 +244,139 @@ class Framebuffer:
 
     def close(self):
         self.file.close()
+
+
+def camera_image(array):
+    """BGR888 picamera2 arrays are already in R,G,B byte order."""
+    return Image.fromarray(np.ascontiguousarray(array[:, :, :3]))
+
+
+class Camera:
+    """Low-resolution live preview plus an on-demand full-sensor still mode."""
+    def __init__(self, fps):
+        from picamera2 import Picamera2
+        self.fps = fps
+        self.cam = Picamera2()
+        try:
+            self.preview_config = self.cam.create_video_configuration(
+                main={'size': (W, H), 'format': 'BGR888'},
+                controls={'FrameRate': fps}, buffer_count=4)
+            # One full-size buffer keeps camera memory use modest on the Pi 4.
+            self.still_config = self.cam.create_still_configuration(
+                main={'format': 'BGR888'}, buffer_count=1)
+            self.cam.configure(self.preview_config)
+            self.cam.start(show_preview=False)
+        except Exception:
+            self.cam.close()
+            raise
+
+    def frame(self):
+        return camera_image(self.cam.capture_array('main'))
+
+    def set_fps(self, fps):
+        self.fps = fps
+        self.cam.set_controls({'FrameRate': fps})
+
+    def capture_full(self):
+        """Blocks for roughly a second while the sensor switches mode and back."""
+        array = self.cam.switch_mode_and_capture_array(self.still_config, 'main')
+        self.cam.set_controls({'FrameRate': self.fps})
+        return camera_image(array)
+
+    def recover(self):
+        """Put the preview back after a failed still capture. False if unusable."""
+        try:
+            try:
+                self.cam.stop()
+            except Exception:
+                pass
+            self.cam.configure(self.preview_config)
+            self.cam.start(show_preview=False)
+            self.cam.set_controls({'FrameRate': self.fps})
+            return True
+        except Exception as exc:
+            print('Camera could not restart:', exc, flush=True)
+            return False
+
+    def close(self):
+        self.cam.close()
+
+
+def photo_label(path):
+    match = re.match(r'photo-(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)', path.name)
+    if match:
+        y, mo, d, h, mi, s = match.groups()
+        return f'{y}/{mo}/{d} {h}:{mi}:{s}'
+    return path.name
+
+
+class PhotoLibrary:
+    """Saved snapshots, newest last, with small cached previews for review."""
+    def __init__(self, folder):
+        self.folder = Path(folder)
+        self.items = []
+        self.cache = {}
+        self.refresh()
+
+    def refresh(self):
+        try:
+            self.items = sorted(p for p in self.folder.iterdir()
+                                if p.suffix.lower() in PHOTO_TYPES and p.is_file()
+                                and not p.name.startswith('.'))
+        except OSError:
+            self.items = []
+        return self.items
+
+    def latest(self):
+        return self.items[-1] if self.items else None
+
+    def preview(self, path, size):
+        """Return (image fitted to size, original size) or (None, None)."""
+        if path is None:
+            return None, None
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return None, None
+        key = (path, size)
+        cached = self.cache.get(key)
+        if cached and cached[0] == stamp:
+            return cached[1], cached[2]
+        try:
+            with Image.open(path) as source:
+                original = source.size
+                source.draft('RGB', size)  # JPEG DCT scaling: fast even for 12 MP files.
+                picture = ImageOps.contain(source.convert('RGB'), size)
+        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            print('Cannot open photo:', path, exc, flush=True)
+            return None, None
+        if len(self.cache) > 24:
+            self.cache.clear()
+        self.cache[key] = (stamp, picture, original)
+        return picture, original
+
+    def save(self, image):
+        if shutil.disk_usage(self.folder).free < MIN_FREE_BYTES:
+            raise OSError('storage nearly full')
+        name = datetime.now().strftime('photo-%Y%m%d-%H%M%S-%f.jpg')
+        final = self.folder / name
+        temporary = self.folder / ('.' + name + '.tmp')
+        try:
+            image.save(temporary, 'JPEG', quality=92)
+            user_owns(temporary)
+            temporary.replace(final)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        self.refresh()
+        return final
+
+    def delete(self, path):
+        if path.parent != self.folder:
+            raise OSError('not in the photo folder')
+        path.unlink()
+        self.cache = {k: v for k, v in self.cache.items() if k[0] != path}
+        self.refresh()
 
 
 class Touch:
@@ -361,9 +553,10 @@ class Stats:
         disk = shutil.disk_usage('/')
         seconds = int(float(Path('/proc/uptime').read_text().split()[0]))
         try:
-            temp = f"{int(Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000:.1f} C"
+            temp_c = int(Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
+            temp = f'{temp_c:.1f} C'
         except (OSError, ValueError):
-            temp = 'Unavailable'
+            temp_c, temp = None, 'Unavailable'
         try:
             freq = f"{int(Path('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq').read_text())/1000:.0f} MHz"
         except (OSError, ValueError):
@@ -374,16 +567,28 @@ class Stats:
             self.history.popleft()
         return {'cpu': usage, 'temp': temp, 'ram_percent': memory_percent,
                 'ram': f'{used:.1f}/{allmem:.1f} GiB',
-                'disk_free': f'{disk.free/2**30:.1f} GiB',
+                'disk_free': f'{disk.free/2**30:.1f} GiB', 'disk_free_gib': disk.free/2**30,
+                'temp_c': temp_c,
                 'disk_used_percent': 100*disk.used/disk.total,
                 'uptime': f'{seconds//3600}h {(seconds//60)%60}m', 'freq': freq,
                 **self.health.snapshot}
 
 
-def button(d, rect, label, active=False):
-    d.rounded_rectangle(rect, radius=5, fill=ACCENT if active else PANEL)
+def button(d, rect, label, active=False, fill=None):
+    d.rounded_rectangle(rect, radius=5, fill=fill or (ACCENT if active else PANEL))
     d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), label,
            font=SMALL, fill=BG if active else TEXT, anchor='mm')
+
+
+def draw_banner(d, alerts, clock):
+    """Health alert bar across the header; tapping it opens Status details."""
+    level = alerts[0][0]
+    fill, ink = (DANGER, TEXT) if level == 'critical' else (WARN, BG)
+    d.rectangle((0, 0, W-1, 23), fill=fill)
+    clock_width = d.textlength(clock, font=SMALL)
+    summary = '! ' + '  |  '.join(text for _, text in alerts)
+    d.text((6, 5), fit_text(d, summary, W-24-clock_width, SMALL), font=SMALL, fill=ink)
+    d.text((314, 5), clock, font=SMALL, fill=ink, anchor='ra')
 
 
 def graph(d, rect, history, channel, now, colour, seconds=60):
@@ -415,7 +620,7 @@ TINY = font(10)
 STAR_SEEDS = np.random.default_rng(9341).uniform(-1, 1, (48, 3))
 
 
-def screensaver_frame(style, elapsed, speed='normal', wall_time=None):
+def screensaver_frame(style, elapsed, speed='normal', wall_time=None, alerts=()):
     """Pure decorative animation. No sensors, network, or hardware dependencies."""
     image = Image.new('RGB', (W, H), 'black')
     if style in ('black', 'off'):
@@ -471,48 +676,170 @@ def screensaver_frame(style, elapsed, speed='normal', wall_time=None):
         raise ValueError(f'Unknown screensaver: {style}')
     d.rectangle((0,0,319,25),fill='black')
     d.rectangle((0,214,319,239),fill='black')
-    d.text((8,7),label,font=SMALL,fill=colour)
-    d.text((312,7),wall_time.strftime('%H:%M'),font=SMALL,fill=colour,anchor='ra')
+    if alerts:
+        draw_banner(d, alerts, wall_time.strftime('%H:%M'))
+    else:
+        d.text((8,7),label,font=SMALL,fill=colour)
+        d.text((312,7),wall_time.strftime('%H:%M'),font=SMALL,fill=colour,anchor='ra')
     d.text((160,226),'SCREENSAVER / TAP TO WAKE',font=TINY,fill=colour,anchor='mm')
     return image
 
 
 def saver_due(options, idle_seconds, page):
     return (options['saver_style'] != 'off' and idle_seconds >= options['saver_delay']
-            and page not in ('exit','calconfirm','savers','colours'))
+            and page not in ('exit','shutdown','calconfirm','savers','colours',
+                             'photodelete'))
 
 
-def saver_control_at(x, y):
-    for i in range(8):
+def grid_at(x, y, count=8):
+    """Two-column, 40 px-pitch button grid shared by Options and Screensavers."""
+    for i in range(count):
         col,row = i%2,i//2
         if 8+col*156 <= x <= 155+col*156 and 30+row*40 <= y <= 64+row*40:
             return i
     return None
 
 
+saver_control_at = option_at = grid_at
+TABS = ('CAMERA', 'PHOTOS', 'STATUS', 'OPTIONS', 'EXIT')
+TAB_PARENT = {'health': 'status', 'savers': 'options', 'calconfirm': 'options',
+              'photodelete': 'photos', 'shutdown': 'exit'}
+EXIT_BUTTONS = ((12, 103), (114, 205), (216, 307))  # CANCEL, CLOSE APP, SHUT DOWN
+
+
+def row_button(x):
+    """Index of the four 80 px buttons on the Camera and Photos pages."""
+    return min(3, max(0, int(x)//80))
+
+
+def tab_at(x):
+    return min(len(TABS)-1, max(0, int(x)//64))
+
+
+def timer_label(seconds):
+    return f'TIMER {seconds}s' if seconds else 'TIMER OFF'
+
+
 def render(page, frame, paused, fps, rows, message, history=(), now=None,
-           options=None, wall_time=None):
+           options=None, wall_time=None, alerts=(), cam=None, photo=None,
+           service=False):
+    """cam: countdown/flash/capturing/saved/thumb overlays. photo: review state."""
     options = options or DEFAULT_OPTIONS
     wall_time = wall_time or datetime.now().astimezone()
+    cam, photo = cam or {}, photo or {}
     image = Image.new('RGB', (W, H), BG)
     d = ImageDraw.Draw(image)
-    title = {'calconfirm':'TOUCH SETUP', 'savers':'SAVERS'}.get(page, page.upper())
-    d.text((8, 4), 'PANEL / ' + title, font=FONT, fill=ACCENT)
-    d.text((312, 6), wall_time.strftime('%H:%M:%S'), font=SMALL, fill=TEXT, anchor='ra')
+    if page == 'photofull':
+        if photo.get('image') is not None:
+            full = ImageOps.contain(photo['image'], (W, H))
+            image.paste(full, ((W-full.width)//2, (H-full.height)//2))
+        d.text((6, 4), photo.get('label', ''), font=TINY, fill=TEXT,
+               stroke_width=2, stroke_fill='black')
+        d.text((314, 234), 'tap to return', font=TINY, fill=TEXT, anchor='rs',
+               stroke_width=2, stroke_fill='black')
+        return image
+    title = {'calconfirm':'TOUCH SETUP', 'savers':'SAVERS', 'photodelete':'PHOTOS',
+             'shutdown':'POWER', 'poweroff':'POWER'}.get(page, page.upper())
+    if alerts and page not in ('stopped', 'poweroff'):
+        draw_banner(d, alerts, wall_time.strftime('%H:%M'))
+    else:
+        d.text((8, 4), 'PANEL / ' + title, font=FONT, fill=ACCENT)
+        d.text((312, 6), wall_time.strftime('%H:%M:%S'), font=SMALL, fill=TEXT, anchor='ra')
     if page == 'stopped':
-        d.text((160, 91), 'Panel app is not running', font=FONT, fill=TEXT, anchor='mm')
-        d.text((160, 122), 'Restart from your VNC terminal.', font=SMALL, fill=MUTED, anchor='mm')
-        d.text((160, 148), 'sudo python3 ~/panel_app.py', font=SMALL, fill=ACCENT, anchor='mm')
+        d.text((160, 85), 'Panel app is not running', font=FONT, fill=TEXT, anchor='mm')
+        if message:
+            d.text((160, 108), fit_text(d, message, 300, SMALL), font=SMALL, fill=WARN, anchor='mm')
+        if service:
+            d.text((160, 135), 'Restart it from a terminal, or reboot:', font=SMALL, fill=MUTED, anchor='mm')
+            d.text((160, 158), f'sudo systemctl start {SERVICE}', font=SMALL, fill=ACCENT, anchor='mm')
+        else:
+            d.text((160, 135), 'Restart from your VNC terminal.', font=SMALL, fill=MUTED, anchor='mm')
+            d.text((160, 158), 'sudo python3 ~/panel_app.py', font=SMALL, fill=ACCENT, anchor='mm')
+        return image
+    if page == 'poweroff':
+        d.text((160, 70), 'Shutting down...', font=FONT, fill=TEXT, anchor='mm')
+        d.text((160, 105), 'Wait until the green ACT LED stops', font=SMALL, fill=TEXT, anchor='mm')
+        d.text((160, 123), 'flashing, then switch off the power.', font=SMALL, fill=TEXT, anchor='mm')
+        d.text((160, 160), 'This screen stays lit after shutdown;', font=TINY, fill=MUTED, anchor='mm')
+        d.text((160, 174), 'its backlight is wired straight to 3.3 V.', font=TINY, fill=MUTED, anchor='mm')
         return image
     if page == 'camera':
+        box = None
         if frame is not None:
             preview = ImageOps.contain(frame, (W, 132))
-            image.paste(preview, ((W-preview.width)//2, 25+(132-preview.height)//2))
+            box = ((W-preview.width)//2, 25+(132-preview.height)//2)
+            image.paste(preview, box)
+            box = (*box, box[0]+preview.width-1, box[1]+preview.height-1)
+            if cam.get('flash'):
+                d.rectangle(box, fill='white')
         else:
-            d.text((40, 75), 'Camera is not available', font=FONT, fill=MUTED)
-        d.text((8, 158), message[:45], font=SMALL, fill=TEXT)
-        for i, label in enumerate(('SNAP', 'RESUME' if paused else 'PAUSE', f'{fps:g} FPS')):
-            button(d, (i*106+3, 176, i*106+103, 203), label)
+            d.text((160, 85), 'Camera is not available', font=FONT, fill=MUTED, anchor='mm')
+        # Left gutter: last snapshot (tap to review). Right gutter: capture settings.
+        d.text((36, 33), 'LAST', font=TINY, fill=MUTED, anchor='ma')
+        thumb = cam.get('thumb')
+        if thumb is not None:
+            image.paste(thumb, (36-thumb.width//2, 46+(48-thumb.height)//2))
+            d.rectangle((36-thumb.width//2-1, 45+(48-thumb.height)//2,
+                         36+(thumb.width+1)//2, 46+(48+thumb.height)//2), outline=MUTED)
+            d.text((36, 100), 'tap to view', font=TINY, fill=MUTED, anchor='ma')
+        else:
+            d.rectangle((6, 46, 66, 93), outline=PANEL)
+            d.text((36, 70), 'none', font=TINY, fill=MUTED, anchor='mm')
+        size_label = 'FULL' if options['photo_size'] == 'full' else '320x240'
+        for y, label, value in ((33, 'SIZE', size_label),
+                                (75, 'TIMER', f"{options['snap_timer']}s" if options['snap_timer'] else 'OFF')):
+            d.text((284, y), label, font=TINY, fill=MUTED, anchor='ma')
+            d.text((284, y+14), value, font=SMALL, fill=TEXT, anchor='ma')
+        centre = ((box[0]+box[2])//2, (box[1]+box[3])//2) if box else (160, 91)
+        if cam.get('countdown'):
+            r = 34
+            d.ellipse((centre[0]-r, centre[1]-r, centre[0]+r, centre[1]+r), fill=BG,
+                      outline=ACCENT, width=3)
+            d.text(centre, str(cam['countdown']), font=HUGE, fill=TEXT, anchor='mm')
+        if cam.get('capturing'):
+            d.rounded_rectangle((centre[0]-80, centre[1]-20, centre[0]+80, centre[1]+20),
+                                radius=6, fill=BG, outline=ACCENT, width=2)
+            d.text(centre, cam['capturing'], font=FONT, fill=TEXT, anchor='mm')
+        if cam.get('saved'):
+            d.rounded_rectangle((centre[0]-82, centre[1]-24, centre[0]+82, centre[1]+24),
+                                radius=6, fill=ACCENT)
+            d.text((centre[0], centre[1]-8), 'PHOTO SAVED', font=FONT, fill=BG, anchor='mm')
+            d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
+        d.text((8, 158), fit_text(d, message, 304, SMALL), font=SMALL, fill=TEXT)
+        labels = ('CANCEL' if cam.get('countdown') else 'SNAP', timer_label(options['snap_timer']),
+                  'RESUME' if paused else 'PAUSE', f'{fps:g} FPS')
+        for i, label in enumerate(labels):
+            button(d, (i*80+3, 176, i*80+77, 203), label, active=(i == 0 and bool(cam.get('countdown'))))
+    elif page in ('photos', 'photodelete'):
+        picture, count = photo.get('image'), photo.get('count', 0)
+        if page == 'photodelete':
+            if picture is not None:
+                small = ImageOps.contain(picture, (120, 90))
+                image.paste(small, (100+(120-small.width)//2, 28))
+            d.text((160, 132), 'Delete this photo?', font=FONT, fill=TEXT, anchor='mm')
+            d.text((160, 151), photo.get('label', ''), font=SMALL, fill=MUTED, anchor='mm')
+            button(d, (12, 164, 151, 202), 'CANCEL', active=True)
+            button(d, (168, 164, 307, 202), 'DELETE', fill=DANGER)
+        elif not count:
+            d.text((160, 80), 'No photos yet', font=FONT, fill=TEXT, anchor='mm')
+            d.text((160, 106), 'Use SNAP on the Camera page.', font=SMALL, fill=MUTED, anchor='mm')
+            d.text((160, 130), fit_text(d, message, 300, SMALL), font=SMALL, fill=TEXT, anchor='mm')
+        else:
+            if picture is not None:
+                shown = ImageOps.contain(picture, (W, 132))
+                image.paste(shown, ((W-shown.width)//2, 25+(132-shown.height)//2))
+            else:
+                d.text((160, 91), 'Cannot open this photo', font=FONT, fill=MUTED, anchor='mm')
+            original = photo.get('size')
+            info = f"{photo['index']+1}/{count}  {photo.get('label', '')}"
+            if original:
+                info += f'  {original[0]}x{original[1]}'
+            d.text((8, 158), fit_text(d, message or info, 304, SMALL), font=SMALL, fill=TEXT)
+            for i, label in enumerate(('< OLDER', 'NEWER >', 'FULL', 'DELETE')):
+                enabled = not ((i == 0 and photo['index'] == 0) or
+                               (i == 1 and photo['index'] == count-1))
+                button(d, (i*80+3, 176, i*80+77, 203), label if enabled else '',
+                       fill=None if enabled else '#18252f')
     elif page == 'status':
         now = time.monotonic() if now is None else now
         cpu = '--' if rows.get('cpu') is None else f"{rows['cpu']:.0f}%"
@@ -547,17 +874,19 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
             y = 28+i*19
             d.text((8,y),label,font=TINY,fill=MUTED)
             text = fit_text(d, value, 222, SMALL)
-            colour = '#ffbb66' if value in ('LOW VOLTAGE','Not synchronized') else TEXT
+            colour = WARN if value in ('LOW VOLTAGE','Not synchronized') else TEXT
             d.text((88,y),text,font=SMALL,fill=colour)
     elif page == 'options':
         labels = [f"Pixel level: {options['pixel_level']}%", 'Screensavers...',
                   'Preview saver', 'Test colours', 'Calibrate touch...',
-                  f"Graph: {options['history_seconds']}s"]
+                  f"Graph: {options['history_seconds']}s",
+                  'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
+                  'Alert banner: ' + options['alerts'].title()]
         for i, label in enumerate(labels):
             col, row = i%2, i//2
-            button(d, (8+col*156, 31+row*47, 155+col*156, 73+row*47), label)
-        d.text((8,176), 'Pixel dim / blank leaves backlight on.',font=TINY,fill=MUTED)
-        d.text((8,191),fit_text(d,message or 'Options are saved automatically.',304,TINY),font=TINY,fill=TEXT)
+            button(d, (8+col*156, 30+row*40, 155+col*156, 64+row*40), label)
+        d.text((8,190),fit_text(d,message or 'Saved automatically. Dimming leaves backlight on.',304,TINY),
+               font=TINY,fill=TEXT if message else MUTED)
     elif page == 'savers':
         delay = options['saver_delay']
         labels = ['RADAR','STARFIELD','BLACK','OFF',
@@ -585,15 +914,23 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
             d.line((x,133,x,168),fill=(v,v,v))
         d.text((160,187),'Full intensity | Tap to return',font=SMALL,fill=TEXT,anchor='mm')
         return image
+    elif page == 'shutdown':
+        d.text((160, 52), 'Shut down the Raspberry Pi?', font=FONT, fill=TEXT, anchor='mm')
+        d.text((160, 78), 'Save your work in VNC first.', font=SMALL, fill=MUTED, anchor='mm')
+        d.text((160, 96), 'Power can be removed once the green LED', font=SMALL, fill=MUTED, anchor='mm')
+        d.text((160, 112), 'stops flashing.', font=SMALL, fill=MUTED, anchor='mm')
+        button(d, (12, 132, 151, 185), 'CANCEL', active=True)
+        button(d, (168, 132, 307, 185), 'SHUT DOWN', fill=DANGER)
     else:
-        d.text((160, 58), 'Close the panel app?', font=FONT, fill=TEXT, anchor='mm')
-        d.text((160, 87), 'Camera and touch will be released.', font=SMALL, fill=MUTED, anchor='mm')
-        button(d, (12, 121, 151, 174), 'CANCEL', active=True)
-        button(d, (168, 121, 307, 174), 'CLOSE APP')
-    for i, label in enumerate(('CAMERA', 'STATUS', 'OPTIONS', 'EXIT')):
-        active = (page == label.lower() or (page == 'health' and label == 'STATUS')
-                  or (page == 'savers' and label == 'OPTIONS'))
-        button(d, (i*80+2, 207, i*80+77, 238), label, active)
+        d.text((160, 52), 'Close the app or shut down?', font=FONT, fill=TEXT, anchor='mm')
+        d.text((160, 80), 'Close releases the camera and touch.', font=SMALL, fill=MUTED, anchor='mm')
+        d.text((160, 98), 'Shut down asks once more first.', font=SMALL, fill=MUTED, anchor='mm')
+        for (x0, x1), label in zip(EXIT_BUTTONS, ('CANCEL', 'CLOSE APP', 'SHUT DOWN')):
+            button(d, (x0, 121, x1, 174), label, active=(label == 'CANCEL'),
+                   fill=DANGER if label == 'SHUT DOWN' else None)
+    for i, label in enumerate(TABS):
+        active = TAB_PARENT.get(page, page) == label.lower()
+        button(d, (i*64+2, 207, i*64+61, 238), label, active)
     return image
 
 
@@ -604,14 +941,6 @@ def fit_text(draw, value, width, selected_font):
     while value and draw.textlength(value+'...', font=selected_font) > width:
         value = value[:-1]
     return value+'...'
-
-
-def option_at(x, y):
-    for i in range(6):
-        col, row = i%2, i//2
-        if 8+col*156 <= x <= 155+col*156 and 31+row*47 <= y <= 73+row*47:
-            return i
-    return None
 
 
 def recalibrate_safely(screen, touch, previous, save):
@@ -625,12 +954,30 @@ def recalibrate_safely(screen, touch, previous, save):
         return previous, 'Calibration unchanged; see terminal'
 
 
+def start_camera(fps, attempts=3):
+    """Retry briefly: at boot the camera stack can come up after this service."""
+    for attempt in range(attempts):
+        try:
+            return Camera(fps)
+        except Exception as exc:
+            print(f'Camera unavailable (attempt {attempt+1}/{attempts}):', exc, flush=True)
+            if attempt < attempts-1:
+                time.sleep(2)
+    return None
+
+
+def request_poweroff():
+    subprocess.run(['systemctl', 'poweroff'], check=True, timeout=20,
+                   capture_output=True, text=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fps', type=int, choices=(10, 15, 20), default=20)
     parser.add_argument('--calibrate', action='store_true')
     parser.add_argument('--touch', help='Override touchscreen event device')
     parser.add_argument('--status-only', action='store_true')
+    parser.add_argument('--data', help='Data folder (default: cyberdeck-data beside this script)')
     args = parser.parse_args()
     # Prevent two copies from competing for the camera and touchscreen.
     import fcntl
@@ -639,8 +986,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         lock.close()
-        raise RuntimeError('Cyberdeck is already running. Stop the other copy first.')
-    data = Path(__file__).resolve().parent / 'cyberdeck-data'
+        raise RuntimeError('Cyberdeck is already running. Stop the other copy first '
+                           f'(boot service: sudo systemctl stop {SERVICE}).')
+    data = Path(args.data) if args.data else Path(__file__).resolve().parent / 'cyberdeck-data'
     photos = data / 'photos'
     photos.mkdir(parents=True, exist_ok=True)
     user_owns(data)
@@ -648,7 +996,10 @@ def main():
     calibration_file = data / 'touch.json'
     options_file = data / 'options.json'
     options = load_options(options_file)
+    library = PhotoLibrary(photos)
+    service = 'INVOCATION_ID' in os.environ  # Set by systemd for the boot service.
     screen = touch = camera = stats = None
+    shutdown_requested = False
     def terminate(signum, frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, terminate)
@@ -673,24 +1024,15 @@ def main():
         if matrix is None:
             matrix = calibrate(screen, touch)
             save_calibration(matrix)
-        message = 'Live | SNAP saves 320x240 JPG'
+        ready_message = 'Live | SNAP saves a photo'
+        message = ready_message
         if not args.status_only:
-            try:
-                from picamera2 import Picamera2
-                camera = Picamera2()
-                camera.configure(camera.create_video_configuration(
-                    main={'size': (W, H), 'format': 'BGR888'},
-                    controls={'FrameRate': args.fps}, buffer_count=4))
-                camera.start(show_preview=False)
-            except Exception as exc:
-                print('Camera unavailable:', exc, flush=True)
-                if camera is not None:
-                    camera.close()
-                camera = None
+            camera = start_camera(args.fps)
+            if camera is None:
                 message = 'Camera unavailable; see terminal'
         page = 'camera' if camera else 'status'
         frame, paused, fps = None, False, args.fps
-        stats, rows = Stats(), {}
+        stats, rows, alerts = Stats(), {}, []
         stats.start()
         next_stats, next_draw = 0, 0
         running = True
@@ -699,7 +1041,12 @@ def main():
         active_saver = None
         saver_started = next_saver_draw = 0
         last_touch = time.monotonic()
-        option_message = ''
+        option_message = photo_message = ''
+        photo_index = len(library.items)-1
+        countdown_end = None
+        flash_until = saved_until = 0
+        saved_text = ''
+
         def set_option(key, value):
             previous = options[key]
             options[key] = value
@@ -710,6 +1057,84 @@ def main():
                 options[key] = previous
                 print('Options save failed:',exc,flush=True)
                 return 'Save failed; option unchanged.'
+
+        def cycle_option(key):
+            values = OPTION_VALUES[key]
+            return set_option(key, values[(values.index(options[key])+1) % len(values)])
+
+        def current_photo():
+            nonlocal photo_index
+            if not library.items:
+                return None
+            photo_index = max(0, min(photo_index, len(library.items)-1))
+            return library.items[photo_index]
+
+        def photo_state():
+            path = current_photo()
+            if path is None:
+                return {'count': 0}
+            picture, size = library.preview(path, (W, H))
+            return {'image': picture, 'size': size, 'index': photo_index,
+                    'count': len(library.items), 'label': photo_label(path)}
+
+        def draw(now, capturing=None):
+            if page == 'camera':
+                thumb = library.preview(library.latest(), (60, 45))[0]
+                countdown = (max(1, math.ceil(countdown_end-now))
+                             if countdown_end is not None else None)
+                cam = {'thumb': thumb, 'countdown': countdown, 'capturing': capturing,
+                       'flash': now < flash_until,
+                       'saved': saved_text if now < saved_until and not capturing else ''}
+            else:
+                cam = None
+            photo = photo_state() if page in ('photos', 'photofull', 'photodelete') else None
+            text = {'options': option_message, 'savers': option_message,
+                    'photos': photo_message}.get(page, message)
+            screen.pixel_level = 100 if page == 'colours' else options['pixel_level']
+            screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
+                               options, alerts=alerts, cam=cam, photo=photo))
+
+        def take_photo():
+            """Full-resolution still (or the preview frame), then a visible confirmation."""
+            nonlocal camera, message, flash_until, saved_until, saved_text, photo_index
+            note = ''
+            image = None
+            if camera is not None and not paused and options['photo_size'] == 'full':
+                draw(time.monotonic(), capturing='Capturing...')
+                try:
+                    image = camera.capture_full()
+                except Exception as exc:
+                    print('Full-resolution capture failed:', exc, flush=True)
+                    if not camera.recover():
+                        try:
+                            camera.close()
+                        except Exception:
+                            pass
+                        camera = None
+                        message = 'Camera stopped; see terminal'
+                        return
+                    note = ' (full-res failed)'
+            if image is None:
+                if frame is None:
+                    message = 'No camera frame to save'
+                    return
+                image = frame.copy()
+            if image.width > W:
+                draw(time.monotonic(), capturing='Saving...')
+            try:
+                path = library.save(image)
+            except OSError as exc:
+                print('Could not save photo:', exc, flush=True)
+                message = 'Save failed: ' + ('storage full' if 'storage' in str(exc)
+                                             else 'see terminal')
+                return
+            print('Saved:', path, f'{image.width}x{image.height}', flush=True)
+            now = time.monotonic()
+            flash_until, saved_until = now + .15, now + 1.8
+            saved_text = f'{image.width}x{image.height}{note}'
+            message = f'Saved {path.name[6:21]}  {image.width}x{image.height}{note}'
+            photo_index = len(library.items)-1
+
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
             now = time.monotonic()
@@ -723,15 +1148,18 @@ def main():
                     next_draw = 0
                     ignore_touch_until = now + .3
                     break
-                if page == 'colours':
-                    page = 'options'
+                if page in ('colours', 'photofull'):
+                    page = 'options' if page == 'colours' else 'photos'
                     next_draw = 0
                     ignore_touch_until = now + .3
                     break
                 x, y = np.array([*raw, 1.0]) @ matrix
                 if not (0 <= x < W and 0 <= y < H):
                     continue
-                if page == 'calconfirm' and 121 <= y <= 174:
+                if (alerts and y < 24 and
+                        page not in ('calconfirm', 'exit', 'shutdown', 'photodelete')):
+                    page = 'health'
+                elif page == 'calconfirm' and 121 <= y <= 174:
                     if 12 <= x <= 151:
                         page = 'options'
                     elif 168 <= x <= 307:
@@ -745,19 +1173,16 @@ def main():
                     if action < 4:
                         option_message = set_option('saver_style', ('radar','stars','black','off')[action])
                     elif action < 7:
-                        key = {4:'saver_delay',5:'saver_speed',6:'saver_level'}[action]
-                        values = OPTION_VALUES[key]
-                        option_message = set_option(key, values[(values.index(options[key])+1)%len(values)])
+                        option_message = cycle_option({4:'saver_delay',5:'saver_speed',6:'saver_level'}[action])
                     else:
                         active_saver = options['saver_style'] if options['saver_style'] != 'off' else 'radar'
                         saver_started, next_saver_draw = now, 0
                     ignore_touch_until = now + .3
                 elif page == 'options' and option_at(x, y) is not None:
                     action = option_at(x, y)
-                    key = {0:'pixel_level', 5:'history_seconds'}.get(action)
+                    key = {0:'pixel_level', 5:'history_seconds', 6:'photo_size', 7:'alerts'}.get(action)
                     if key:
-                        values = OPTION_VALUES[key]
-                        option_message = set_option(key, values[(values.index(options[key])+1)%len(values)])
+                        option_message = cycle_option(key)
                     elif action == 1:
                         page = 'savers'
                         option_message = ''
@@ -772,44 +1197,96 @@ def main():
                 elif page == 'status' and 213 <= x <= 310 and 174 <= y <= 202:
                     page = 'health'
                 elif page == 'exit' and 121 <= y <= 174:
+                    choice = next((i for i, (x0, x1) in enumerate(EXIT_BUTTONS) if x0 <= x <= x1), None)
+                    if choice == 0:
+                        page = exit_return_page
+                    elif choice == 1:
+                        running = False
+                    elif choice == 2:
+                        page = 'shutdown'
+                        ignore_touch_until = now + .5
+                elif page == 'shutdown' and 132 <= y <= 185:
                     if 12 <= x <= 151:
                         page = exit_return_page
                     elif 168 <= x <= 307:
+                        shutdown_requested = True
                         running = False
+                elif page == 'photodelete' and 164 <= y <= 202:
+                    if 12 <= x <= 151:
+                        page = 'photos'
+                    elif 168 <= x <= 307:
+                        path = current_photo()
+                        try:
+                            if path is not None:
+                                library.delete(path)
+                                print('Deleted:', path, flush=True)
+                                photo_message = 'Deleted ' + photo_label(path)
+                        except OSError as exc:
+                            print('Could not delete photo:', exc, flush=True)
+                            photo_message = 'Delete failed; see terminal'
+                        page = 'photos'
+                    ignore_touch_until = now + .3
                 elif y >= 207:
-                    tab = int(x)//80
-                    if tab == 0:
-                        page = 'camera'
-                    elif tab == 1:
-                        page = 'status'
-                    elif tab == 2:
-                        page = 'options'
-                        option_message = ''
-                        ignore_touch_until = now + .3
-                    else:
-                        if page != 'exit':
+                    tab = TABS[tab_at(x)].lower()
+                    if tab == 'exit':
+                        if page not in ('exit', 'shutdown'):
                             exit_return_page = page
                         page = 'exit'
                         ignore_touch_until = time.monotonic() + .35
+                    else:
+                        if tab == 'photos':
+                            library.refresh()
+                            photo_index = len(library.items)-1
+                            photo_message = ''
+                        elif tab == 'options':
+                            option_message = ''
+                            ignore_touch_until = now + .3
+                        page = tab
                 elif page == 'camera' and 176 <= y <= 203:
-                    action = min(2, int(x)//106)
-                    if action == 0 and frame is not None:
-                        name = datetime.now().strftime('photo-%Y%m%d-%H%M%S-%f.jpg')
-                        try:
-                            frame.save(photos / name, quality=95)
-                            user_owns(photos / name)
-                            message = 'Saved ' + name[6:21]
-                            print('Saved:', photos / name, flush=True)
-                        except OSError as exc:
-                            message = 'Save failed; see terminal'
-                            print('Could not save photo:', exc, flush=True)
-                    elif action == 1 and camera:
-                        paused = not paused
-                        message = 'Preview paused' if paused else 'Live | SNAP saves 320x240 JPG'
+                    action = row_button(x)
+                    if action == 0:
+                        if countdown_end is not None:
+                            countdown_end = None
+                            message = 'Timer cancelled'
+                        elif options['snap_timer']:
+                            countdown_end = now + options['snap_timer']
+                            message = 'Self-timer running | CANCEL stops it'
+                        else:
+                            take_photo()
+                            touch.poll()  # Taps made while capturing are discarded.
+                            last_touch = time.monotonic()
+                            ignore_touch_until = last_touch + .3
+                    elif action == 1:
+                        cycle_option('snap_timer')
+                        message = ('Self-timer: ' + (f"{options['snap_timer']} s" if options['snap_timer']
+                                                     else 'off'))
                     elif action == 2 and camera:
+                        paused = not paused
+                        message = 'Preview paused | SNAP saves this frame' if paused else ready_message
+                    elif action == 3 and camera:
                         fps = {10: 15, 15: 20, 20: 10}[fps]
-                        camera.set_controls({'FrameRate': fps})
+                        camera.set_fps(fps)
                         message = f'Camera target: {fps} FPS'
+                elif page == 'camera' and x < 70 and 25 <= y <= 112 and library.items:
+                    library.refresh()
+                    photo_index = len(library.items)-1
+                    photo_message = ''
+                    page = 'photos'
+                elif page == 'photos' and library.items:
+                    if 176 <= y <= 203:
+                        action = row_button(x)
+                        if action == 0:
+                            photo_index = max(0, photo_index-1)
+                        elif action == 1:
+                            photo_index = min(len(library.items)-1, photo_index+1)
+                        elif action == 2:
+                            page = 'photofull'
+                        else:
+                            page = 'photodelete'
+                            ignore_touch_until = now + .35
+                        photo_message = ''
+                    elif 25 <= y <= 157:
+                        page = 'photofull'
                 next_draw = 0
                 break  # Avoid a second queued tap triggering a newly opened screen.
             if not running:
@@ -817,37 +1294,52 @@ def main():
             now = time.monotonic()
             if now >= next_stats:
                 rows = stats.read()
+                alerts = health_alerts(rows, now) if options['alerts'] == 'on' else []
                 next_stats = now + 1
-            if active_saver is None and saver_due(options,now-last_touch,page):
+            if countdown_end is not None:
+                if page != 'camera':
+                    countdown_end = None
+                    message = 'Timer cancelled'
+                elif now >= countdown_end:
+                    countdown_end = None
+                    take_photo()
+                    touch.poll()
+                    last_touch = time.monotonic()
+                    ignore_touch_until = last_touch + .3
+                    next_draw = 0
+                    continue
+            if (active_saver is None and countdown_end is None
+                    and saver_due(options, now-last_touch, page)):
                 active_saver = options['saver_style']
                 saver_started, next_saver_draw = now, 0
             if active_saver is not None:
                 if now >= next_saver_draw:
                     screen.pixel_level = min(options['pixel_level'],options['saver_level'])
-                    screen.show(screensaver_frame(active_saver,now-saver_started,options['saver_speed']))
+                    screen.show(screensaver_frame(active_saver,now-saver_started,options['saver_speed'],
+                                                  alerts=alerts))
                     # Black is written once; animations are capped at eight frames/sec.
                     next_saver_draw = float('inf') if active_saver == 'black' else time.monotonic()+.125
                 time.sleep(.02)
                 continue
             live = page == 'camera' and camera is not None and not paused
             if live:
-                frame = Image.fromarray(camera.capture_array('main'), 'RGB')
+                frame = camera.frame()
             if live or now >= next_draw:
-                screen.pixel_level = 100 if page == 'colours' else options['pixel_level']
-                text = option_message if page in ('options','savers') else message
-                screen.show(render(page, frame, paused, fps, rows, text, stats.history, now, options))
+                draw(now)
                 next_draw = now + (1/fps if live else .25)
             if not live:
                 time.sleep(.02)
     except KeyboardInterrupt:
         print('\nStopped.', flush=True)
+        shutdown_requested = False
     finally:
         if stats is not None:
             stats.close()
         if screen is not None:
             try:
                 screen.pixel_level = 100
-                screen.show(render('stopped', None, False, 0, {}, ''))
+                screen.show(render('poweroff' if shutdown_requested else 'stopped',
+                                   None, False, 0, {}, '', service=service))
             except Exception:
                 pass  # Display failure must never prevent camera/input cleanup.
         # Always release touch, even if camera cleanup itself fails.
@@ -862,6 +1354,22 @@ def main():
                 if screen is not None:
                     screen.close()
                 lock.close()
+    if shutdown_requested:
+        # systemd stops this process during shutdown; let SIGTERM end it quietly.
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        print('Shutting down the Pi.', flush=True)
+        try:
+            request_poweroff()
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = getattr(exc, 'stderr', '') or exc
+            try:
+                failed = Framebuffer()
+                failed.show(render('stopped', None, False, 0, {}, 'Shutdown failed; see terminal',
+                                   service=service))
+                failed.close()
+            except Exception:
+                pass
+            raise RuntimeError(f'Shutdown failed: {detail}')
 
 
 if __name__ == '__main__':
