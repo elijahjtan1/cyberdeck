@@ -961,6 +961,27 @@ def eating_pose(rows):
 def sleeping_pose(rows):
     """Eyes closed (a dark line)."""
     return [r.replace('e', 'o') for r in rows]
+
+
+def grooming_pose(rows, raised=False):
+    """A front paw lifted to the face: under the chin, or (raised) rubbing over the nose with
+    the eyes shut. The paw gets its own outline so it shows against the fur."""
+    grid = [list(r) for r in rows]
+    ny = next(i for i, r in enumerate(rows) if 'n' in r)
+    nx = rows[ny].index('n')
+    py = ny if raised else ny + 1
+    paw = {(py, nx-1), (py, nx), (py+1, nx-1), (py+1, nx)}
+    for y in range(py-1, py+3):
+        for x in range(nx-2, nx+2):
+            inside = 0 <= y < len(grid) and 0 <= x < len(grid[0])
+            if inside and (y, x) not in paw and (y, x) != (ny, nx) and grid[y][x] in '.wgmf':
+                grid[y][x] = 'o'
+    for y, x in paw:
+        grid[y][x] = 'w'
+    if raised:
+        grid = [['o' if k == 'e' else k for k in r] for r in grid]
+    return [''.join(r) for r in grid]
+
 # Breeds: (shape, scale, weight, coats). Flemish giants are drawn 1.5x and come in the
 # solid colours the breed is known for.
 BUNNY_BREEDS = {
@@ -993,10 +1014,11 @@ def bunny_look(shape='standard', coat='white', scale=2):
 
 
 def bunny_poses(shape='standard', coat='white', scale=2):
-    """{'sit', 'hop' (list), 'eat', 'sleep'} frames for one breed/coat, trimmed of shared
-    empty rows on top so the tap target hugs the visible bunny."""
+    """{'sit', 'hop' (list), 'eat', 'sleep', 'groom', 'groom2'} frames for one breed/coat,
+    trimmed of shared empty rows on top so the tap target hugs the visible bunny."""
     sit, hop = BUNNY_SHAPES[shape]
-    templates = {'sit': sit, 'hop': hop, 'eat': eating_pose(sit), 'sleep': sleeping_pose(sit)}
+    templates = {'sit': sit, 'hop': hop, 'eat': eating_pose(sit), 'sleep': sleeping_pose(sit),
+                 'groom': grooming_pose(sit), 'groom2': grooming_pose(sit, raised=True)}
     frames = {name: pixel_sprite(rows, scale, coat) for name, rows in templates.items()}
     top = min(f.getbbox()[1] for f in frames.values())
     frames = {name: f.crop((0, top, f.width, f.height)) for name, f in frames.items()}
@@ -1130,7 +1152,8 @@ class Bunny:
         self.food = None  # 'carrot' or 'hay' while eating.
 
     ACTIVITIES = (  # (name, chance each time a rest ends, duration range in seconds)
-        ('eat', .10, (4., 8.)), ('sleep', .05, (7., 15.)), ('poop', .04, (.8, .8)))
+        ('eat', .10, (4., 8.)), ('sleep', .05, (7., 15.)), ('poop', .04, (.8, .8)),
+        ('groom', .07, (3., 6.)), ('binky', .05, (.9, .9)))
 
     def jump(self, now, big=False):
         self.activity = self.food = None  # A tap wakes a sleeper / interrupts a snack.
@@ -1142,7 +1165,7 @@ class Bunny:
             self.heart_until = now + 1.2
 
     def start_activity(self, now):
-        """Maybe begin eating, sleeping or a quick poop instead of the next hop."""
+        """Maybe eat, sleep, poop, groom or binky instead of the next hop."""
         roll = self.rng.random()
         for name, chance, (shortest, longest) in self.ACTIVITIES:
             if roll < chance:
@@ -1157,8 +1180,13 @@ class Bunny:
         """Move/animate; returns 'poop' once when droppings should appear."""
         if self.activity is not None:
             if now >= self.activity_until:
+                if self.activity == 'binky' and self.rng.random() < .5:
+                    self.direction *= -1  # Lands facing the other way half the time.
                 self.activity = self.food = None
                 self.rest_until = now + self.rng.uniform(.3, 1.)
+            elif self.activity == 'binky':  # A short leap forward while twisting.
+                self.x += self.direction*speed*dt*.8
+                self.wrap()
             return None
         if self.hop_start is not None:
             self.x += self.direction*speed*dt*(.75 if self.breed == 'giant' else 1)
@@ -1172,14 +1200,27 @@ class Bunny:
             if started:
                 return 'poop' if started == 'poop' else None
             self.jump(now)
-        # Wrap just past the edge so nearly every bunny is visible at any moment.
+        self.wrap()
+        return None
+
+    def wrap(self):
+        """Wrap just past the edge so nearly every bunny is visible at any moment."""
         if self.x < -self.half-2:
             self.x, self.ground = W+self.half, bunny_lane(self.rng)
         elif self.x > W+self.half+2:
             self.x, self.ground = -self.half, bunny_lane(self.rng)
-        return None
+
+    def binky_phase(self, now):
+        """0..1 through a binky, or None when not doing one."""
+        if self.activity != 'binky':
+            return None
+        span = max(.1, self.activity_until - self.activity_start)
+        return max(0., min(1., (now - self.activity_start) / span))
 
     def lift(self, now):
+        phase = self.binky_phase(now)
+        if phase is not None:  # A binky leaps well above a normal hop.
+            return 4*28*(1.2 if self.breed == 'giant' else 1)*phase*(1-phase)
         if self.hop_start is None:
             return 0
         phase = min(1, (now-self.hop_start)/self.hop_length)
@@ -1227,10 +1268,10 @@ class BunnySaver(Saver):
 
     def poses_for(self, look):
         if look not in self.looks:
-            if look is None:  # Custom sprite: frame 0 rests (and eats/sleeps), the rest hop.
+            if look is None:  # Custom sprite: frame 0 rests (eats, sleeps, grooms), the rest hop.
                 frames = self.custom
-                right = {'sit': frames[0], 'hop': frames[1:] or frames[:1],
-                         'eat': frames[0], 'sleep': frames[0]}
+                right = {'sit': frames[0], 'hop': frames[1:] or frames[:1], 'eat': frames[0],
+                         'sleep': frames[0], 'groom': frames[0], 'groom2': frames[0]}
             else:
                 right = bunny_poses(*look)
             self.looks[look] = (right, mirrored_poses(right))
@@ -1330,13 +1371,23 @@ class BunnySaver(Saver):
                                          bunny.ground - self.rng.uniform(0, 2), now])
             right, left = self.poses_for(bunny.look)
             poses = right if bunny.direction > 0 else left
-            if bunny.hop_start is not None:
+            binky = bunny.binky_phase(now)
+            if binky is not None:
+                # Twist mid-air: the body tilts up, flicks round (mirrored) at the top, then
+                # tilts down for the landing.
+                twisted = .35 <= binky < .65
+                frame = ((left if bunny.direction > 0 else right) if twisted else poses)['hop'][0]
+                frame = frame.rotate(22*math.cos(binky*math.pi)*bunny.direction, Image.NEAREST,
+                                     expand=True)
+            elif bunny.hop_start is not None:
                 hops = poses['hop']
                 frame = hops[int((now-bunny.hop_start)*10) % len(hops)]
             elif bunny.activity == 'eat':
                 frame = poses['eat'] if int(now*4) % 2 else poses['sit']  # Nibbling.
             elif bunny.activity == 'sleep':
                 frame = poses['sleep']
+            elif bunny.activity == 'groom':  # Paw strokes over the face.
+                frame = poses['groom2'] if int(now*5) % 2 else poses['groom']
             else:
                 frame = poses['sit']
             lift = bunny.lift(now)
@@ -1351,6 +1402,14 @@ class BunnySaver(Saver):
                     zx = bunny.x + bunny.direction*(bunny.half*.4 + phase*8)
                     zy = bunny.ground - frame.height - 4 - phase*16
                     d.text((zx, zy), 'z', font=TINY if phase < .5 else SMALL, fill='#eef6ff', anchor='mm')
+            elif binky is not None and .15 < binky < .85:
+                top = bunny.ground - frame.height - lift
+                for k in range(4):  # Sparkles of joy around the leap.
+                    angle = k*math.pi/2 + now*5
+                    sx = bunny.x + math.cos(angle)*(frame.width*.6 + 3)
+                    sy = top + frame.height/2 + math.sin(angle)*(frame.height*.6 + 3)
+                    d.line((sx-2, sy, sx+2, sy), fill='#fff6a8')
+                    d.line((sx, sy-2, sx, sy+2), fill='#fff6a8')
             if now < bunny.heart_until:
                 hx, hy = bunny.x, bunny.ground-frame.height-lift-8-(1.2-(bunny.heart_until-now))*12
                 d.text((hx, hy), '♥', font=FONT, fill='#ff5a7a', anchor='mm')

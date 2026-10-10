@@ -75,8 +75,10 @@ Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests,
 - **Snacking:** it lowers its head and nibbles a **carrot** or a tuft of **hay** for 4–8 seconds. The carrot is eaten from the tip; the hay gets smaller as it goes.
 - **Napping:** it closes its eyes for 7–15 seconds while little **z**'s drift up.
 - **Pooping:** it leaves one to three droppings behind. They sink into the grass and disappear after about 45 seconds, with at most 40 on screen.
+- **Grooming:** it sits up and rubs a front paw over its face for 3–6 seconds, closing its eyes on each stroke.
+- **Binky:** the happy rabbit leap. It springs about three times higher than a normal hop, tilts into the jump, twists its body round at the top, and lands nose-down with sparkles around it. Half the time it lands facing the other way.
 
-Tapping a bunny still makes it jump with a heart, and that wakes a sleeper or interrupts a snack.
+Tapping a bunny still makes it jump with a heart, and that wakes a sleeper or interrupts a snack, a grooming session or a binky. A bunny in mid-binky can be tapped where it is in the air.
 
 - **Shape:** the sitting pose is rounder and more compact than the first version, which had a long, flat torso.
 

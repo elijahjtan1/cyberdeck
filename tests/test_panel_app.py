@@ -810,6 +810,10 @@ class BunnyLifeTest(unittest.TestCase):
             poses = app.bunny_poses(shape, 'castor')
             self.assertNotEqual(poses['eat'].tobytes(), poses['sit'].tobytes(), shape)
             self.assertNotEqual(poses['sleep'].tobytes(), poses['sit'].tobytes(), shape)
+            for groom in ('groom', 'groom2'):  # The paw shows in both grooming frames.
+                self.assertNotEqual(poses[groom].tobytes(), poses['sit'].tobytes(), shape)
+                self.assertEqual(poses[groom].size, poses['sit'].size)
+            self.assertNotEqual(poses['groom'].tobytes(), poses['groom2'].tobytes(), shape)
             self.assertEqual(poses['eat'].size, poses['sit'].size)
         for breed in ('lionhead', 'rex'):
             self.assertIn(breed, app.BUNNY_BREEDS)
@@ -829,7 +833,7 @@ class BunnyLifeTest(unittest.TestCase):
                     seen.add(bunny.activity)
                     if bunny.activity == 'eat':
                         self.assertIn(bunny.food, ('carrot', 'hay'))
-        self.assertEqual(seen, {'eat', 'sleep', 'poop'})
+        self.assertEqual(seen, {'eat', 'sleep', 'poop', 'groom', 'binky'})
         self.assertTrue(saver.pellets)
         saver.render(200, datetime.now(), ())
         self.assertFalse(any(200 - born >= 45 for _, _, born in saver.pellets))  # Faded away.
@@ -843,6 +847,24 @@ class BunnyLifeTest(unittest.TestCase):
         self.assertIsNone(bunny.activity)
         self.assertIsNotNone(bunny.hop_start)
 
+    def test_binky_leaps_twists_and_can_be_tapped(self):
+        saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 1}, lambda n: '', seed=3)
+        bunny = saver.bunnies[0]
+        bunny.x, bunny.hop_start = 160, None
+        bunny.activity, bunny.activity_start, bunny.activity_until = 'binky', 10, 10.9
+        self.assertGreater(bunny.lift(10.45), 25)  # Higher than an ordinary hop.
+        self.assertEqual(bunny.lift(10), 0)
+        start = bunny.x
+        frames = [saver.render(10 + k*.1, datetime.now(), ())[0] for k in range(1, 9)]
+        self.assertNotEqual(bunny.x, start)  # Leaps forward.
+        self.assertEqual(len({f.tobytes() for f in frames}), len(frames))
+        left, top, right, bottom = saver.bunny_box(bunny, 10.45)
+        self.assertLess(top, bunny.ground - 40)
+        self.assertTrue(saver.tap((left+right)/2, (top+bottom)/2, 10.45))
+        self.assertIsNone(bunny.activity)
+        saver.render(11.5, datetime.now(), ())
+        self.assertNotEqual(bunny.activity, 'binky')
+
     def test_food_and_custom_sprite_activities_render(self):
         with tempfile.TemporaryDirectory() as folder:
             sprites = Path(folder) / 'sprites'
@@ -853,7 +875,7 @@ class BunnyLifeTest(unittest.TestCase):
             saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 3}, lambda n: '',
                                    frames=custom, seed=5)
             for bunny, (activity, food) in zip(saver.bunnies, (('eat', 'carrot'), ('eat', 'hay'),
-                                                               ('sleep', None))):
+                                                               ('groom', None))):
                 bunny.activity, bunny.food, bunny.hop_start = activity, food, None
                 bunny.activity_start, bunny.activity_until = 0, 10
             self.assertEqual(saver.render(2, datetime.now(), ())[0].size, (320, 240))

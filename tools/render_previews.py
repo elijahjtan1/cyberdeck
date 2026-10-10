@@ -308,23 +308,26 @@ def bunny_breeds():
 
 
 def bunny_life():
-    """A staged moment: snacking on carrots and hay, napping, and the aftermath."""
+    """A staged moment: snacking on carrots and hay, napping, grooming, a binky and the
+    aftermath."""
     from datetime import datetime
     saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 8}, lambda n: '', seed=2)
     cast = [(('standard', 'white', 2), 'eat', 'carrot', 1, 30, 176),
             (('lop', 'harlequin', 2), 'sleep', None, -1, 95, 186),
             (('lionhead', 'castor', 2), 'eat', 'hay', 1, 120, 200),
-            (('rex', 'blue', 2), None, None, -1, 205, 178),
+            (('rex', 'blue', 2), 'binky', None, -1, 205, 178),
             (('standard', 'sable', 3), 'sleep', None, 1, 170, 204),
             (('lionhead', 'white', 2), 'eat', 'carrot', -1, 290, 194),
             (('rex', 'lilac', 2), 'sleep', None, -1, 255, 172),
-            (('lop', 'cinnamon', 2), None, None, 1, 60, 206)]
+            (('lop', 'cinnamon', 2), 'groom', None, 1, 60, 206)]
     for bunny, (look, activity, food, facing, x, ground) in zip(saver.bunnies, cast):
         bunny.look, bunny.breed = look, 'giant' if look[2] == 3 else look[0]
         bunny.half = saver.poses_for(look)[0]['sit'].width // 2
         bunny.x, bunny.ground, bunny.direction, bunny.hop_start = x, ground, facing, None
         bunny.activity, bunny.food = activity, food
         bunny.activity_start, bunny.activity_until, bunny.rest_until = 0, 12, 99
+        if activity == 'binky':  # Caught on the way up, body tilted into the leap.
+            bunny.activity_start, bunny.activity_until = 3.83, 4.73
     saver.pellets = [[225, 181, 3], [228, 182, 3], [222, 183, 3]]
     saver.last = 3.9
     image = saver.render(4.1, datetime(2026, 10, 10, 15, 30), ())[0]
