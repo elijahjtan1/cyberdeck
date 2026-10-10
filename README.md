@@ -20,6 +20,8 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 
 ## Files
 
+- [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
+
 - `panel_app.py` and `panel_tools/`: the app. Keep the repository together; run `sudo python3 ~/cyberdeck-repo/panel_app.py`.
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
