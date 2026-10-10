@@ -12,6 +12,9 @@ import argparse
 import sys
 import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
+from panel_tools.backend import Backend
+from core.sysinfo import (SystemSampler, command_output, decode_throttle, health_alerts,
+                          undervoltage_seen, wireless_signal)
 from panel_tools.camera import CameraDriver
 from panel_tools.backlight import load_backlight
 from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
@@ -139,83 +142,6 @@ def save_options(path, options):
     temporary.replace(path)
 
 
-def command_output(args):
-    try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=.6,
-                              check=True).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ''
-
-
-def decode_throttle(output):
-    match = re.fullmatch(r'throttled=(0x[0-9a-fA-F]+)', output)
-    if not match:
-        return {'power': 'Unknown', 'limits': 'Unknown', 'prior_alerts': 'Unknown',
-                'flags': None}
-    flags = int(match[1], 16)
-    active = []
-    if flags & 4:
-        active.append('Throttled')
-    if flags & 2:
-        active.append('Capped')
-    if flags & 8:
-        active.append('Temp limit')
-    return {'power': 'LOW VOLTAGE' if flags & 1 else 'No undervoltage',
-            'limits': ', '.join(active) or 'None active',
-            'prior_alerts': 'Yes, since boot' if flags & 0xf0000 else 'None since boot',
-            'flags': flags}
-
-
-def health_alerts(rows, now=None):
-    """Return (level, text) pairs for the banner, most serious first."""
-    now = time.monotonic() if now is None else now
-    alerts = []
-    if rows.get('power') == 'LOW VOLTAGE':
-        alerts.append(('critical', 'LOW VOLTAGE'))
-    elif rows.get('undervolt_seen_at') is not None and now-rows['undervolt_seen_at'] < 300:
-        # The sticky firmware bit flipped since launch: a dip happened between polls.
-        alerts.append(('warning', 'VOLTAGE DIPPED'))
-    temp = rows.get('temp_c')
-    if temp is not None:
-        if temp >= 80:
-            alerts.append(('critical', f'HOT {temp:.0f} C'))
-        elif temp >= 75:
-            alerts.append(('warning', f'WARM {temp:.0f} C'))
-    limits = rows.get('limits')
-    if limits not in (None, 'Unknown', 'None active'):
-        alerts.append(('warning', 'THROTTLED' if 'Throttled' in limits else
-                       'CPU CAPPED' if 'Capped' in limits else 'TEMP LIMIT'))
-    free = rows.get('disk_free_gib')
-    if free is not None:
-        if free < .25:
-            alerts.append(('critical', f'STORAGE {free*1024:.0f} MB'))
-        elif free < 1 or rows.get('disk_used_percent', 0) >= 95:
-            alerts.append(('warning', f'LOW STORAGE {free:.1f} GB'))
-    alerts.sort(key=lambda alert: alert[0] != 'critical')
-    return alerts
-
-
-def wireless_signal(proc=Path('/proc/net/wireless')):
-    """Signal level from the kernel's table (no `iw` process); falls back to `iw`."""
-    try:
-        for line in proc.read_text().splitlines()[2:]:
-            name, _, fields = line.partition(':')
-            parts = fields.split()
-            if len(parts) >= 3:
-                level = float(parts[2].rstrip('.'))
-                if level < 0:
-                    return f'{name.strip()}: {level:.0f} dBm'
-    except (OSError, ValueError):
-        pass
-    for path in Path('/sys/class/net').glob('*'):
-        if (path/'wireless').exists():
-            match = re.search(r'signal:\s*(-?\d+(?:\.\d+)?)\s*dBm',
-                              command_output(['iw', 'dev', path.name, 'link']))
-            if match:
-                return f'{path.name}: {match[1]} dBm'
-    return None
-
-
 class HealthPoller:
     """Bounded slow commands run away from the camera/touch rendering loop."""
     def __init__(self):
@@ -229,9 +155,7 @@ class HealthPoller:
 
     def note_throttle(self, flags, now=None):
         if flags is not None:
-            new_sticky = (self.previous_flags is not None and flags & 0x10000
-                          and not self.previous_flags & 0x10000)
-            if flags & 1 or new_sticky:
+            if undervoltage_seen(self.previous_flags, flags):
                 self.undervolt_seen_at = time.monotonic() if now is None else now
             self.previous_flags = flags
         return self.undervolt_seen_at
@@ -251,7 +175,7 @@ class HealthPoller:
                     values['ip'] = f'{addresses[0][0]} {addresses[0][1]}'
             except (ValueError, KeyError, TypeError):
                 values['ip'] = 'Unavailable'
-            values['wifi'] = wireless_signal() or values['wifi']
+            values['wifi'] = wireless_signal(run=command_output) or values['wifi']
             # Clock sync changes rarely; one process spawn a minute is plenty.
             if self.sync_due <= 0:
                 synced = command_output(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'])
@@ -645,7 +569,7 @@ def calibrate(screen, touch):
 
 class Stats:
     def __init__(self):
-        self.previous = None
+        self.sampler = SystemSampler()
         self.health = HealthPoller()
         self.history = deque(maxlen=180)
 
@@ -656,42 +580,19 @@ class Stats:
         self.health.close()
 
     def read(self):
-        cpu = [int(v) for v in Path('/proc/stat').read_text().splitlines()[0].split()[1:9]]
-        total, idle = sum(cpu), cpu[3] + cpu[4]
-        usage = None
-        if self.previous:
-            dt, di = total-self.previous[0], idle-self.previous[1]
-            if dt > 0:
-                usage = max(0, min(100, 100*(1-di/dt)))
-        self.previous = (total, idle)
-        mem = {}
-        for line in Path('/proc/meminfo').read_text().splitlines():
-            parts = line.split()
-            mem[parts[0].rstrip(':')] = int(parts[1])
-        used = (mem['MemTotal'] - mem['MemAvailable']) / 1048576
-        allmem = mem['MemTotal'] / 1048576
-        memory_percent = 100*used/allmem
-        disk = shutil.disk_usage('/')
-        seconds = int(float(Path('/proc/uptime').read_text().split()[0]))
-        try:
-            temp_c = int(Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
-            temp = f'{temp_c:.1f} C'
-        except (OSError, ValueError):
-            temp_c, temp = None, 'Unavailable'
-        try:
-            freq = f"{int(Path('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq').read_text())/1000:.0f} MHz"
-        except (OSError, ValueError):
-            freq = 'Unknown'
+        v = self.sampler.read()
         now = time.monotonic()
-        self.history.append((now, usage, memory_percent))
+        self.history.append((now, v['cpu'], v['mem_percent']))
         while self.history and self.history[0][0] < now-120:
             self.history.popleft()
-        return {'cpu': usage, 'temp': temp, 'ram_percent': memory_percent,
-                'ram': f'{used:.1f}/{allmem:.1f} GiB',
-                'disk_free': f'{disk.free/2**30:.1f} GiB', 'disk_free_gib': disk.free/2**30,
-                'temp_c': temp_c,
-                'disk_used_percent': 100*disk.used/disk.total,
-                'uptime': f'{seconds//3600}h {(seconds//60)%60}m', 'freq': freq,
+        seconds = v['uptime_s']
+        return {'cpu': v['cpu'], 'ram_percent': v['mem_percent'], 'temp_c': v['temp_c'],
+                'temp': 'Unavailable' if v['temp_c'] is None else f"{v['temp_c']:.1f} C",
+                'ram': f"{v['mem_used_gib']:.1f}/{v['mem_total_gib']:.1f} GiB",
+                'disk_free': f"{v['disk_free_gib']:.1f} GiB", 'disk_free_gib': v['disk_free_gib'],
+                'disk_used_percent': v['disk_used_percent'],
+                'uptime': f'{seconds//3600}h {(seconds//60)%60}m',
+                'freq': 'Unknown' if v['freq_mhz'] is None else f"{v['freq_mhz']:.0f} MHz",
                 **self.health.snapshot}
 
 
@@ -3309,7 +3210,7 @@ def saver_due(options, idle_seconds, page):
 TABS = ('CAMERA', 'PHOTOS', 'HOME', 'STATUS', 'OPTIONS', 'EXIT')
 TAB_WIDTHS = (58, 56, 44, 52, 62, 48)  # Sized to their labels; sums to 320.
 TAB_EDGES = tuple(sum(TAB_WIDTHS[:i]) for i in range(len(TABS)+1))
-TAB_PARENT = {'health': 'status', 'savers': 'options', 'saverstyle': 'options',
+TAB_PARENT = {'health': 'status', 'history': 'status', 'savers': 'options', 'saverstyle': 'options',
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
               'audio': 'home', 'apps': 'home'}
 # Home page launcher: (label, key, accent colour).
@@ -3439,6 +3340,94 @@ def draw_camera_live(image, d, frame, box, cam):
         d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
 
 
+AI_COLOUR = '#b07cf0'
+HISTORY_RANGES = ((3600, '1H'), (6*3600, '6H'), (86400, '24H'), (7*86400, '7D'))
+EVENT_COLOURS = {'undervoltage': DANGER, 'throttled': WARN, 'ai': AI_COLOUR,
+                 'search': '#67bfff', 'camera': ACCENT}
+
+
+def trend(d, rect, points, low, high, colour, start, seconds, gap):
+    """Line chart of (time, value) over [start, start+seconds]; gaps longer than `gap`
+    seconds (backend stopped, Pi off) stay gaps."""
+    x0, y0, x1, y1 = rect
+    d.rectangle(rect, fill='#15232f')
+    d.line((x0, (y0+y1)//2, x1, (y0+y1)//2), fill=PANEL)
+    previous = None
+    for t, value in points:
+        if value is None:
+            previous = None
+            continue
+        x = x0 + (x1-x0)*(t-start)/seconds
+        y = y1 - (y1-y0)*max(0., min(1., (value-low)/(high-low)))
+        if previous and t - previous[0] <= gap:
+            d.line((previous[1], previous[2], x, y), fill=colour, width=1)
+        else:
+            d.point((x, y), fill=colour)
+        previous = (t, x, y)
+
+
+def draw_history(d, rows, bottom):
+    """STATUS -> HISTORY: temperature, CPU and events from the backend's telemetry log."""
+    chosen = rows.get('history_range', 3600)
+    for (seconds, label), rect in zip(HISTORY_RANGES, row_rects(4, 28, 50)):
+        button(d, rect, label, active=seconds == chosen, action=f'hist:{seconds}')
+    online, data = rows.get('backend_online'), rows.get('history')
+    middle = (54 + bottom) // 2
+    if 'backend_online' not in rows or online is False:
+        centred(d, middle-20, 'Backend not running', FONT)
+        centred(d, middle+2, 'History is recorded by cyberdeck-core:', SMALL, MUTED)
+        centred(d, middle+20, 'sudo python3 setup_core_service.py --now', TINY, ACCENT)
+        return
+    if not data or data.get('seconds') != chosen:
+        centred(d, middle, 'Loading...', FONT, MUTED)
+        return
+    seconds, start = data['seconds'], data['now'] - data['seconds']
+    samples, events = data['samples'], data['events']
+    gap = 3 * max(10., seconds / 150)
+    tall = (bottom - 54 - 74) // 2
+    temps = [(s[0], s[2]) for s in samples]
+    latest = next((v for _, v in reversed(temps) if v is not None), None)
+    top = 54
+    d.text((8, top), 'TEMP C (max)', font=TINY, fill='#f29b42')
+    d.text((W-10, top), '--' if latest is None else f'{latest:.1f} C', font=TINY, fill=TEXT, anchor='ra')
+    rect = (28, top+12, W-10, top+12+tall)
+    d.text((2, rect[1]-2), '90', font=TINY, fill=MUTED)
+    d.text((2, rect[3]-8), '30', font=TINY, fill=MUTED)
+    warm = rect[3] - (rect[3]-rect[1])*(80-30)/60
+    trend(d, rect, temps, 30, 90, '#f29b42', start, seconds, gap)
+    d.line((rect[0], warm, rect[2], warm), fill='#7a2e2e')  # 80 C: the Pi starts to slow down.
+    top = rect[3] + 6
+    cpu = [(s[0], s[1]) for s in samples]
+    d.text((8, top), 'CPU % (average)', font=TINY, fill=ACCENT)
+    rect = (28, top+12, W-10, top+12+tall)
+    d.text((2, rect[1]-2), '100', font=TINY, fill=MUTED)
+    d.text((14, rect[3]-8), '0', font=TINY, fill=MUTED)
+    trend(d, rect, cpu, 0, 100, ACCENT, start, seconds, gap)
+    # Event strip: one lane, coloured ticks or spans; undervoltage drawn last so it shows.
+    strip = (28, rect[3]+6, W-10, rect[3]+16)
+    d.rectangle(strip, fill='#15232f')
+    order = ('camera', 'search', 'ai', 'throttled', 'undervoltage')
+    for event in sorted(events, key=lambda e: order.index(e['kind']) if e['kind'] in order else -1):
+        colour = EVENT_COLOURS.get(event['kind'], MUTED)
+        a = strip[0] + (strip[2]-strip[0])*max(0., (event['start']-start)/seconds)
+        b = strip[0] + (strip[2]-strip[0])*min(1., (event['end']-start)/seconds)
+        d.rectangle((a, strip[1], max(a+1, b), strip[3]), fill=colour)
+    labels = {3600: '-1h', 6*3600: '-6h', 86400: '-24h', 7*86400: '-7d'}
+    d.text((strip[0], strip[3]+2), labels.get(seconds, ''), font=TINY, fill=MUTED)
+    d.text((strip[2], strip[3]+2), 'now', font=TINY, fill=MUTED, anchor='ra')
+    counts = {kind: sum(e['kind'] == kind for e in events) for kind in EVENT_COLOURS}
+    x = 8
+    for kind, label in (('undervoltage', 'Low V'), ('throttled', 'Throttled'), ('ai', 'AI'),
+                        ('search', 'Search'), ('camera', 'Photo')):
+        text = f'{label} {counts[kind]}'
+        width = d.textlength(text, font=TINY)
+        if x + width + 10 > W:
+            break
+        d.rectangle((x, bottom-11, x+5, bottom-6), fill=EVENT_COLOURS[kind])
+        d.text((x+8, bottom-14), text, font=TINY, fill=WARN if kind == 'undervoltage' and counts[kind] else TEXT)
+        x += width + 16
+
+
 CAMERA_CHROME = {}  # The live camera page's static layer, rebuilt only when its inputs change.
 
 
@@ -3458,7 +3447,7 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
     cam = cam or {}
     key = (ROTATION, frame.size, paused, fps, message, options['photo_size'],
            options['snap_timer'], tuple(alerts), wall_time.strftime('%H:%M:%S'),
-           id(cam.get('thumb')), bool(cam.get('countdown')))
+           id(cam.get('thumb')), bool(cam.get('countdown')), tuple(rows.get('busy') or ()))
     if CAMERA_CHROME.get('key') != key:
         chrome = render_page(page, frame, paused, fps, rows, message, history, now, options,
                              wall_time, alerts, cam, photo, service, extra, chrome=True)
@@ -3507,6 +3496,14 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
     else:
         clock = wall_time.strftime('%H:%M:%S')
         room = W-24-d.textlength(clock, font=SMALL)
+        busy = rows.get('busy') or ()
+        if 'ai' in busy or 'search' in busy:  # The backend is answering a question.
+            label = 'AI' if 'ai' in busy else 'SEARCH'
+            pill = d.textlength(label, font=TINY) + 10
+            px = W - 14 - d.textlength(clock, font=SMALL) - pill
+            d.rounded_rectangle((px, 5, px+pill, 19), radius=4, fill=AI_COLOUR)
+            d.text((px+pill/2, 12), label, font=TINY, fill=BG, anchor='mm')
+            room -= pill + 6
         heading = 'PANEL / ' + title
         if d.textlength(heading, font=FONT) > room:
             heading = title
@@ -3637,9 +3634,19 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             d.rectangle((bar, disk_y+5, bar+used_width, disk_y+12), fill='#67bfff')
         d.text((8, disk_y+17), 'Up ' + rows.get('uptime', '--'), font=SMALL, fill=TEXT)
         d.text((W-12, disk_y+18), 'bar = disk used', font=TINY, fill=MUTED, anchor='ra')
-        d.text((8, bottom-28), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
-        button(d, (W-107, bottom-30, W-10, bottom-2), 'DETAILS', action='status:details')
-        d.text((8, bottom-10), f"{options['history_seconds']}s history | 0-100%", font=TINY, fill=MUTED)
+        hint = f"{options['history_seconds']}s history | 0-100%"
+        if portrait():  # Too narrow for the date beside two buttons: one line above them.
+            d.text((8, bottom-46), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
+            d.text((W-10, bottom-44), hint, font=TINY, fill=MUTED, anchor='ra')
+            history_rect, details_rect = row_rects(2, bottom-30, bottom-2, margin=8)
+        else:
+            d.text((8, bottom-28), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
+            d.text((8, bottom-10), hint, font=TINY, fill=MUTED)
+            history_rect, details_rect = (W-204, bottom-30, W-114, bottom-2), (W-107, bottom-30, W-10, bottom-2)
+        button(d, history_rect, 'HISTORY', action='status:history')
+        button(d, details_rect, 'DETAILS', action='status:details')
+    elif page == 'history':
+        draw_history(d, rows, bottom)
     elif page == 'health':
         details = [('Date', wall_time.strftime('%Y/%m/%d')),
                    ('Timezone', wall_time.strftime('%Z')),
@@ -3878,6 +3885,8 @@ def main():
     parser.add_argument('--data', help='Data folder (default: ~/cyberdeck-data for the invoking user)')
     parser.add_argument('--rotation', type=int, choices=(0, 90, 180, 270),
                         help='Turn the UI clockwise for this run only (overrides OPTIONS -> Screen)')
+    parser.add_argument('--backend',
+                        help="cyberdeck-core address (default http://127.0.0.1:8765; 'off' disables)")
     args = parser.parse_args()
     # Prevent two copies from competing for the camera and touchscreen.
     import fcntl
@@ -3909,6 +3918,7 @@ def main():
     shutdown_requested = False
     restart_requested = False
     tools_ui = None
+    backend = None
     photo_job = Job()
     photo_pending = False
     lapse_shot = False
@@ -3953,6 +3963,10 @@ def main():
         frame, paused, fps = None, False, args.fps
         stats, rows, alerts = Stats(), {}, []
         stats.start()
+        if args.backend != 'off':
+            backend = Backend(*([args.backend] if args.backend else []))
+            backend.start()
+        history_range = 3600
         next_stats, next_draw = 0, 0
         frame_sequence = -1
 
@@ -4138,7 +4152,7 @@ def main():
             light.apply(100 if page == 'colours' else options['pixel_level'])
             screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
                                options, alerts=alerts, cam=cam, photo=photo, extra=extra))
-            return 1/15 if page == 'audio' else 1. if page in ('apps', 'home') else .25
+            return 1/15 if page == 'audio' else 1. if page in ('apps', 'home', 'history') else .25
 
         def take_photo(timelapse=False):
             """Schedule one capture/save; publish results on the UI thread."""
@@ -4165,6 +4179,8 @@ def main():
                     return False
             photo_pending, lapse_shot = True, timelapse
             message = 'Capturing in background...'
+            if backend is not None:
+                backend.mark('camera', 'timelapse' if timelapse else 'photo')
             return True
 
         def retry_camera():
@@ -4348,7 +4364,12 @@ def main():
                         page = 'calconfirm'
                     ignore_touch_until = max(ignore_touch_until, now + .3)
                 elif kind == 'status':
-                    page = 'health'
+                    page = 'history' if arg == 'history' else 'health'
+                elif kind == 'hist':
+                    history_range = int(arg)
+                    if backend is not None:
+                        backend.want_history(history_range)
+                        rows['history_range'] = history_range
                 elif kind == 'exit':
                     if arg == 'cancel':
                         page = exit_return_page
@@ -4471,6 +4492,10 @@ def main():
             tools_ui.tick(now, rows, camera)
             if now >= next_stats:
                 rows = stats.read()
+                if backend is not None:
+                    backend.want_history(history_range if page == 'history' else None)
+                    rows.update(busy=backend.busy, backend_online=backend.online,
+                                history=backend.history, history_range=history_range)
                 alerts = health_alerts(rows, now) if options['alerts'] == 'on' else []
                 next_stats = now + 1
             alerts = [a for a in alerts if a[1] != 'TIMER DONE - tap to dismiss']
@@ -4553,6 +4578,8 @@ def main():
             photo_job.thread.join(timeout=15)
         if stats is not None:
             stats.close()
+        if backend is not None:
+            backend.close()
         for helper in (audio, capture):
             if helper is not None:
                 try:
