@@ -26,5 +26,6 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `setup_backlight.py`: optional PWM backlight (real dimming, Black saver switches the backlight off). See [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md).
 - `cyberdeck.py`: older first version, kept as a fallback.
 - `docs/`: [GAMES.md](docs/GAMES.md) covers the games; [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md) (backlight wiring, power and performance changes); [TOOLS.md](docs/TOOLS.md) covers the tools update, data-folder migration and installation. Rotation notes are in [ROTATION.md](docs/ROTATION.md); apps and savers in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
+- `AGENTS.md`: rules for the coding agents working on this repo; [ROADMAP.md](docs/ROADMAP.md) is the shared task list.
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.
