@@ -220,6 +220,7 @@ def games_screens(clock):
     save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
     puzzle_screens(clock)
     home_screens(clock)
+    bunny_breeds()
 
 
 def home_screens(clock):
@@ -274,6 +275,31 @@ def puzzle_screens(clock):
     finally:
         app.set_rotation(0)
 
+
+
+def bunny_breeds():
+    """Every coat as a standard and a lop bunny, then the Flemish giant coats, labelled."""
+    from PIL import ImageDraw
+    coats = list(app.BUNNY_COATS)
+    cell, scale, label = 48, 2, 16
+    rows = [('Standard', 'standard', coats, 2), ('Lop', 'lop', coats, 2),
+            ('Flemish giant', 'standard', list(app.BUNNY_BREEDS['giant'][3]), 3)]
+    height = cell*scale + label
+    sheet = Image.new('RGB', (len(coats)*cell*scale, len(rows)*height), (118, 176, 236))
+    d = ImageDraw.Draw(sheet)
+    for r, (title, shape, names, size) in enumerate(rows):
+        top = r*height
+        d.text((4, top+2), title, fill='#123', font=app.SMALL)
+        for c, coat in enumerate(names):
+            sit = app.bunny_look(shape, coat, size)[0]
+            big = sit.resize((sit.width*scale, sit.height*scale), Image.NEAREST)
+            x = c*cell*scale + (cell*scale - big.width)//2
+            sheet.paste(big, (x, top + cell*scale - big.height), big)
+            d.text((c*cell*scale + cell*scale//2, top + cell*scale + label//2), coat,
+                   fill='#123', anchor='mm', font=app.TINY)
+    out = ROOT / 'docs/previews/bunny-breeds.png'
+    sheet.save(out, optimize=True)
+    print(out)
 
 if __name__ == '__main__':
     main()

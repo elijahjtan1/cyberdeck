@@ -52,6 +52,21 @@ The tabs are now **CAMERA, PHOTOS, APPS, STATUS, OPTIONS, EXIT**. APPS opens fou
 
 Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests, then hops along; now and then one turns around.
 
+![Bunny breeds and coats](previews/bunny-breeds.png)
+
+**Every bunny is different.** Each one gets a random breed and coat:
+
+| Breed | How often | Look | Coats |
+| --- | --- | --- | --- |
+| Standard | About 55% | Upright ears | All 8 coats |
+| Lop | About 30% | Ears hang down beside the head | All 8 coats |
+| Flemish Giant | About 15% | Drawn 1.5× larger. Moves a little slower and hops higher. | Grey, chestnut, black, fawn, white |
+
+- **Coats:** white, grey, chestnut, black, fawn, orange, Dutch (black patches) and spotted (brown patches).
+- **Bigger bunnies:** a giant's tap area matches its bigger size.
+- **New bunnies:** ones added with **+** get their own random look.
+- **Shape:** the sitting pose is rounder and more compact than the first version, which had a long, flat torso.
+
 - **Tap a bunny:** it does a big jump and a heart pops up. The saver stays on.
 - **− / +** (bottom corners): change how many bunnies there are: 1, 3, 6, 12 or 24. The count is saved.
 - **Tap the sky or grass:** wakes the panel, as with the other savers.
@@ -70,7 +85,7 @@ Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests,
 | `scale` | Pixel enlargement, 1 to 4. |
 | `faces` | The way the drawing faces. The app flips frames to suit the direction a bunny is moving. |
 
-A sheet that doesn't match its settings is ignored, with a message in the terminal or journal, and the built-in bunny is used instead.
+A sheet that doesn't match its settings is ignored, with a message in the terminal or journal, and the built-in bunnies are used instead. A valid custom sprite replaces all the breeds and coats; every bunny then uses your sprite.
 
 ## 2. Clock screensaver
 

@@ -886,37 +886,85 @@ HOME_CLOCK, HOME_LABEL, HOME_LABEL_SMALL = font(34, bold=True), font(14, bold=Tr
 
 # Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
 # Drop your own sheet in cyberdeck-data/sprites/bunny.png to replace it.
-BUNNY_PALETTE = {'o': (46, 40, 56), 'w': (240, 240, 244), 'g': (178, 178, 192),
-                 'p': (232, 150, 170), 'e': (20, 16, 24), 'n': (232, 120, 150)}
-BUNNY_SIT = ["..........o.o...", ".........owowo..", ".........opopo..", ".........opopo..",
-             ".........owowo..", "........owwwwwo.", "........owwwewo.", "...oooooowwwwwno",
-             "..owwwwwwwwwwwo.", ".owgwwwwwwwwwo..", ".owgwwwwwwwwwo..", "..ogggwwwgwwgo..",
-             "...oooooooooo..."]
-BUNNY_HOP = [".........o.o....", "........owowo...", "........opopo...", "........opopo...",
-             "........owowo...", ".......owwwwwo..", ".......owwwewo..", "..oooooowwwwwno.",
-             ".owwwwwwwwwwwo..", "owgwwwwwwwwwwo..", ".ogggwwwwwwgo...", "..ogo.....ogo...",
-             "..oo.......oo..."]
+# Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
+# Keys: o outline, w fur, g shading, m markings (fur colour unless the coat has patches),
+# p inner ear, e eye, n nose. Drop your own sheet in cyberdeck-data/sprites/bunny.png
+# to replace them all.
+BUNNY_BASE = {'o': (46, 40, 56), 'p': (232, 150, 170), 'e': (20, 16, 24), 'n': (232, 120, 150)}
+BUNNY_COATS = {
+    'white': {'w': (240, 240, 244), 'g': (178, 178, 192)},
+    'grey': {'w': (150, 150, 160), 'g': (110, 110, 122)},
+    'chestnut': {'w': (166, 112, 70), 'g': (122, 80, 48)},
+    'black': {'w': (58, 54, 64), 'g': (34, 32, 40), 'o': (16, 14, 20), 'e': (210, 210, 220)},
+    'fawn': {'w': (238, 214, 170), 'g': (205, 170, 120)},
+    'orange': {'w': (232, 152, 74), 'g': (190, 112, 48)},
+    'dutch': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (58, 54, 64)},
+    'spotted': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (166, 112, 70)},
+}
+# Compact, rounded sitting pose (a shorter, taller body than the first version) + hop pose.
+BUNNY_SIT = ["...........o.o..", "..........owowo.", "..........opopo.", "..........opopo.",
+             "..........owowo.", ".........owwwwo.", "......oooowwwewo", ".....owwwwwwwwno",
+             "....owmwwwwwwwo.", "...owmmwwwwwwo..", "..owmmmwwwwwwo..", "..owgmmwwwwwwo..",
+             "...oggwwwwgwo...", "....ooooooooo..."]
+BUNNY_HOP = ["..........o.o...", ".........owowo..", ".........opopo..", ".........opopo..",
+             ".........owowo..", "........owwwwo..", "....ooooowwwewo.", "...owmwwwwwwwno.",
+             "..owmmmwwwwwwo..", ".owgmmwwwwwwo...", "..oggwwwwwwgo...", "...ogo...ogo....",
+             "...oo....oo.....", "................"]
+# Lop: ears hang down beside a rounder head.
+LOP_SIT = ["................", "................", "................", "................",
+           "..........ooo...", "........ooowwwo.", "......oogggowwwo", ".....owogggowewo",
+           "....owmogggowwwn", "...owmmogggowwo.", "..owmmmwoggowo..", "..owgmmwwoooo...",
+           "...oggwwwwgwo...", "....ooooooooo..."]
+LOP_HOP = ["................", "................", "................", "................",
+           ".........ooo....", ".......ooowwwo..", "....oooogggowwwo", "...owmmogggowewo",
+           "..owmmmogggowwwn", ".owgmmwwoggowwo.", "..oggwwwwoooo...", "...ogo...ogo....",
+           "...oo....oo.....", "................"]
+BUNNY_SHAPES = {'standard': (BUNNY_SIT, BUNNY_HOP), 'lop': (LOP_SIT, LOP_HOP)}
+# Breeds: (shape, scale, weight, coats). Flemish giants are drawn 1.5x and come in the
+# solid colours the breed is known for.
+BUNNY_BREEDS = {
+    'standard': ('standard', 2, 55, tuple(BUNNY_COATS)),
+    'lop': ('lop', 2, 30, tuple(BUNNY_COATS)),
+    'giant': ('standard', 3, 15, ('grey', 'chestnut', 'black', 'fawn', 'white')),
+}
+BUNNY_PALETTE = {**BUNNY_BASE, **BUNNY_COATS['white']}  # The classic white bunny.
 
 
-def pixel_sprite(rows, scale=2):
+def pixel_sprite(rows, scale=2, coat='white'):
+    colours = {**BUNNY_BASE, **BUNNY_COATS[coat]}
+    colours.setdefault('m', colours['w'])
     image = Image.new('RGBA', (len(rows[0]), len(rows)), (0, 0, 0, 0))
     for y, row in enumerate(rows):
         for x, key in enumerate(row):
-            if key in BUNNY_PALETTE:
-                image.putpixel((x, y), BUNNY_PALETTE[key] + (255,))
+            if key in colours:
+                image.putpixel((x, y), colours[key] + (255,))
     return image.resize((image.width*scale, image.height*scale), Image.NEAREST)
 
 
-def load_bunny_frames(data=None):
-    """Right-facing RGBA frames. Frame 0 = resting; the rest animate while hopping.
+def bunny_look(shape='standard', coat='white', scale=2):
+    """[sit, hop] frames for one breed/coat, trimmed of shared empty rows on top so the
+    tap target hugs the visible bunny."""
+    frames = [pixel_sprite(rows, scale, coat) for rows in BUNNY_SHAPES[shape]]
+    top = min(f.getbbox()[1] for f in frames)
+    return [f.crop((0, top, f.width, f.height)) for f in frames]
 
-    Custom sheet: <data>/sprites/bunny.png, optional bunny.json with
+
+def random_breed(rng):
+    names = list(BUNNY_BREEDS)
+    breed = rng.choices(names, weights=[BUNNY_BREEDS[n][2] for n in names])[0]
+    shape, scale, _, coats = BUNNY_BREEDS[breed]
+    return breed, (shape, rng.choice(coats), scale)
+
+
+def custom_bunny_frames(data):
+    """Right-facing frames from <data>/sprites/bunny.png, or None (missing or unusable) to use
+    the built-in breeds. Optional bunny.json beside it:
     {"frames": 1, "layout": "vertical" | "horizontal", "scale": 2, "faces": "right" | "left"}.
+    Frame 0 = resting; the rest animate while hopping.
     """
-    default = [pixel_sprite(BUNNY_SIT), pixel_sprite(BUNNY_HOP)]
     path = Path(data) / 'sprites' / 'bunny.png' if data else None
     if path is None or not path.is_file():
-        return default
+        return None
     try:
         meta = path.with_suffix('.json')
         meta = json.loads(meta.read_text()) if meta.is_file() else {}
@@ -940,7 +988,12 @@ def load_bunny_frames(data=None):
         return frames
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         print('Custom bunny sprite ignored:', exc, flush=True)
-        return default
+        return None
+
+
+def load_bunny_frames(data=None):
+    """The custom sprite if there is a usable one, else the classic white bunny."""
+    return custom_bunny_frames(data) or bunny_look()
 
 
 def letterbox(picture, size=None):
@@ -1001,11 +1054,13 @@ def bunny_lane(rng):
 
 
 class Bunny:
-    def __init__(self, rng, entering=None):
+    def __init__(self, rng, entering=None, breed=None, look=None, half=16):
         self.rng = rng
+        self.breed, self.look = breed, look  # look = (shape, coat, scale); None = custom sprite.
+        self.half = half  # Half the sprite width, for wrapping at the screen edges.
         self.direction = rng.choice((-1, 1))
         self.ground = bunny_lane(rng)
-        self.x = rng.uniform(10, W-10) if entering is None else (-16 if entering > 0 else W+16)
+        self.x = rng.uniform(10, W-10) if entering is None else (-half if entering > 0 else W+half)
         if entering is not None:
             self.direction = entering
         self.hop_start, self.hop_length, self.hop_height = None, .45, 10
@@ -1014,14 +1069,15 @@ class Bunny:
 
     def jump(self, now, big=False):
         self.hop_start = now
-        self.hop_length = .8 if big else self.rng.uniform(.38, .5)
-        self.hop_height = 34 if big else self.rng.uniform(6, 13)
+        heavy = self.breed == 'giant'  # Giants: slower, bigger hops.
+        self.hop_length = .8 if big else self.rng.uniform(.38, .5) * (1.35 if heavy else 1)
+        self.hop_height = (34 if big else self.rng.uniform(6, 13)) * (1.3 if heavy else 1)
         if big:
             self.heart_until = now + 1.2
 
     def update(self, now, dt, speed):
         if self.hop_start is not None:
-            self.x += self.direction*speed*dt
+            self.x += self.direction*speed*dt*(.75 if self.breed == 'giant' else 1)
             if now-self.hop_start >= self.hop_length:
                 self.hop_start = None
                 self.rest_until = now + self.rng.uniform(.15, 1.4)
@@ -1030,10 +1086,10 @@ class Bunny:
         elif now >= self.rest_until:
             self.jump(now)
         # Wrap just past the edge so nearly every bunny is visible at any moment.
-        if self.x < -18:
-            self.x, self.ground = W+16, bunny_lane(self.rng)
-        elif self.x > W+18:
-            self.x, self.ground = -16, bunny_lane(self.rng)
+        if self.x < -self.half-2:
+            self.x, self.ground = W+self.half, bunny_lane(self.rng)
+        elif self.x > W+self.half+2:
+            self.x, self.ground = -self.half, bunny_lane(self.rng)
 
     def lift(self, now):
         if self.hop_start is None:
@@ -1069,24 +1125,36 @@ class BunnySaver(Saver):
     style = 'bunnies'
 
     def __init__(self, options, set_count, frames=None, seed=None):
+        """frames: a custom sprite used for every bunny; None = random breeds and coats."""
         import random
         self.options, self.set_count = options, set_count
         self.rng = random.Random(seed)
-        self.frames = frames or load_bunny_frames()
-        self.mirrored = [ImageOps.mirror(f) for f in self.frames]
+        self.custom = frames
+        self.looks = {}  # (shape, coat, scale) -> (right-facing, left-facing) frames.
         self.background = bunny_background()
-        self.bunnies = [Bunny(self.rng) for _ in range(options['bunny_count'])]
+        self.bunnies = [self.new_bunny() for _ in range(options['bunny_count'])]
         self.last = None
         self.message, self.message_until = '', 0
+
+    def frames_for(self, look):
+        if look not in self.looks:
+            right = self.custom if look is None else bunny_look(*look)
+            self.looks[look] = (right, [ImageOps.mirror(f) for f in right])
+        return self.looks[look]
+
+    def new_bunny(self, entering=None):
+        breed, look = (None, None) if self.custom else random_breed(self.rng)
+        half = self.frames_for(look)[0][0].width // 2
+        return Bunny(self.rng, entering, breed, look, half)
 
     def sync_count(self):
         target = self.options['bunny_count']
         while len(self.bunnies) < target:
-            self.bunnies.append(Bunny(self.rng, entering=self.rng.choice((-1, 1))))
+            self.bunnies.append(self.new_bunny(entering=self.rng.choice((-1, 1))))
         del self.bunnies[target:]
 
     def bunny_box(self, bunny, now):
-        frame = self.frames[0]
+        frame = self.frames_for(bunny.look)[0][0]
         top = bunny.ground - frame.height - bunny.lift(now)
         return (bunny.x-frame.width/2, top, bunny.x+frame.width/2, bunny.ground)
 
@@ -1119,7 +1187,8 @@ class BunnySaver(Saver):
         d = ImageDraw.Draw(image)
         for bunny in sorted(self.bunnies, key=lambda b: b.ground):
             bunny.update(now, dt, speed)
-            frames = self.frames if bunny.direction > 0 else self.mirrored
+            right, left = self.frames_for(bunny.look)
+            frames = right if bunny.direction > 0 else left
             if bunny.hop_start is None or len(frames) == 1:
                 frame = frames[0]
             elif len(frames) == 2:
@@ -3735,7 +3804,7 @@ def main():
         album_show = Slideshow(options, photos, album_dir, library)
         gif_player, saver_gifs = GifPlayer(gif_dir), GifPlayer(gif_dir)
         players.extend((gif_player, saver_gifs))
-        bunny_frames = load_bunny_frames(data)
+        bunny_frames = custom_bunny_frames(data)  # None: random built-in breeds and coats.
         apps = {'snake': SnakeApp(scores.get('snake_best', 0), score_saver('snake_best')),
                 'tetris': TetrisApp(scores.get('tetris_best', 0), score_saver('tetris_best')),
                 'pong': PongApp(scores.get('pong_wins', 0), score_saver('pong_wins')),

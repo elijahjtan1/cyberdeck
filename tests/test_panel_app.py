@@ -747,3 +747,56 @@ class ServiceSetupTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BunnyBreedsTest(unittest.TestCase):
+    def test_new_body_is_compact_not_long_and_flat(self):
+        # Body = rows below the head line; a sitting bunny should be nearly as tall as long.
+        body = app.BUNNY_SIT[6:]
+        length = max(r.rstrip('.').__len__() - (len(r) - len(r.lstrip('.'))) for r in body)
+        self.assertGreaterEqual(len(body) / length, .6)
+
+    def test_breeds_coats_and_giants(self):
+        import random
+        rng = random.Random(1)
+        picks = [app.random_breed(rng) for _ in range(400)]
+        breeds = {breed for breed, _ in picks}
+        coats = {look[1] for _, look in picks}
+        self.assertEqual(breeds, {'standard', 'lop', 'giant'})
+        self.assertEqual(coats, set(app.BUNNY_COATS))
+        for breed, (shape, coat, scale) in picks:
+            if breed == 'giant':
+                self.assertEqual(scale, 3)
+                self.assertIn(coat, ('grey', 'chestnut', 'black', 'fawn', 'white'))
+        small, giant = app.bunny_look('standard', 'grey', 2), app.bunny_look('standard', 'grey', 3)
+        self.assertGreater(giant[0].width, small[0].width * 1.4)
+        self.assertNotEqual(app.bunny_look('lop')[0].tobytes(), app.bunny_look()[0].tobytes())
+        white, dutch = app.bunny_look(coat='white')[0], app.bunny_look(coat='dutch')[0]
+        self.assertNotEqual(white.tobytes(), dutch.tobytes())  # Dutch patches show.
+        for frames in (app.bunny_look('lop'), giant):
+            self.assertEqual(frames[0].getbbox()[1], 0)  # Empty rows trimmed off the top.
+
+    def test_saver_mixes_breeds_and_taps_use_each_bunny_size(self):
+        options = {**app.DEFAULT_OPTIONS, 'bunny_count': 24}
+        saver = app.BunnySaver(options, lambda n: 'Saved.', seed=4)
+        self.assertGreater(len({b.look for b in saver.bunnies}), 5)
+        giant = next(b for b in saver.bunnies if b.breed == 'giant')
+        small = next(b for b in saver.bunnies if b.breed == 'standard')
+        width = lambda b: saver.bunny_box(b, 0)[2] - saver.bunny_box(b, 0)[0]
+        self.assertGreater(width(giant), width(small))
+        left, top, right, bottom = saver.bunny_box(giant, 0)
+        saver.bunnies = [giant]
+        self.assertTrue(saver.tap(right - 2, top + 4, 0))  # Edge of the big sprite still counts.
+        self.assertEqual(saver.render(.1, datetime.now(), ())[0].size, (320, 240))
+
+    def test_custom_sprite_replaces_all_breeds(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(app.custom_bunny_frames(folder))
+            sprites = Path(folder) / 'sprites'
+            sprites.mkdir()
+            Image.new('RGBA', (18, 12), (255, 0, 0, 255)).save(sprites / 'bunny.png')
+            frames = app.custom_bunny_frames(folder)
+            saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 6}, lambda n: '',
+                                   frames=frames, seed=1)
+            self.assertEqual({b.look for b in saver.bunnies}, {None})
+            self.assertEqual(saver.frames_for(None)[0], frames)
