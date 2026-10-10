@@ -39,6 +39,18 @@ class SourcesTest(unittest.TestCase):
         self.assertEqual(parse_qs(urlsplit(opener.requests[0][0]).query)['books.name'],
                          ['restarters_en_all_maxi_2026-04'])
 
+    def test_recorded_installed_article_html(self):
+        opener = FakeOpener((FIXTURES / 'kiwix-3.7.0-repair-cafe.html').read_bytes())
+        client = KiwixClient('http://127.0.0.1:8080', opener)
+        rows = fetch_article(client, '/content/restarters_en_all_maxi_2026-04/'
+                                    'Glossary%3ARepair_Caf%C3%A9')
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].startswith('Repair Café International is an organisation'))
+        self.assertTrue(rows[0].endswith('slightly different emphasis and aims.'))
+        self.assertNotIn('issued from', rows[0])
+        self.assertEqual(len(opener.requests), 1)  # No linked assets fetched.
+        self.assertEqual(paragraphs('<p>keep</p><div class="zim-footer"><p>omit</p></div>'), ['keep'])
+
     def test_modern_search_and_mixed_snippets(self):
         opener = FakeOpener((FIXTURES / 'kiwix-search.xml').read_bytes())
         client = KiwixClient('http://127.0.0.1:8080', opener, book='wikipedia_en_test')

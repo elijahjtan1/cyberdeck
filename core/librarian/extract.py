@@ -8,7 +8,7 @@ DROP_TAGS = {'script', 'style', 'nav', 'header', 'footer', 'aside', 'table',
              'form', 'noscript', 'sup'}
 DROP_CLASSES = {'toc', 'infobox', 'navbox', 'sidebar', 'references', 'reflist',
                 'mw-editsection', 'noprint', 'metadata', 'hatnote', 'thumb',
-                'reference', 'mw-references-wrap', 'catlinks'}
+                'reference', 'mw-references-wrap', 'catlinks', 'zim-footer'}
 END_SECTIONS = {'references', 'notes', 'external links', 'further reading',
                 'bibliography', 'see also'}
 

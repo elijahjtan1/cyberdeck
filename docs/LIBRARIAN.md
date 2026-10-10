@@ -38,8 +38,8 @@ does not execute scripts or load linked assets.
 
 ## Known limits and Pi check
 
-The recorded XML verifies the installed search format; other compatibility fixtures are
-synthetic and real article HTML is still pending. With a Wikipedia ZIM installed, search
+Recorded XML and article HTML verify the installed search format and extraction; other
+compatibility fixtures are synthetic. With a Wikipedia ZIM installed, search
 for `passive sonobuoy`, verify that the
 result URL opens offline, then check that fetched paragraphs describe hydrophones and
 radio transmission. Stop kiwix-serve and confirm a clear error instead of a hang.
