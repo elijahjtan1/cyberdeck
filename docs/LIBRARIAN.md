@@ -5,9 +5,9 @@ the backend uses the already-approved Flask package. It never falls back to the 
 
 ## Kiwix setup
 
-The Pi baseline is not yet committed. Do not assume a port, book name or version from
-the test fixtures. Record `kiwix-serve --version`, the listening port and the book key
-shown in an actual article URL in `docs/PI-BASELINE.md`.
+Eli reports kiwix-tools 3.7.0 / libkiwix 14.0.0; see [PI-BASELINE.md](PI-BASELINE.md).
+That version's source confirms `books.name` and RSS output. The port, book names and
+real Pi recordings are still pending. Do not assume those from the test fixtures.
 
 `KiwixClient(base_url, opener=None, book='', book_parameter='books.name', timeout=2.0)`
 uses `/search?pattern=...&format=xml&pageLength=...`. Set `book_parameter='content'`

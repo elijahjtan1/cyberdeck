@@ -1,4 +1,6 @@
 import io
+from contextlib import contextmanager
+from http.client import IncompleteRead
 from pathlib import Path
 import unittest
 from urllib.error import URLError
@@ -65,6 +67,39 @@ class SourcesTest(unittest.TestCase):
                 client.fetch(link)
         with self.assertRaises(ValueError):
             KiwixClient('https://wikipedia.org')
+
+    def test_telemetry_closes_on_success_and_failure(self):
+        events = []
+
+        class Telemetry:
+            @contextmanager
+            def activity(self, kind, query):
+                events.append((kind, query))
+                try:
+                    yield
+                finally:
+                    events.append('end')
+
+        for data in (b'<rss><channel/></rss>', None):
+            client = KiwixClient('http://localhost:8080', FakeOpener(data), telemetry=Telemetry())
+            try:
+                client.search('sonobuoy')
+            except KiwixError:
+                pass
+        self.assertEqual(events, [('search', 'sonobuoy'), 'end'] * 2)
+
+    def test_prefix_and_interrupted_response(self):
+        data = (FIXTURES / 'kiwix-search.xml').read_bytes().replace(
+            b'/content/', b'/kiwix/content/')
+        client = KiwixClient('http://localhost:8080/kiwix', FakeOpener(data))
+        self.assertIn('/kiwix/content/', client.search('sonobuoy')[0].url)
+
+        class BrokenOpener:
+            def open(self, request, timeout):
+                raise IncompleteRead(b'partial')
+
+        with self.assertRaises(KiwixError):
+            KiwixClient('http://localhost:8080', BrokenOpener()).search('sonobuoy')
 
     def test_html_cleanup_and_fetch(self):
         data = (FIXTURES / 'sonobuoy.html').read_bytes()

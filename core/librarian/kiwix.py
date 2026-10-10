@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
+from http.client import HTTPException
 import ipaddress
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -81,7 +82,7 @@ class KiwixClient:
             if len(data) > self.max_bytes:
                 raise KiwixError('Kiwix response exceeds the configured size limit')
             return data
-        except (URLError, OSError, ValueError) as exc:
+        except (URLError, OSError, ValueError, HTTPException) as exc:
             raise KiwixError('Kiwix is unavailable or timed out; check kiwix-serve') from exc
 
     def search(self, query, limit=5):
