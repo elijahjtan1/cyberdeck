@@ -28,6 +28,18 @@ class CameraDriver:
     def frame(self):
         return camera_image(self.cam.capture_array('main'))
 
+    def pause(self):
+        """Stop the sensor and ISP streaming (the biggest camera power draw) but keep
+        the configuration and buffers, so resuming takes a fraction of a second."""
+        self.cam.stop()
+
+    def resume(self, settle_frames=10):
+        self.cam.start(show_preview=False)
+        self.cam.set_controls({'FrameRate': self.fps})
+        # Let auto-exposure/white balance converge before anyone uses a frame.
+        for _ in range(settle_frames):
+            self.cam.capture_array('main')
+
     def set_fps(self, fps):
         self.fps = fps
         self.cam.set_controls({'FrameRate': fps})

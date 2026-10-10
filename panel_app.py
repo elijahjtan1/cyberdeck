@@ -12,7 +12,8 @@ import argparse
 import sys
 import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
-from panel_tools.camera import CameraDriver, camera_image
+from panel_tools.camera import CameraDriver
+from panel_tools.backlight import load_backlight
 from panel_tools.ui import ToolsUI
 import json
 import os
@@ -190,6 +191,27 @@ def health_alerts(rows, now=None):
     return alerts
 
 
+def wireless_signal(proc=Path('/proc/net/wireless')):
+    """Signal level from the kernel's table (no `iw` process); falls back to `iw`."""
+    try:
+        for line in proc.read_text().splitlines()[2:]:
+            name, _, fields = line.partition(':')
+            parts = fields.split()
+            if len(parts) >= 3:
+                level = float(parts[2].rstrip('.'))
+                if level < 0:
+                    return f'{name.strip()}: {level:.0f} dBm'
+    except (OSError, ValueError):
+        pass
+    for path in Path('/sys/class/net').glob('*'):
+        if (path/'wireless').exists():
+            match = re.search(r'signal:\s*(-?\d+(?:\.\d+)?)\s*dBm',
+                              command_output(['iw', 'dev', path.name, 'link']))
+            if match:
+                return f'{path.name}: {match[1]} dBm'
+    return None
+
+
 class HealthPoller:
     """Bounded slow commands run away from the camera/touch rendering loop."""
     def __init__(self):
@@ -197,6 +219,7 @@ class HealthPoller:
                          'undervolt_seen_at': None, **decode_throttle('')}
         self.previous_flags = None
         self.undervolt_seen_at = None
+        self.sync, self.sync_due = 'Unknown', 0
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
 
@@ -224,15 +247,14 @@ class HealthPoller:
                     values['ip'] = f'{addresses[0][0]} {addresses[0][1]}'
             except (ValueError, KeyError, TypeError):
                 values['ip'] = 'Unavailable'
-            wireless = [p.name for p in Path('/sys/class/net').glob('*') if (p/'wireless').exists()]
-            for name in wireless:
-                link = command_output(['iw', 'dev', name, 'link'])
-                match = re.search(r'signal:\s*(-?\d+(?:\.\d+)?)\s*dBm', link)
-                if match:
-                    values['wifi'] = f'{name}: {match[1]} dBm'
-                    break
-            synced = command_output(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'])
-            values['sync'] = {'yes': 'Synchronized', 'no': 'Not synchronized'}.get(synced, 'Unknown')
+            values['wifi'] = wireless_signal() or values['wifi']
+            # Clock sync changes rarely; one process spawn a minute is plenty.
+            if self.sync_due <= 0:
+                synced = command_output(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'])
+                self.sync = {'yes': 'Synchronized', 'no': 'Not synchronized'}.get(synced, 'Unknown')
+                self.sync_due = 6
+            self.sync_due -= 1
+            values['sync'] = self.sync
             values.update(decode_throttle(command_output(['vcgencmd', 'get_throttled'])))
             values['undervolt_seen_at'] = self.note_throttle(values['flags'])
             self.snapshot = values
@@ -281,9 +303,32 @@ def find_panel_framebuffer(root=Path('/sys/class/graphics')):
     raise RuntimeError('ILI9341 framebuffer not found. Stopping.')
 
 
+BACKLIGHT_PWM = False  # True once a PWM backlight is configured: levels mean brightness.
+
+
+class Brightness:
+    """Single place that turns a 0-100 level into light. With a PWM backlight the LEDs
+    are dimmed and pixels stay at full colour (less power, better contrast); without one
+    the old pixel dimming is used and the 3.3 V backlight stays on."""
+    def __init__(self, screen, backlight):
+        self.screen, self.backlight = screen, backlight
+
+    def apply(self, level):
+        if self.backlight.available:
+            self.screen.pixel_level = 100
+            self.backlight.set(level)
+        else:
+            self.screen.pixel_level = level
+
+
 class Framebuffer:
-    def __init__(self):
-        base = find_panel_framebuffer()
+    """Writes only what changed. fbtft's deferred I/O sends just the touched rows over SPI
+    when the framebuffer is memory-mapped, so a static page costs no SPI traffic at all
+    and a ticking clock costs a strip of rows instead of the whole 153 KB frame."""
+    FULL_REFRESH = 10.  # Seconds; rewrite everything now and then in case anything else drew.
+
+    def __init__(self, base=None, device=None):
+        base = base or find_panel_framebuffer()
         if (base / 'virtual_size').read_text().strip() != '320,240':
             raise RuntimeError('Expected a 320x240 framebuffer. Keep rotate=270.')
         if int((base / 'bits_per_pixel').read_text()) != 16:
@@ -291,36 +336,75 @@ class Framebuffer:
         self.stride = int((base / 'stride').read_text())
         if self.stride < PW * 2:
             raise RuntimeError('Unexpected framebuffer stride.')
-        self.file = open(Path('/dev') / base.name, 'r+b', buffering=0)
+        self.base = base
+        self.file = open(device or Path('/dev') / base.name, 'r+b', buffering=0)
+        self.map = None
+        try:
+            import mmap
+            self.map = mmap.mmap(self.file.fileno(), self.stride * PH, mmap.MAP_SHARED,
+                                 mmap.PROT_READ | mmap.PROT_WRITE)
+        except (ImportError, OSError, ValueError) as exc:
+            print('Framebuffer mmap unavailable, using full writes:', exc, flush=True)
+        self.last = None
+        self.refreshed = 0.
         self.pixel_level = 100
+        self.rows_sent = 0  # Diagnostic/test counter.
 
     def show(self, image):
         image = physical_image(image)
         level = getattr(self, 'pixel_level', 100)
         if level != 100:
             image = image.point([round(v*level/100) for v in range(256)]*3)
-        data = rgb565(image)
+        data = np.frombuffer(rgb565(image), dtype=np.uint8).reshape(PH, PW * 2)
         if self.stride != PW * 2:
-            rows = np.frombuffer(data, dtype=np.uint8).reshape(PH, PW * 2)
             padded = np.zeros((PH, self.stride), dtype=np.uint8)
-            padded[:, :PW * 2] = rows
-            data = padded.tobytes()
-        self.file.seek(0)
-        view = memoryview(data)
-        while view:
-            n = self.file.write(view)
-            if not n:
-                raise OSError('Framebuffer write stopped.')
-            view = view[n:]
+            padded[:, :PW * 2] = data
+            data = padded
+        now = time.monotonic()
+        first, end = 0, PH
+        if self.last is not None and now - self.refreshed < self.FULL_REFRESH:
+            changed = np.flatnonzero((data != self.last).any(axis=1))
+            if not len(changed):
+                return  # Identical frame: nothing to send.
+            first, end = int(changed[0]), int(changed[-1]) + 1
+        else:
+            self.refreshed = now
+        chunk = data[first:end].tobytes()
+        if self.map is not None:
+            self.map[first*self.stride:end*self.stride] = chunk
+        else:
+            self.file.seek(first*self.stride)
+            view = memoryview(chunk)
+            while view:
+                n = self.file.write(view)
+                if not n:
+                    raise OSError('Framebuffer write stopped.')
+                view = view[n:]
+        self.last = data
+        self.rows_sent += end - first
+
+    def set_blank(self, blank):
+        """Ask the driver to switch the panel off/on (best effort; not every fbtft
+        driver implements it). The next frame is always sent in full after unblanking."""
+        self.last = None
+        try:
+            (self.base / 'blank').write_text('1' if blank else '0')
+            return True
+        except OSError:
+            return False
 
     def close(self):
+        if self.map is not None:
+            self.map.close()
         self.file.close()
 
 
 class Camera(CameraDriver):
-    """Use the current logical screen size for the camera's preview stream."""
+    """The preview stream is always 4:3 in the sensor's own orientation (320x240).
+    Screen rotation and OPTIONS -> Camera turn are applied to the picture afterwards;
+    asking the sensor for a portrait-shaped stream would crop or stretch it."""
     def __init__(self, fps):
-        super().__init__(fps, preview_size=(W, H))
+        super().__init__(fps, preview_size=(PW, PH))
 
 
 def photo_label(path):
@@ -477,6 +561,10 @@ class Touch:
                     self.samples = []
                     self.released = False
         return taps
+
+    def wait(self, timeout):
+        """Sleep until a touch event arrives or the timeout passes (no busy polling)."""
+        select.select([self.device], [], [], max(0, timeout))
 
     def close(self):
         try:
@@ -1840,13 +1928,15 @@ def preview_area():
 
 def option_labels(options):
     if portrait():  # Same settings, shorter words for 108 px buttons.
-        return [f"Pixels: {options['pixel_level']}%", 'Savers...', 'Preview saver',
+        return [f"{'Bright' if BACKLIGHT_PWM else 'Pixels'}: {options['pixel_level']}%",
+                'Savers...', 'Preview saver',
                 'Test colours', 'Calibrate...', f"Graph: {options['history_seconds']}s",
                 'Photo: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
                 'Alerts: ' + options['alerts'].title(),
                 'Screen: ' + ROTATION_NAMES[options['rotation']],
                 f"Camera: {options['camera_turn']}°"]
-    return [f"Pixel level: {options['pixel_level']}%", 'Screensavers...',
+    return [f"{'Brightness' if BACKLIGHT_PWM else 'Pixel level'}: {options['pixel_level']}%",
+            'Screensavers...',
             'Preview saver', 'Test colours', 'Calibrate touch...',
             f"Graph: {options['history_seconds']}s",
             'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
@@ -1855,9 +1945,87 @@ def option_labels(options):
             f"Camera turn: {options['camera_turn']}°"]
 
 
+def preview_box(size):
+    """(width, height) and on-screen box of a camera frame fitted into the preview area."""
+    top, height = preview_area()
+    scale = min(W/size[0], height/size[1])
+    width, tall = max(1, round(size[0]*scale)), max(1, round(size[1]*scale))
+    left, upper = (W-width)//2, top+(height-tall)//2
+    return (width, tall), (left, upper, left+width-1, upper+tall-1)
+
+
+def portrait_thumb_origin(thumb):
+    top, height = preview_area()
+    return 4, top+height-thumb.height-4
+
+
+def draw_camera_live(image, d, frame, box, cam):
+    """Everything on or over the moving picture. Redrawn for every camera frame; the rest
+    of the page comes from a cache (see render), which is most of the per-frame cost."""
+    if frame is not None:
+        size = (box[2]-box[0]+1, box[3]-box[1]+1)
+        # Bilinear is plenty for shrinking a 320x240 preview and ~3x cheaper than bicubic.
+        image.paste(frame if frame.size == size else frame.resize(size, Image.BILINEAR), box[:2])
+        if cam.get('flash'):
+            d.rectangle(box, fill='white')
+    thumb = cam.get('thumb')
+    if portrait() and thumb is not None:
+        tx, ty = portrait_thumb_origin(thumb)
+        d.rectangle((tx-1, ty-1, tx+thumb.width, ty+thumb.height), outline=TEXT)
+        image.paste(thumb, (tx, ty))
+    top, height = preview_area()
+    centre = ((box[0]+box[2])//2, (box[1]+box[3])//2) if box else (W//2, top+height//2)
+    if cam.get('countdown'):
+        r = 34
+        d.ellipse((centre[0]-r, centre[1]-r, centre[0]+r, centre[1]+r), fill=BG,
+                  outline=ACCENT, width=3)
+        d.text(centre, str(cam['countdown']), font=HUGE, fill=TEXT, anchor='mm')
+    if cam.get('capturing'):
+        d.rounded_rectangle((centre[0]-80, centre[1]-20, centre[0]+80, centre[1]+20),
+                            radius=6, fill=BG, outline=ACCENT, width=2)
+        d.text(centre, cam['capturing'], font=FONT, fill=TEXT, anchor='mm')
+    if cam.get('saved'):
+        d.rounded_rectangle((centre[0]-82, centre[1]-24, centre[0]+82, centre[1]+24),
+                            radius=6, fill=ACCENT)
+        d.text((centre[0], centre[1]-8), 'PHOTO SAVED', font=FONT, fill=BG, anchor='mm')
+        d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
+
+
+CAMERA_CHROME = {}  # The live camera page's static layer, rebuilt only when its inputs change.
+
+
 def render(page, frame, paused, fps, rows, message, history=(), now=None,
            options=None, wall_time=None, alerts=(), cam=None, photo=None,
            service=False, extra=None):
+    """Draw one page on the W x H logical canvas and register its buttons in HOTSPOTS.
+
+    The camera page is drawn up to 20 times a second but its text and buttons change at
+    most once a second (the clock), so those are cached and only the picture is redrawn.
+    """
+    if page != 'camera' or frame is None:
+        return render_page(page, frame, paused, fps, rows, message, history, now, options,
+                           wall_time, alerts, cam, photo, service, extra)
+    options = options or DEFAULT_OPTIONS
+    wall_time = wall_time or datetime.now().astimezone()
+    cam = cam or {}
+    key = (ROTATION, frame.size, paused, fps, message, options['photo_size'],
+           options['snap_timer'], tuple(alerts), wall_time.strftime('%H:%M:%S'),
+           id(cam.get('thumb')), bool(cam.get('countdown')))
+    if CAMERA_CHROME.get('key') != key:
+        chrome = render_page(page, frame, paused, fps, rows, message, history, now, options,
+                             wall_time, alerts, cam, photo, service, extra, chrome=True)
+        CAMERA_CHROME.update(key=key, image=chrome, hotspots=list(HOTSPOTS))
+    else:
+        HOTSPOTS[:] = CAMERA_CHROME['hotspots']
+        HOTSPOTS_PAGE[0] = page
+    image = CAMERA_CHROME['image'].copy()
+    draw_camera_live(image, ImageDraw.Draw(image), frame, preview_box(frame.size)[1], cam)
+    return image
+
+
+def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
+                options=None, wall_time=None, alerts=(), cam=None, photo=None,
+                service=False, extra=None, chrome=False):
     """Draw one page on the W x H logical canvas and register its buttons in HOTSPOTS.
 
     cam: camera overlays. photo: review state. extra: apps/audio page data.
@@ -1916,31 +2084,27 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
                  ('Wait until the green ACT LED', 'stops flashing, then switch', 'off the power.'))
         for i, line in enumerate(lines):
             centred(d, top+35+i*18, line, SMALL)
-        notes = ('This screen stays lit after shutdown;', 'its backlight is wired straight to 3.3 V.')
+        notes = (('This screen may stay lit after shutdown;', 'the PWM pin keeps its last state.')
+                 if BACKLIGHT_PWM else
+                 ('This screen stays lit after shutdown;', 'its backlight is wired straight to 3.3 V.'))
         for i, line in enumerate(notes):
             centred(d, top+55+len(lines)*18+i*14, line, TINY, MUTED)
         return image
     if page == 'camera':
         top, height = preview_area()
-        box = None
-        if frame is not None:
-            preview = ImageOps.contain(frame, (W, height))
-            box = ((W-preview.width)//2, top+(height-preview.height)//2)
-            image.paste(preview, box)
-            box = (*box, box[0]+preview.width-1, box[1]+preview.height-1)
-            if cam.get('flash'):
-                d.rectangle(box, fill='white')
-        else:
+        box = preview_box(frame.size)[1] if frame is not None else None
+        if not chrome:
+            draw_camera_live(image, d, frame, box, cam)
+        if frame is None:
             centred(d, top+height//2-6, 'Camera is not available', FONT, MUTED)
         thumb = cam.get('thumb')
         size_label = 'FULL' if options['photo_size'] == 'full' else '320x240'
         timer_value = f"{options['snap_timer']}s" if options['snap_timer'] else 'OFF'
         if portrait():
-            # No side gutters: the last photo sits in the preview's corner.
+            # No side gutters: the last photo sits in the preview's corner (drawn by
+            # draw_camera_live, since it is on top of the moving picture).
             if thumb is not None:
-                tx, ty = 4, top+height-thumb.height-4
-                d.rectangle((tx-1, ty-1, tx+thumb.width, ty+thumb.height), outline=TEXT)
-                image.paste(thumb, (tx, ty))
+                tx, ty = portrait_thumb_origin(thumb)
                 hotspot((tx-4, ty-4, tx+thumb.width+4, ty+thumb.height+4), 'cam:last')
             d.text((W-6, top+height+3), f'{size_label} | T {timer_value}', font=TINY,
                    fill=MUTED, anchor='ra')
@@ -1959,21 +2123,6 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
             for y, label, value in ((33, 'SIZE', size_label), (75, 'TIMER', timer_value)):
                 d.text((W-36, y), label, font=TINY, fill=MUTED, anchor='ma')
                 d.text((W-36, y+14), value, font=SMALL, fill=TEXT, anchor='ma')
-        centre = ((box[0]+box[2])//2, (box[1]+box[3])//2) if box else (W//2, top+height//2)
-        if cam.get('countdown'):
-            r = 34
-            d.ellipse((centre[0]-r, centre[1]-r, centre[0]+r, centre[1]+r), fill=BG,
-                      outline=ACCENT, width=3)
-            d.text(centre, str(cam['countdown']), font=HUGE, fill=TEXT, anchor='mm')
-        if cam.get('capturing'):
-            d.rounded_rectangle((centre[0]-80, centre[1]-20, centre[0]+80, centre[1]+20),
-                                radius=6, fill=BG, outline=ACCENT, width=2)
-            d.text(centre, cam['capturing'], font=FONT, fill=TEXT, anchor='mm')
-        if cam.get('saved'):
-            d.rounded_rectangle((centre[0]-82, centre[1]-24, centre[0]+82, centre[1]+24),
-                                radius=6, fill=ACCENT)
-            d.text((centre[0], centre[1]-8), 'PHOTO SAVED', font=FONT, fill=BG, anchor='mm')
-            d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
         message_room = W-16-(70 if portrait() else 0)
         d.text((8, top+height+1), fit_text(d, message, message_room, SMALL), font=SMALL, fill=TEXT)
         labels = ('CANCEL' if cam.get('countdown') else 'SNAP', timer_label(options['snap_timer']),
@@ -2065,13 +2214,14 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
             labels = option_labels(options)
             actions = [f'opt:{i}' for i in range(len(labels))]
             active = [False]*len(labels)
-            note = message or 'Saved automatically. Dimming leaves backlight on.'
+            note = message or ('Saved automatically. Brightness dims the backlight.' if BACKLIGHT_PWM
+                               else 'Saved automatically. Dimming leaves backlight on.')
         elif page == 'savers':
             delay = options['saver_delay']
             labels = ['Style: ' + SAVER_NAMES[options['saver_style']] + '...',
                       f"After: {str(delay)+'s' if delay < 60 else str(delay//60)+' min'}",
                       'Speed: '+options['saver_speed'].title(),
-                      f"Pixel level: {options['saver_level']}%",
+                      f"{'Brightness' if BACKLIGHT_PWM else 'Pixel level'}: {options['saver_level']}%",
                       f"Bunnies: {options['bunny_count']}",
                       f"Slides: {'' if portrait() else 'every '}{options['slide_seconds']}s",
                       f"Clock: {options['clock_format']}", 'PREVIEW']
@@ -2285,8 +2435,15 @@ def main():
     def terminate(signum, frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, terminate)
+    global BACKLIGHT_PWM
+    backlight = light = None
+    panel_off = False  # Black saver with a PWM backlight: LEDs off and panel blanked.
     try:
         screen = Framebuffer()
+        backlight = load_backlight(data)
+        BACKLIGHT_PWM = backlight.available
+        light = Brightness(screen, backlight)
+        light.apply(100)  # Lit for calibration; pages apply the chosen level when drawn.
         touch = Touch(args.touch)
         matrix = None
         if not args.calibrate:
@@ -2317,6 +2474,17 @@ def main():
         stats, rows, alerts = Stats(), {}, []
         stats.start()
         next_stats, next_draw = 0, 0
+        frame_sequence = -1
+
+        def wait_for_touch(until, cap):
+            """Idle until `until` (at most `cap` s), returning early on any touch input.
+            Replaces a fixed 50 Hz poll: an idle page now wakes ~4x a second, black ~1x."""
+            timeout = min(max(0., until - time.monotonic()), cap)
+            waiter = getattr(touch, 'wait', None)
+            if waiter is not None:
+                waiter(timeout)
+            else:
+                time.sleep(timeout)
         running = True
         exit_return_page = page
         ignore_touch_until = 0
@@ -2433,7 +2601,7 @@ def main():
         def draw(now, capturing=None):
             """Draw the current page; returns seconds until it next needs drawing."""
             if page in apps:
-                screen.pixel_level = options['pixel_level']
+                light.apply(options['pixel_level'])
                 screen.show(apps[page].render(now, datetime.now().astimezone(), alerts))
                 return apps[page].delay
             extra = None
@@ -2457,7 +2625,7 @@ def main():
                     'photos': photo_message}.get(page, message)
             if page == 'camera' and camera is not None and not camera.ready:
                 text = camera.error or 'Connecting camera...'
-            screen.pixel_level = 100 if page == 'colours' else options['pixel_level']
+            light.apply(100 if page == 'colours' else options['pixel_level'])
             screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
                                options, alerts=alerts, cam=cam, photo=photo, extra=extra))
             return 1/15 if page == 'audio' else 2. if page == 'apps' else .25
@@ -2589,7 +2757,7 @@ def main():
                     if arg == 'cancel':
                         page = 'options'
                     else:
-                        screen.pixel_level = 100
+                        light.apply(100)
                         matrix, option_message = recalibrate_safely(screen, touch, matrix, save_calibration)
                         page = 'options'
                         last_touch = time.monotonic()
@@ -2795,23 +2963,41 @@ def main():
                 active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
             if active_saver is not None:
                 if camera:
-                    camera.preview = False
+                    camera.preview = False  # The sensor stops after the worker's idle delay.
                 if now >= next_saver_draw:
-                    screen.pixel_level = min(options['pixel_level'],options['saver_level'])
                     image, delay = active_saver.render(now, datetime.now().astimezone(), alerts)
-                    screen.show(image)
+                    if active_saver.style == 'black' and backlight.available:
+                        # Really off: black frame, LEDs at 0%, panel blanked if the driver can.
+                        screen.show(image)
+                        backlight.set(0)
+                        getattr(screen, 'set_blank', lambda blank: False)(True)
+                        panel_off = True
+                    else:
+                        light.apply(min(options['pixel_level'], options['saver_level']))
+                        screen.show(image)
                     next_saver_draw = now + delay
-                time.sleep(min(.02, max(0, next_saver_draw-time.monotonic())))
+                # Nothing to animate while off: wake once a second (timers, alerts) or on touch.
+                wait_for_touch(next_saver_draw, 1. if panel_off else .25)
                 continue
+            if panel_off:  # Woken: unblank first; the redraw below restores the brightness.
+                getattr(screen, 'set_blank', lambda blank: False)(False)
+                panel_off = False
+                next_draw = 0
             live = page == 'camera' and camera is not None and not paused
             if camera:
                 camera.preview = live and active_saver is None
-            if live and camera.frame() is not None:
+            new_frame = False
+            if live and camera.frame() is not None and camera.sequence != frame_sequence:
+                frame_sequence = camera.sequence
                 frame = turn_image(camera.frame(), options['camera_turn'])
-            if now >= next_draw:
-                delay = draw(now)
-                next_draw = now + (1/fps if live else delay)
-            time.sleep(min(.02, max(0, next_draw-time.monotonic())))
+                new_frame = True
+            if new_frame or now >= next_draw:
+                # Redraw for each new camera frame, otherwise only when the page asks to.
+                next_draw = now + draw(now)
+            # Live: check for the next camera frame at twice its rate. Otherwise sleep until
+            # the next redraw or a touch; quick check-ins only while a photo is in flight.
+            wait_for_touch(min(next_draw, now + .5/fps) if live else next_draw,
+                           .05 if photo_pending else .25)
     except KeyboardInterrupt:
         print('\nStopped.', flush=True)
         shutdown_requested = False
@@ -2832,7 +3018,10 @@ def main():
             player.close()
         if screen is not None:
             try:
-                screen.pixel_level = 100
+                if panel_off:
+                    getattr(screen, 'set_blank', lambda blank: False)(False)
+                if light is not None:
+                    light.apply(100)  # Leave the panel readable once the app has stopped.
                 screen.show(render('poweroff' if shutdown_requested else 'stopped',
                                    None, False, 0, {}, '', service=service))
             except Exception:

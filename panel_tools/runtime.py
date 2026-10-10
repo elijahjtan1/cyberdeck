@@ -79,12 +79,20 @@ class Job:
 
 
 class CameraWorker:
-    """Only this thread touches the camera driver, including close/recovery."""
-    def __init__(self, factory, fps):
+    """Only this thread touches the camera driver, including close/recovery.
+
+    Power: when nobody is looking at the preview (another page, a screensaver) for
+    idle_stop seconds, the sensor is stopped. It restarts on demand for the preview
+    or for a photo, which then waits for exposure to settle first.
+    """
+    def __init__(self, factory, fps, idle_stop=15.):
         self.factory, self.fps = factory, fps
+        self.idle_stop = idle_stop
         self.latest = None
+        self.sequence = 0  # Increments per new preview frame, so the UI redraws only then.
         self.error = ''
         self.ready = False
+        self.streaming = False
         self.commands = queue.Queue(maxsize=4)
         self.results = queue.Queue()
         self.stopping = threading.Event()
@@ -119,13 +127,24 @@ class CameraWorker:
             return False
         return True
 
+    def _stream(self, camera, on):
+        """Start/stop the sensor if the driver supports it (test doubles may not)."""
+        if on != self.streaming:
+            action = getattr(camera, 'resume' if on else 'pause', None)
+            if action is not None:
+                action()
+            self.streaming = on
+
     def loop(self):
         camera = None
+        idle_since = time.monotonic()
         try:
             self.commands.put(('retry', None))
             while not self.stopping.is_set():
+                previewing = self.preview and self.ready
                 try:
-                    kind, value = self.commands.get(timeout=.01)
+                    # Block cheaply while nothing needs frames; poll briefly while previewing.
+                    kind, value = self.commands.get(timeout=.01 if previewing else .5)
                 except queue.Empty:
                     kind, value = None, None
                 try:
@@ -134,28 +153,39 @@ class CameraWorker:
                         if camera is not None:
                             camera.close()
                         camera = None
+                        self.streaming = False
                         camera = self.factory(self.fps)
                         if camera is None:
                             raise RuntimeError('Camera unavailable; check ribbon and retry')
-                        self.ready, self.error = True, ''
+                        self.ready, self.error, self.streaming = True, '', True
+                        idle_since = time.monotonic()
                     elif kind == 'fps' and camera:
                         camera.set_fps(value)
                     elif kind == 'shot':
                         try:
+                            if camera:
+                                self._stream(camera, True)
                             self.results.put((value(camera), None))
                         except Exception as exc:
                             self.results.put((None, str(exc)))
                             if camera and not camera.recover():
                                 self.ready = False
                                 self.error = 'Capture failed; retry camera'
+                            elif camera:
+                                self.streaming = True  # recover() restarts the preview.
                         finally:
                             self.capture_pending = False
+                            idle_since = time.monotonic()
                     if camera and self.ready and self.preview:
+                        self._stream(camera, True)
                         self.latest = camera.frame()
+                        self.sequence += 1
+                        idle_since = time.monotonic()
+                    elif (camera and self.ready and self.streaming and not self.capture_pending
+                          and time.monotonic() - idle_since >= self.idle_stop):
+                        self._stream(camera, False)
                 except Exception as exc:
                     self.error, self.ready = str(exc), False
-                if not self.preview or not self.ready:
-                    self.stopping.wait(.03)
         finally:
             self.ready = False
             if camera:
@@ -166,6 +196,7 @@ class CameraWorker:
 
     def close(self):
         self.stopping.set()
+        self.enqueue(('stop', None))  # Wake the loop now instead of after its timeout.
         self.thread.join(timeout=10)
         if self.thread.is_alive():
             raise RuntimeError('Camera did not stop in time; app restart cancelled')
