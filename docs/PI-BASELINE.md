@@ -34,7 +34,9 @@ response. Confirmed test settings: port **8080**, book key
 129 total hits; the first URL is
 `/content/restarters_en_all_maxi_2026-04/Glossary%3ARepair_Caf%C3%A9`.
 The response is recorded in `tests/fixtures/kiwix-3.7.0-restarters.xml`.
-Real article HTML and the Wikipedia acceptance check remain pending. This was a
-foreground test; persistence across reboot is not established.
+Eli also fetched that article URL successfully; its HTML is recorded in
+`tests/fixtures/kiwix-3.7.0-repair-cafe.html`. Both recordings pass parsing/extraction
+tests without network access. The Wikipedia acceptance check still needs a Wikipedia
+archive. This was a foreground test; persistence across reboot is not established.
 
 The remaining Phase 0 system measurements and Ollama details have not been recorded.
