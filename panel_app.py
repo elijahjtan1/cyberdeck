@@ -14,7 +14,8 @@ import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
 from panel_tools.camera import CameraDriver
 from panel_tools.backlight import load_backlight
-from panel_tools.games import TetrisGame, PongGame, BrickGame, FlappyGame, PIECES, PIECE_COLOURS
+from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
+                               Klondike, SudokuGame, PIECES, PIECE_COLOURS, SUITS, rank_name)
 from panel_tools.ui import ToolsUI
 import json
 import os
@@ -2111,16 +2112,579 @@ class FlappyApp:
         return image
 
 
+class GameBase:
+    """Start / pause / quit handling shared by the newer games."""
+    TITLE, HINT = 'GAME', ''
+    LOWER_IS_BETTER = False  # True for best times.
+
+    def __init__(self, best=0, save_best=lambda best: None):
+        self.best, self.save_best = best, save_best
+        self.state, self.delay, self.last = 'ready', .25, None
+        self.elapsed = 0.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def new_game(self, now):
+        raise NotImplementedError
+
+    def tick(self, now):
+        """Advance the play clock; returns seconds since the last call while running."""
+        if self.state != 'running':
+            self.last = None
+            return 0.
+        dt = 0. if self.last is None else now - self.last
+        self.last = now
+        self.elapsed += dt
+        return dt
+
+    def finish(self, result, won=True):
+        """End the game and keep the record if it is better (0 = no record yet)."""
+        self.state, self.won = 'over', won
+        if won and result is not None and (
+                not self.best or (result < self.best if self.LOWER_IS_BETTER else result > self.best)):
+            self.best = result
+            self.save_best(result)
+
+    def tap_dialog(self, x, y, now):
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                self.elapsed, self.won = 0., False
+                self.new_game(now)
+            self.state, self.last = 'running', now
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def draw_dialog(self, d, summary, over_title):
+        title, left = {'ready': (self.TITLE, 'START'), 'paused': ('PAUSED', 'RESUME'),
+                       'over': (over_title, 'PLAY AGAIN')}[self.state]
+        draw_game_dialog(d, title, summary, left, 'QUIT', self.HINT if self.state == 'ready' else '')
+
+
+def clock_text(seconds):
+    seconds = int(seconds)
+    return f'{seconds//60}:{seconds % 60:02}'
+
+
+ALIEN_SPRITES = (
+    (["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", ".X.XX.X."],
+     ["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", "X.X..X.X"], '#f0605a'),
+    (["X......X", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", ".X....X."],
+     [".X....X.", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", "X......X"], '#f2d24b'),
+    (["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", ".XX..XX."],
+     ["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", "XX....XX"], '#5fd36b'),
+)
+_ALIEN_CACHE = {}
+
+
+def alien_sprite(row, frame):
+    kind = 0 if row == 0 else 1 if row < 3 else 2
+    key = (kind, frame)
+    if key not in _ALIEN_CACHE:
+        rows, colour = ALIEN_SPRITES[kind][frame], ALIEN_SPRITES[kind][2]
+        image = Image.new('RGBA', (8, 5), (0, 0, 0, 0))
+        for y, line in enumerate(rows):
+            for x, c in enumerate(line):
+                if c == 'X':
+                    image.putpixel((x, y), Image.new('RGB', (1, 1), colour).getpixel((0, 0)) + (255,))
+        _ALIEN_CACHE[key] = image.resize((16, 10), Image.NEAREST)
+    return _ALIEN_CACHE[key]
+
+
+class InvadersApp(GameBase):
+    """Drag to move; keep a finger down to keep firing (one shot in the air at a time)."""
+    TITLE, HINT = 'SPACE INVADERS', 'Drag to move. Hold a finger down to fire.'
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        _, width, height = court_rect()
+        self.game = InvadersGame(width, height, seed=seed)
+        self.flash, self.flash_until = '', 0.
+
+    def new_game(self, now):
+        _, width, height = court_rect()
+        self.game = InvadersGame(width, height)
+
+    def tap(self, x, y, now):
+        if self.running:
+            if pause_tapped(x, y):
+                self.state = 'paused'
+            elif y >= 26:
+                self.game.fire()
+            return None
+        return self.tap_dialog(x, y, now)
+
+    def hold(self, point, now):
+        if point is not None and self.running and point[1] >= 26:
+            self.game.aim(point[0])
+            self.game.fire()
+
+    def render(self, now, wall_time, alerts):
+        _, width, height = court_rect()
+        self.game.resize(width, height)
+        dt = self.tick(now)
+        game = self.game
+        if self.running:
+            event = game.update(dt)
+            if event == 'wave':
+                self.flash, self.flash_until = f'WAVE {game.wave}', now + 1.5
+            elif event == 'hit' and not game.over:
+                self.flash, self.flash_until = 'HIT!', now + 1
+            if game.over:
+                self.finish(game.score)
+        top = 26
+        image = Image.new('RGB', (W, H), 'black')
+        d = ImageDraw.Draw(image)
+        game_header(d, f'INVADERS  {game.score}', wall_time, self.running)
+        d.text((W-84 if self.running else W-56, 7), '▲'*max(0, game.lives), font=SMALL,
+               fill=ACCENT, anchor='ra')
+        for row, col in game.aliens:
+            x0, y0, _, _ = game.alien_rect(row, col)
+            sprite = alien_sprite(row, game.frame)
+            image.paste(sprite, (round(x0), round(top+y0)), sprite)
+        for bx, by in game.shields:
+            d.rectangle((bx, top+by, bx+3, top+by+3), fill='#3fa34d')
+        px, py = game.player, top+game.player_y
+        d.rectangle((px-9, py, px+9, py+6), fill=ACCENT)
+        d.rectangle((px-2, py-4, px+2, py), fill=ACCENT)
+        if game.bullet:
+            d.line((game.bullet[0], top+game.bullet[1], game.bullet[0], top+game.bullet[1]+5),
+                   fill='white', width=2)
+        for bx, by in game.bombs:
+            d.line((bx-1, top+by, bx+1, top+by+3, bx-1, top+by+6), fill='#ff8a6a', width=2)
+        d.line((0, H-3, W, H-3), fill='#3fa34d')
+        if self.running and now < self.flash_until:
+            centred(d, top+height*.55, self.flash, FONT, WARN)
+        if not self.running:
+            self.draw_dialog(d, f'Score {game.score}   Best {self.best}', 'GAME OVER')
+        self.delay = 1/30 if self.running else .25
+        return image
+
+
+def mines_layout():
+    """(cell, cols, rows, mines, origin, toolbar rects) sized for a fingertip on each rotation."""
+    if portrait():
+        cell, cols, rows, mines = 24, 9, 10, 14
+    else:
+        cell, cols, rows, mines = 22, 13, 8, 16
+    origin = ((W - cols*cell)//2, 28)
+    bottom = origin[1] + rows*cell
+    toolbar = row_rects(2, bottom+6, min(H-3, bottom+36), margin=8, gap=8)
+    return cell, cols, rows, mines, origin, toolbar
+
+
+MINE_COLOURS = {1: '#67bfff', 2: '#5fd36b', 3: '#f0605a', 4: '#b07cf0', 5: '#f29b42',
+                6: '#4fd8e8', 7: TEXT, 8: MUTED}
+
+
+class MinesApp(GameBase):
+    """Tap to dig. Press and hold (or switch to FLAG mode) to flag. Tap a number whose
+    mines are all flagged to open its other neighbours. Best time is kept."""
+    TITLE, HINT = 'MINESWEEPER', 'Tap to dig, hold to flag. First tap is always safe.'
+    LOWER_IS_BETTER = True
+    HOLD_FLAG = .45
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.flag_mode = False
+        self.press = None  # (cell, started, flagged_already)
+        self.new_game(0)
+
+    def new_game(self, now):
+        _, cols, rows, mines, _, _ = mines_layout()
+        self.game = MinesGame(cols, rows, mines, seed=self.seed)
+        self.press = None
+
+    def cell_at(self, x, y):
+        cell, cols, rows, _, (ox, oy), _ = mines_layout()
+        cx, cy = int((x-ox)//cell), int((y-oy)//cell)
+        return (cx, cy) if 0 <= cx < cols and 0 <= cy < rows and x >= ox and y >= oy else None
+
+    def after(self, result, now):
+        if result == 'boom':
+            self.finish(None, won=False)
+        elif result == 'win':
+            self.finish(max(1, round(self.elapsed)))
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        if self.press and self.press[2]:  # This release ends a long-press flag.
+            self.press = None
+            return None
+        self.press = None
+        toolbar = mines_layout()[5]
+        choice = index_at(toolbar, x, y, slop=3)
+        if choice == 0:
+            self.flag_mode = not self.flag_mode
+        elif choice == 1:
+            self.new_game(now)
+            self.elapsed = 0.
+        else:
+            cell = self.cell_at(x, y)
+            if cell is not None:
+                if self.flag_mode and cell not in self.game.revealed:
+                    self.game.toggle_flag(cell)
+                elif cell in self.game.revealed:
+                    self.after(self.game.chord(cell), now)
+                else:
+                    self.after(self.game.reveal(cell), now)
+        return None
+
+    def hold(self, point, now):
+        if point is None or not self.running:
+            if point is None and self.press and not self.press[2]:
+                self.press = None
+            return
+        cell = self.cell_at(*point)
+        if cell is None:
+            return
+        if self.press is None or self.press[0] != cell:
+            self.press = (cell, now, False)
+        elif not self.press[2] and now - self.press[1] >= self.HOLD_FLAG:
+            if cell not in self.game.revealed:
+                self.game.toggle_flag(cell)
+            self.press = (cell, self.press[1], True)
+
+    def render(self, now, wall_time, alerts):
+        if (self.game.cols, self.game.rows) != mines_layout()[1:3] and self.state != 'over':
+            self.new_game(now)  # Rotation changed the board shape.
+            if self.running:
+                self.state = 'ready'
+        self.tick(now)
+        game = self.game
+        cell, cols, rows, _, (ox, oy), toolbar = mines_layout()
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        left = len(game.mines or range(game.mine_count)) - len(game.flags)
+        game_header(d, f'MINES  ⚑{left}  {clock_text(self.elapsed)}', wall_time, self.running)
+        number_font = SMALL if cell < 24 else FONT
+        for x in range(cols):
+            for y in range(rows):
+                rect = (ox+x*cell, oy+y*cell, ox+x*cell+cell-2, oy+y*cell+cell-2)
+                spot = (x, y)
+                centre = ((rect[0]+rect[2])//2, (rect[1]+rect[3])//2)
+                if spot in game.revealed:
+                    d.rectangle(rect, fill='#0b1218')  # Dug: dark and flat.
+                    count = game.count(spot)
+                    if count:
+                        d.text(centre, str(count), font=number_font, fill=MINE_COLOURS[count], anchor='mm')
+                elif game.lost and spot in game.mines:
+                    d.rectangle(rect, fill=DANGER if spot == game.exploded else '#3a2a2a')
+                    d.ellipse((centre[0]-4, centre[1]-4, centre[0]+4, centre[1]+4), fill='black')
+                else:
+                    pressed = self.press and self.press[0] == spot and not self.press[2]
+                    d.rectangle(rect, fill='#5d7a8f' if pressed else '#3b5266')  # Covered: raised.
+                    d.line((rect[0], rect[1], rect[2], rect[1]), fill='#557086')
+                    if spot in game.flags:
+                        wrong = game.lost and spot not in game.mines
+                        d.text(centre, '⚑', font=number_font, fill=WARN if not wrong else MUTED,
+                               anchor='mm')
+        button(d, toolbar[0], 'MODE: FLAG' if self.flag_mode else 'MODE: DIG', active=self.flag_mode)
+        button(d, toolbar[1], 'NEW BOARD')
+        if not self.running:
+            summary = (f'Time {clock_text(self.elapsed)}   Best {clock_text(self.best) if self.best else "--"}')
+            self.draw_dialog(d, summary, 'CLEARED!' if getattr(self, 'won', False) else 'BOOM!')
+        # Long presses need a check-in even if the finger does not move.
+        self.delay = .1 if self.press and not self.press[2] else 1. if self.running else .25
+        return image
+
+
+def solitaire_layout():
+    gap = 4
+    width = (W - 8*gap) // 7
+    height = round(width*1.36)
+    top = 30
+    xs = [gap + i*(width+gap) for i in range(7)]
+    return width, height, xs, top, top + height + 8
+
+
+SUIT_COLOURS = ('#202830', '#d8443c', '#d8443c', '#202830')
+
+
+class SolitaireApp(GameBase):
+    """Klondike, draw one. Tap a card to pick it up, then tap where it should go. Tap the
+    picked-up card again to send it to the foundations (or the first legal pile)."""
+    LOWER_IS_BETTER = True  # Record = fewest moves for a win.
+    TITLE, HINT = 'SOLITAIRE', 'Tap a card, then where it goes. Tap twice to auto-move.'
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.selected = None
+        self.new_game(0)
+
+    def new_game(self, now):
+        self.game = Klondike(seed=self.seed)
+        self.selected = None
+
+    def fan(self, pile):
+        """Vertical offsets for each card in a tableau pile, squeezed to fit the screen."""
+        width, height, xs, top, tab_top = solitaire_layout()
+        cards = self.game.tableau[pile]
+        down = sum(1 for _, up in cards if not up)
+        up = len(cards) - down
+        room = H - 4 - height - tab_top
+        down_step, up_step = 5, max(height*.3, 12)
+        if down*down_step + max(0, up-1)*up_step > room and up > 1:
+            up_step = (room - down*down_step) / (up-1)
+            if up_step < 6:  # Very long pile: squeeze the face-down cards too.
+                down_step = 2
+                up_step = max(3, (room - down*down_step) / (up-1))
+        offsets, y = [], tab_top
+        for _, face_up in cards:
+            offsets.append(y)
+            y += up_step if face_up else down_step
+        return offsets
+
+    def target_at(self, x, y):
+        """('stock',), ('waste',), ('found', s), ('tab', pile, index) or ('tab', pile, None)."""
+        width, height, xs, top, tab_top = solitaire_layout()
+        col = next((i for i, x0 in enumerate(xs) if x0 <= x <= x0+width), None)
+        if col is None:
+            return None
+        if top <= y <= top+height:
+            if col == 0:
+                return ('stock',)
+            if col == 1:
+                return ('waste',)
+            if col >= 3:
+                return ('found', col-3)
+            return None
+        if y >= tab_top:
+            offsets = self.fan(col)
+            # Each card shows from its own offset to the next card's; the last is fully visible.
+            for index, start in enumerate(offsets):
+                end = offsets[index+1] if index+1 < len(offsets) else start + height
+                if start <= y < end:
+                    return ('tab', col, index)
+            return ('tab', col, None)  # Below the pile (or an empty pile): a destination.
+        return None
+
+    def source_ok(self, target):
+        if target[0] == 'tab':
+            return target[2] is not None and bool(self.game.cards_at(target))
+        return target[0] in ('waste', 'found') and bool(self.game.cards_at(target))
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        target = self.target_at(x, y)
+        game = self.game
+        if target is None:
+            self.selected = None
+        elif target[0] == 'stock':
+            game.draw()
+            self.selected = None
+        elif self.selected is not None:
+            same = (target[:2] == self.selected[:2] if target[0] == 'tab' else
+                    target == self.selected)
+            if same:
+                game.auto_move(self.selected)
+                self.selected = None
+            else:
+                destination = ('found',) if target[0] == 'found' else ('tab', target[1]) \
+                    if target[0] == 'tab' else None
+                if destination and game.move(self.selected, destination):
+                    self.selected = None
+                else:
+                    self.selected = target if self.source_ok(target) else None
+        elif self.source_ok(target):
+            self.selected = target
+        if game.won:
+            self.finish(game.moves, won=True)
+        return None
+
+    def draw_card(self, d, x, y, card, face_up=True, highlight=False):
+        width, height, *_ = solitaire_layout()
+        rect = (x, y, x+width-1, y+height-1)
+        if not face_up:
+            d.rounded_rectangle(rect, radius=3, fill='#2f5f9e', outline='#9ab8dd')
+            d.rectangle((x+3, y+3, x+width-4, y+height-4), outline='#5f86bd')
+            return
+        d.rounded_rectangle(rect, radius=3, fill='#fbfbf6' if not highlight else '#fff2b3',
+                            outline=ACCENT if highlight else '#9aa4ac', width=2 if highlight else 1)
+        colour = SUIT_COLOURS[card[1]]
+        label = rank_name(card) + SUITS[card[1]]
+        small = TINY if width < 36 else SMALL
+        d.text((x+2, y+1), label, font=small, fill=colour)
+        if height > 44:
+            d.text((x+width//2, y+height*.62), SUITS[card[1]], font=FONT, fill=colour, anchor='mm')
+
+    def render(self, now, wall_time, alerts):
+        self.tick(now)
+        game = self.game
+        width, height, xs, top, tab_top = solitaire_layout()
+        image = Image.new('RGB', (W, H), '#14532d')
+        d = ImageDraw.Draw(image)
+        d.rectangle((0, 0, W, 25), fill=BG)
+        game_header(d, f'SOLITAIRE  {game.moves}', wall_time, self.running)
+        sel = self.selected
+
+        def slot(x):
+            d.rounded_rectangle((x, top, x+width-1, top+height-1), radius=3, outline='#3f8a5a')
+
+        slot(xs[0])
+        if game.stock:
+            self.draw_card(d, xs[0], top, None, face_up=False)
+        else:
+            d.text((xs[0]+width//2, top+height//2), '↻', font=FONT, fill='#7fc79a', anchor='mm')
+        slot(xs[1])
+        if game.waste:
+            self.draw_card(d, xs[1], top, game.waste[-1], highlight=sel == ('waste',))
+        for suit in range(4):
+            x = xs[3+suit]
+            slot(x)
+            pile = game.foundations[suit]
+            if pile:
+                self.draw_card(d, x, top, pile[-1], highlight=sel == ('found', suit))
+            else:
+                d.text((x+width//2, top+height//2), SUITS[suit], font=FONT, fill='#3f8a5a', anchor='mm')
+        for col in range(7):
+            x = xs[col]
+            d.rounded_rectangle((x, tab_top, x+width-1, tab_top+height-1), radius=3, outline='#2f7048')
+            for index, ((card, up), y) in enumerate(zip(game.tableau[col], self.fan(col))):
+                lit = sel is not None and sel[0] == 'tab' and sel[1] == col and index >= sel[2]
+                self.draw_card(d, x, round(y), card, up, lit)
+        if not self.running:
+            summary = f'Moves {game.moves}   Best {self.best or "--"}'
+            self.draw_dialog(d, summary, 'YOU WIN!')
+        self.delay = 1. if self.running else .25
+        return image
+
+
+def sudoku_layout():
+    """(cell, origin, keypad [(rect, value)]) - value 0 erases."""
+    if portrait():
+        cell, origin = 25, (7, 28)
+        bottom = origin[1] + 9*cell
+        keys = list(range(1, 10)) + [0]
+        rects = row_rects(5, bottom+5, bottom+33) + row_rects(5, bottom+37, min(H-3, bottom+65))
+    else:
+        cell, origin = 22, (6, 30)
+        left = origin[0] + 9*cell + 8
+        width = (W - 6 - left - 8) / 3
+        keys, rects = list(range(1, 10)) + [0], []
+        for i in range(10):
+            row, col = divmod(i, 3)
+            x0 = left + col*(width+4)
+            y0 = 30 + row*52
+            rects.append((round(x0), y0, round(x0+width), y0+46))
+        rects[9] = (left, 30+3*52, W-6, 30+3*52+46)  # ERASE spans the last row.
+    return cell, origin, list(zip(rects, keys))
+
+
+class SudokuApp(GameBase):
+    """Tap a square, then a number. Wrong numbers show in red. Best time is kept."""
+    TITLE, HINT = 'SUDOKU', 'Tap a square, then a number.'
+    LOWER_IS_BETTER = True
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.game = None
+
+    def new_game(self, now):
+        self.game = SudokuGame(seed=self.seed)
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        cell, (ox, oy), keys = sudoku_layout()
+        col, row = int((x-ox)//cell), int((y-oy)//cell)
+        if x >= ox and y >= oy and 0 <= col < 9 and 0 <= row < 9:
+            self.game.selected = row*9 + col
+            return None
+        for rect, value in keys:
+            if index_at([rect], x, y, slop=3) is not None:
+                if self.game.place(value) == 'win':
+                    self.finish(max(1, round(self.elapsed)))
+                break
+        return None
+
+    def render(self, now, wall_time, alerts):
+        self.tick(now)
+        if self.game is None:
+            self.new_game(now)
+        game = self.game
+        cell, (ox, oy), keys = sudoku_layout()
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        mistakes = f'  ✗{game.mistakes}' if game.mistakes else ''
+        game_header(d, f'SUDOKU  {clock_text(self.elapsed)}{mistakes}', wall_time, self.running)
+        sel = game.selected
+        sel_value = game.entries[sel] if sel is not None else 0
+        digit_font = font(16, bold=True) if cell >= 25 else SMALL
+        for i in range(81):
+            row, col = divmod(i, 9)
+            rect = (ox+col*cell, oy+row*cell, ox+col*cell+cell-1, oy+row*cell+cell-1)
+            fill = '#0e161d'
+            if sel is not None:
+                srow, scol = divmod(sel, 9)
+                if row == srow or col == scol or (row//3, col//3) == (srow//3, scol//3):
+                    fill = '#182634'
+                if sel_value and game.entries[i] == sel_value:
+                    fill = '#23445a'
+                if i == sel:
+                    fill = '#2f6f63'
+            d.rectangle(rect, fill=fill, outline='#2a3a46')
+            value = game.entries[i]
+            if value:
+                colour = TEXT if game.given(i) else DANGER if game.wrong(i) else ACCENT
+                d.text(((rect[0]+rect[2])//2+1, (rect[1]+rect[3])//2+1), str(value),
+                       font=digit_font, fill=colour, anchor='mm')
+        for k in range(0, 10, 3):  # Heavier 3x3 box lines.
+            d.line((ox+k*cell, oy, ox+k*cell, oy+9*cell), fill=MUTED, width=2)
+            d.line((ox, oy+k*cell, ox+9*cell, oy+k*cell), fill=MUTED, width=2)
+        for rect, value in keys:
+            complete = value and game.entries.count(value) == 9 and all(
+                game.entries[i] == value for i in range(81) if game.solution[i] == value)
+            button(d, rect, str(value) if value else 'ERASE',
+                   fill='#18252f' if complete else None)
+        if not self.running:
+            best = clock_text(self.best) if self.best else '--'
+            self.draw_dialog(d, f'Time {clock_text(self.elapsed)}   Best {best}', 'SOLVED!')
+        self.delay = 1. if self.running else .25
+        return image
+
+
 class GamesMenu:
     GAMES = (('SNAKE', 'snake'), ('TETRIS', 'tetris'), ('PONG', 'pong'),
-             ('BRICKS', 'bricks'), ('FLAPPY', 'flappy'))
+             ('BRICKS', 'bricks'), ('FLAPPY', 'flappy'), ('INVADERS', 'invaders'),
+             ('MINES', 'mines'), ('SOLITAIRE', 'solitaire'), ('SUDOKU', 'sudoku'))
+    LABEL, LABEL_SMALL = font(16, bold=True), font(13, bold=True)
 
     def __init__(self, notes):
         self.notes, self.delay = notes, 1.
 
     def rects(self):
-        """Two columns of tiles; the last slot is BACK."""
-        rects = grid_rects(len(self.GAMES)+1, 32, H+6, max_pitch=200)
+        """Three columns in landscape, two in portrait; BACK follows the last game."""
+        cols = 2 if portrait() else 3
+        count = len(self.GAMES) + 1
+        rows = -(-count // cols)
+        gap, top, bottom = 6, 30, H-4
+        width = (W - 12 - (cols-1)*gap) / cols
+        height = (bottom - top - (rows-1)*gap) / rows
+        rects = []
+        for i in range(count):
+            row, col = divmod(i, cols)
+            x0, y0 = 6 + col*(width+gap), top + row*(height+gap)
+            rects.append((round(x0), round(y0), round(x0+width), round(y0+height)))
         return rects[:-1], rects[-1]
 
     def tap(self, x, y, now):
@@ -2145,8 +2709,10 @@ class GamesMenu:
         for rect, (label, key) in zip(games, self.GAMES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
             mid_x, mid_y = (rect[0]+rect[2])//2, (rect[1]+rect[3])//2
-            d.text((mid_x, mid_y-8), label, font=BOLD, fill=TEXT, anchor='mm')
-            d.text((mid_x, mid_y+13), fit_text(d, notes.get(key, ''), rect[2]-rect[0]-8, TINY),
+            room = rect[2]-rect[0]-8
+            label_font = self.LABEL if d.textlength(label, font=self.LABEL) <= room else self.LABEL_SMALL
+            d.text((mid_x, mid_y-7), label, font=label_font, fill=TEXT, anchor='mm')
+            d.text((mid_x, mid_y+12), fit_text(d, notes.get(key, ''), room, TINY),
                    font=TINY, fill=MUTED, anchor='mm')
         button(d, back, 'BACK')
         return image
@@ -2445,7 +3011,8 @@ class VisualApp:
         return image
 
 
-GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy')
+GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
+              'sudoku')
 APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
@@ -3089,6 +3656,12 @@ def main():
                 'pong': PongApp(scores.get('pong_wins', 0), score_saver('pong_wins')),
                 'bricks': BrickApp(scores.get('bricks_best', 0), score_saver('bricks_best')),
                 'flappy': FlappyApp(scores.get('flappy_best', 0), score_saver('flappy_best')),
+                'invaders': InvadersApp(scores.get('invaders_best', 0), score_saver('invaders_best')),
+                'mines': MinesApp(scores.get('mines_best_seconds', 0), score_saver('mines_best_seconds')),
+                'solitaire': SolitaireApp(scores.get('solitaire_fewest_moves', 0),
+                                          score_saver('solitaire_fewest_moves')),
+                'sudoku': SudokuApp(scores.get('sudoku_best_seconds', 0),
+                                    score_saver('sudoku_best_seconds')),
                 'album': AlbumApp(album_show, cycle_option),
                 'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
 
@@ -3136,7 +3709,7 @@ def main():
                 gifs = 0
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
-                    'games': 'Snake, Tetris, Pong, Bricks, Flappy',
+                    'games': '9 games: arcade and puzzles',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -3257,7 +3830,11 @@ def main():
             'tetris': f"Best score: {apps['tetris'].best}",
             'pong': f"Games won: {apps['pong'].wins}",
             'bricks': f"Best score: {apps['bricks'].best}",
-            'flappy': f"Best score: {apps['flappy'].best}"})
+            'flappy': f"Best score: {apps['flappy'].best}",
+            'invaders': f"Best score: {apps['invaders'].best}",
+            'mines': f"Best time: {clock_text(apps['mines'].best) if apps['mines'].best else '--'}",
+            'solitaire': f"Fewest moves: {apps['solitaire'].best or '--'}",
+            'sudoku': f"Best time: {clock_text(apps['sudoku'].best) if apps['sudoku'].best else '--'}"})
 
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:

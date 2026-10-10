@@ -218,6 +218,41 @@ def games_screens(clock):
             app.set_rotation(0)
     save_sheet(sheets[0], 'games-landscape-preview.png', cols=3)
     save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
+    puzzle_screens(clock)
+
+
+def puzzle_screens(clock):
+    """Space Invaders, Minesweeper, Solitaire and Sudoku mid-game in both orientations."""
+    def screens():
+        invaders = app.InvadersApp(best=1200, seed=1)
+        invaders.state, invaders.last = 'running', 0
+        for step in range(40):
+            invaders.render(step*.05, clock, ())
+        mines = app.MinesApp(best=95, seed=3)
+        mines.state, mines.last = 'running', 0
+        mines.game.reveal((2, 2))
+        for cell in sorted(mines.game.mines)[:3]:
+            mines.game.toggle_flag(cell)
+        solitaire = app.SolitaireApp(seed=5)
+        solitaire.state, solitaire.last = 'running', 0
+        solitaire.game.draw()
+        solitaire.game.draw()
+        solitaire.selected = ('tab', 6, 6)
+        sudoku = app.SudokuApp(best=412, seed=2)
+        sudoku.new_game(0)
+        sudoku.state, sudoku.last = 'running', 0
+        for i, value in enumerate(sudoku.game.solution[:20]):
+            if not sudoku.game.given(i):
+                sudoku.game.entries[i] = value
+        sudoku.game.selected = 40
+        return [invaders.render(2.05, clock, ()), mines.render(1, clock, ()),
+                solitaire.render(1, clock, ()), sudoku.render(1, clock, ())]
+    try:
+        save_sheet(screens(), 'puzzles-landscape-preview.png', cols=2)
+        app.set_rotation(90)
+        save_sheet(screens(), 'puzzles-portrait-preview.png', cols=4)
+    finally:
+        app.set_rotation(0)
 
 
 if __name__ == '__main__':

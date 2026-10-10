@@ -1,5 +1,4 @@
 """Tetris and Pong: rules, touch controls in both orientations, and the app loop."""
-import json
 import sys
 import unittest
 from datetime import datetime
@@ -9,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 import panel_app as app  # noqa: E402
-from panel_tools.games import PIECES, TetrisGame, PongGame, BrickGame, FlappyGame  # noqa: E402
+from panel_tools.games import (PIECES, TetrisGame, PongGame, BrickGame, FlappyGame,  # noqa: E402
+                               InvadersGame, MinesGame, Klondike, SudokuGame, make_sudoku,
+                               sudoku_solutions)
 
 
 def centre(rect):
@@ -213,7 +214,8 @@ class GameAppsTest(unittest.TestCase):
             menu = app.GamesMenu(lambda: {'tetris': 'Best score: 9'})
             games, back = menu.rects()
             self.assertEqual([menu.tap(*centre(r), 0) for r in games],
-                             ['snake', 'tetris', 'pong', 'bricks', 'flappy'])
+                             ['snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders',
+                              'mines', 'solitaire', 'sudoku'])
             self.assertEqual(menu.tap(*centre(back), 0), 'exit')
             self.assertEqual(menu.render(0, datetime.now(), ()).size, (app.W, app.H))
 
@@ -349,29 +351,299 @@ class ArcadeAppsTest(unittest.TestCase):
         self.assertEqual(saved, [4])
 
 
+class InvadersRulesTest(unittest.TestCase):
+    def test_shooting_scores_and_one_bullet_at_a_time(self):
+        game = InvadersGame(320, 214, seed=1)
+        x0, y0, x1, y1 = game.alien_rect(4, 3)
+        game.aim((x0+x1)/2)
+        self.assertTrue(game.fire())
+        self.assertFalse(game.fire())  # Only one shot in the air.
+        game.bullet = [(x0+x1)/2, y1+4]
+        game.update(.03)
+        self.assertNotIn((4, 3), game.aliens)
+        self.assertEqual(game.score, 10)
+        self.assertIsNone(game.bullet)
+
+    def test_formation_marches_drops_and_speeds_up(self):
+        game = InvadersGame(320, 214, seed=2)
+        y, slow = game.offset_y, game.step_interval()
+        positions = set()
+        for _ in range(400):
+            game.bomb_timer = 99
+            game.update(.05)
+            positions.add(game.offset_x)
+        self.assertGreater(len(positions), 5)  # Marched sideways.
+        self.assertGreater(game.offset_y, y)  # Reached an edge and stepped down.
+        game.aliens = {(0, 0)}
+        self.assertLess(game.step_interval(), slow)
+
+    def test_bombs_hit_shields_and_player(self):
+        game = InvadersGame(320, 214, seed=3)
+        bx, by = sorted(game.shields)[0]
+        game.bombs = [[bx+1, by-1]]
+        game.bomb_timer = 99
+        game.update(.03)
+        self.assertNotIn((bx, by), game.shields)  # The shield took the hit.
+        game.bombs = [[game.player, game.player_y-6]]
+        self.assertEqual(game.update(.05), 'hit')
+        self.assertEqual(game.lives, 2)
+
+    def test_wave_clear_and_invasion(self):
+        game = InvadersGame(320, 214, seed=4)
+        game.aliens = {(0, 0)}
+        x0, y0, x1, y1 = game.alien_rect(0, 0)
+        game.bullet, game.bomb_timer = [(x0+x1)/2, y1+2], 99
+        self.assertEqual(game.update(.02), 'wave')
+        self.assertEqual((game.wave, len(game.aliens)), (2, 40))
+        game.offset_y = game.player_y
+        self.assertEqual(game.update(.01), 'invaded')
+        self.assertTrue(game.over)
+
+
+class MinesRulesTest(unittest.TestCase):
+    def test_first_dig_is_safe_and_floods(self):
+        for seed in range(20):
+            game = MinesGame(9, 9, 10, seed=seed)
+            self.assertNotEqual(game.reveal((4, 4)), 'boom')
+            self.assertFalse({(4, 4), *game.neighbours((4, 4))} & game.mines)
+            self.assertGreater(len(game.revealed), 1)  # A zero opens its neighbours.
+            self.assertEqual(len(game.mines), 10)
+
+    def test_flags_chord_win_and_boom(self):
+        game = MinesGame(4, 4, 1, seed=1)
+        game.mines = {(3, 3)}
+        game.reveal((0, 0))
+        self.assertTrue(game.won)  # Everything but the mine opened by the flood.
+        game = MinesGame(3, 1, 1)
+        game.mines = {(2, 0)}
+        game.reveal((1, 0))
+        game.toggle_flag((2, 0))
+        self.assertIsNone(game.reveal((2, 0)))  # Flagged squares cannot be dug.
+        game.toggle_flag((2, 0))
+        game.toggle_flag((0, 0))  # Wrong flag: chord digs the real mine.
+        self.assertEqual(game.chord((1, 0)), 'boom')
+        self.assertEqual(game.exploded, (2, 0))
+
+
+class SolitaireRulesTest(unittest.TestCase):
+    def test_deal(self):
+        game = Klondike(seed=1)
+        self.assertEqual([len(p) for p in game.tableau], list(range(1, 8)))
+        self.assertTrue(all(p[-1][1] and not any(up for _, up in p[:-1]) for p in game.tableau))
+        self.assertEqual(len(game.stock), 24)
+
+    def test_rules_for_stacking_foundations_and_flipping(self):
+        game = Klondike(seed=2)
+        game.tableau = [[[(5, 0), True]], [[(4, 1), True]], [[(4, 3), True]],
+                        [[(9, 2), False], [(1, 1), True]], [], [], []]
+        self.assertTrue(game.move(('tab', 1, 0), ('tab', 0)))   # Red 4 on black 5.
+        self.assertFalse(game.move(('tab', 2, 0), ('tab', 0)))  # Black 4 on red 4: no.
+        self.assertTrue(game.move(('tab', 3, 1), ('found',)))   # Ace up.
+        self.assertTrue(game.tableau[3][-1][1])                 # The card under it flips.
+        self.assertTrue(game.move(('tab', 0, 0), ('tab', 4)) is False)  # Only kings to empty.
+        game.tableau[5] = [[(13, 0), True]]
+        self.assertTrue(game.move(('tab', 5, 0), ('tab', 4)))
+        self.assertEqual(game.moves, 3)
+
+    def test_stock_recycles_and_auto_move(self):
+        game = Klondike(seed=3)
+        for _ in range(24):
+            game.draw()
+        self.assertEqual((len(game.stock), len(game.waste)), (0, 24))
+        game.draw()
+        self.assertEqual((len(game.stock), len(game.waste)), (24, 0))
+        game.waste = [(1, 2)]
+        self.assertTrue(game.auto_move(('waste',)))
+        self.assertEqual(game.foundations[2], [(1, 2)])
+
+    def test_win(self):
+        game = Klondike(seed=4)
+        game.foundations = [[(r, s) for r in range(1, 14)] for s in range(4)]
+        self.assertTrue(game.won)
+
+
+class SudokuRulesTest(unittest.TestCase):
+    def test_generator_gives_unique_valid_puzzles(self):
+        for seed in range(3):
+            puzzle, solution = make_sudoku(seed)
+            self.assertEqual(sudoku_solutions(puzzle, limit=2), 1)
+            self.assertTrue(all(p in (0, s) for p, s in zip(puzzle, solution)))
+            for k in range(9):  # Rows, columns and boxes all hold 1-9.
+                self.assertEqual(sorted(solution[k*9:k*9+9]), list(range(1, 10)))
+                self.assertEqual(sorted(solution[k::9]), list(range(1, 10)))
+                br, bc = k//3*3, k % 3*3
+                box = [solution[(br+r)*9+bc+c] for r in range(3) for c in range(3)]
+                self.assertEqual(sorted(box), list(range(1, 10)))
+
+    def test_place_mistakes_givens_and_win(self):
+        game = SudokuGame(seed=1)
+        given = game.puzzle.index(next(v for v in game.puzzle if v))
+        game.selected = given
+        self.assertIsNone(game.place(5))  # Givens cannot change.
+        empty = game.puzzle.index(0)
+        game.selected = empty
+        wrong = next(v for v in range(1, 10) if v != game.solution[empty])
+        self.assertEqual(game.place(wrong), 'wrong')
+        self.assertTrue(game.wrong(empty))
+        self.assertEqual(game.mistakes, 1)
+        game.place(0)
+        self.assertFalse(game.wrong(empty))
+        for i in range(81):
+            if not game.given(i):
+                game.selected = i
+                result = game.place(game.solution[i])
+        self.assertEqual(result, 'win')
+
+
+class PuzzleAppsTest(unittest.TestCase):
+    def tearDown(self):
+        app.set_rotation(0)
+
+    def start(self, game_app):
+        game_app.tap(*centre(app.SnakeApp.dialog_rects()[1]), 0)
+        self.assertTrue(game_app.running)
+
+    def test_invaders_drag_fires_and_records(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            saved = []
+            invaders = app.InvadersApp(save_best=saved.append, seed=1)
+            self.start(invaders)
+            invaders.hold((60, app.H-20), .1)
+            self.assertEqual(invaders.game.player, 60)
+            self.assertIsNotNone(invaders.game.bullet)  # Holding fires.
+            invaders.game.score, invaders.game.lives = 300, 1
+            invaders.game.bombs = [[invaders.game.player, invaders.game.player_y-2]]
+            invaders.render(.15, datetime.now(), ())
+            self.assertEqual(invaders.state, 'over')
+            self.assertEqual(saved, [300])
+
+    def test_mines_tap_dig_hold_flag_and_best_time(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            saved = []
+            mines = app.MinesApp(save_best=saved.append, seed=2)
+            self.start(mines)
+            cell, cols, rows, count, (ox, oy), toolbar = app.mines_layout()
+            self.assertLessEqual(ox + cols*cell, app.W)
+            self.assertLessEqual(toolbar[0][3], app.H)
+            self.assertGreaterEqual(cell, 22)  # Fingertip-sized squares.
+            point = (ox + cell*1.5, oy + cell*1.5)
+            mines.tap(*point, .1)
+            self.assertIn((1, 1), mines.game.revealed)
+            covered = next((x, y) for x in range(cols) for y in range(rows)
+                           if (x, y) not in mines.game.revealed)
+            hold_at = (ox + (covered[0]+.5)*cell, oy + (covered[1]+.5)*cell)
+            mines.hold(hold_at, 1.0)
+            mines.hold(hold_at, 1.6)  # Held past the flag delay.
+            self.assertIn(covered, mines.game.flags)
+            mines.tap(*hold_at, 1.7)  # The release does not dig.
+            mines.hold(None, 1.7)
+            self.assertNotIn(covered, mines.game.revealed)
+            mines.tap(*centre(toolbar[0]), 2)
+            self.assertTrue(mines.flag_mode)
+            mines.elapsed = 42.4
+            game = mines.game
+            game.flags.clear()
+            for x in range(cols):
+                for y in range(rows):
+                    if (x, y) not in game.mines and (x, y) not in game.revealed:
+                        game.revealed.add((x, y))
+            last = next(iter(game.revealed - {(1, 1)}))
+            game.revealed.discard(last)
+            mines.flag_mode = False
+            mines.tap(ox + (last[0]+.5)*cell, oy + (last[1]+.5)*cell, 3)
+            self.assertEqual(mines.state, 'over')
+            self.assertEqual(saved, [42])
+
+    def test_solitaire_tap_select_move_and_draw(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            solitaire = app.SolitaireApp(seed=3)
+            self.start(solitaire)
+            width, height, xs, top, tab_top = app.solitaire_layout()
+            self.assertLessEqual(xs[-1] + width, app.W)
+            game = solitaire.game
+            stock = len(game.stock)
+            solitaire.tap(xs[0]+5, top+5, .1)
+            self.assertEqual(len(game.stock), stock-1)
+            game.tableau[0] = [[(5, 0), True]]
+            game.tableau[1] = [[(4, 1), True]]
+            y1 = solitaire.fan(1)[0] + 5
+            solitaire.tap(xs[1]+5, y1, .2)
+            self.assertEqual(solitaire.selected, ('tab', 1, 0))
+            solitaire.tap(xs[0]+5, solitaire.fan(0)[0]+5, .3)
+            self.assertEqual(game.tableau[0][-1][0], (4, 1))
+            self.assertIsNone(solitaire.selected)
+            game.waste = [(1, 3)]
+            solitaire.tap(xs[1]+5, top+5, .4)
+            solitaire.tap(xs[1]+5, top+5, .5)  # Second tap: auto-move to the foundation.
+            self.assertEqual(game.foundations[3], [(1, 3)])
+            self.assertEqual(solitaire.render(.6, datetime.now(), ()).size, (app.W, app.H))
+
+    def test_solitaire_long_piles_fit_on_screen(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            solitaire = app.SolitaireApp(seed=4)
+            solitaire.game.tableau[6] = [[(9, 0), False]]*6 + [[(13-i, i % 4), True] for i in range(13)]
+            height = app.solitaire_layout()[1]
+            self.assertLessEqual(solitaire.fan(6)[-1] + height, app.H)
+
+    def test_sudoku_select_place_and_win(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            saved = []
+            sudoku = app.SudokuApp(save_best=saved.append, seed=5)
+            self.start(sudoku)
+            cell, (ox, oy), keys = app.sudoku_layout()
+            self.assertEqual(len(keys), 10)
+            for rect, _ in keys:
+                self.assertTrue(0 <= rect[0] < rect[2] <= app.W and 0 <= rect[1] < rect[3] <= app.H)
+            game = sudoku.game
+            empty = game.puzzle.index(0)
+            row, col = divmod(empty, 9)
+            sudoku.tap(ox + (col+.5)*cell, oy + (row+.5)*cell, .1)
+            self.assertEqual(game.selected, empty)
+            key = dict((v, r) for r, v in keys)[game.solution[empty]]
+            sudoku.tap(*centre(key), .2)
+            self.assertEqual(game.entries[empty], game.solution[empty])
+            for i in range(81):
+                if not game.given(i) and i != empty:
+                    game.entries[i] = game.solution[i]
+            game.entries[empty] = 0
+            sudoku.elapsed = 300.2
+            sudoku.tap(*centre(key), .3)
+            self.assertEqual(sudoku.state, 'over')
+            self.assertEqual(saved, [300])
+
+    def test_best_time_keeps_the_lower_value(self):
+        saved = []
+        sudoku = app.SudokuApp(best=200, save_best=saved.append)
+        sudoku.finish(250)
+        sudoku.finish(150)
+        self.assertEqual((sudoku.best, saved), (150, [150]))
+
+
 class GamesLoopTest(unittest.TestCase):
-    def test_menu_tetris_and_pong_through_the_real_loop(self):
+    def test_every_game_through_the_real_loop(self):
+        """Apps -> Games, then each game: START, PAUSE, QUIT; then BACK, Exit, Close."""
         import test_panel_app as t
-        # Landscape: APPS tab, GAMES tile, TETRIS, START, DROP, PAUSE, QUIT,
-        # PONG, START, PAUSE (header), QUIT, BRICKS..., FLAPPY..., BACK, EXIT tab, CLOSE.
-        drop = centre([r for r, a, _ in app.tetris_layout()[4] if a == 'drop'][0])
-        script = [(.5, 136, 222), (1.1, 240, 70), (1.7, 237, 62), (2.3, 100, 170),
-                  (2.9, *drop), (3.5, 300, 12), (4.1, 220, 170),
-                  (4.7, 80, 128), (5.3, 100, 170), (5.9, 300, 12), (6.5, 220, 170),
-                  (7.1, 237, 128), (7.7, 100, 170), (8.3, 160, 120), (8.9, 300, 12),
-                  (9.5, 220, 170),                       # BRICKS: start, launch, pause, quit
-                  (10.1, 80, 194), (10.7, 100, 170), (11.3, 300, 12),
-                  (11.9, 220, 170),                      # FLAPPY: start, pause, quit
-                  (12.5, 237, 194), (13.1, 300, 222), (13.7, 160, 150)]
-        t.FakeTouch.timeout = 30
+        games, back = app.GamesMenu(lambda: {}).rects()
+        start, quit_ = (centre(r) for r in app.SnakeApp.dialog_rects()[1:])
+        script, t0 = [(.5, 136, 222), (1.1, 240, 70)], 1.1
+        for rect in games:
+            for point in (centre(rect), start, (300, 12), quit_):
+                t0 += .6
+                script.append((t0, *point))
+        for point in (centre(back), (300, 222), (160, 150)):
+            t0 += .6
+            script.append((t0, *point))
+        t.FakeTouch.timeout = t0 + 15
         runner = t.MainLoopTest('test_leaving_camera_cancels_timer')
-        data, _ = runner.run_app(script)
+        runner.run_app(script)
         frames = t.FakeScreen.frames
-        self.assertTrue(frames)
         self.assertEqual(frames[-1].size, (320, 240))
-        scores = data / 'games.json'
-        if scores.exists():  # Only written when a record is set.
-            self.assertIsInstance(json.loads(scores.read_text()), dict)
+        self.assertGreater(len(frames), len(script))
 
 
 if __name__ == '__main__':
