@@ -29,6 +29,7 @@ new code: `sudo systemctl restart cyberdeck-panel`.
 | Status | `systemctl status cyberdeck-core` |
 | Logs | `journalctl -u cyberdeck-core -f` |
 | Restart after `git pull` | `sudo systemctl restart cyberdeck-core` |
+| Turn on offline search | `sudo python3 setup_core_service.py --now --kiwix-url http://127.0.0.1:8080 --kiwix-book <book>` (see [LIBRARIAN.md](LIBRARIAN.md#backend-configuration)) |
 | Remove | `sudo python3 setup_core_service.py --undo` |
 | Run by hand instead | `python3 -m core` (Ctrl+C stops it and saves the buffer) |
 
