@@ -6,12 +6,14 @@ from flask import Flask, jsonify, request
 from . import VERSION
 from .sysinfo import decode_flags, health_alerts
 from .telemetry import ACTIVITY_KINDS
+from .librarian.api import create_blueprint
 
 HISTORY_LIMIT = 7 * 86400
 
 
 def create_app(telemetry, started=None):
     app = Flask('cyberdeck-core')
+    app.register_blueprint(create_blueprint(telemetry=telemetry))
     started = time.time() if started is None else started
 
     def bad(message):
