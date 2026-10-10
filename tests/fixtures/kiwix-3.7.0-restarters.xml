@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/"
+     xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Search: repair</title>
+    <link>/search?pattern=repair&amp;books.name=restarters_en_all_maxi_2026-04&amp;format=xml&amp;start=1&amp;pageLength=2</link>
+    <description>Search result for repair</description>
+    <opensearch:totalResults>129</opensearch:totalResults>
+    <opensearch:startIndex>1</opensearch:startIndex>
+    <opensearch:itemsPerPage>2</opensearch:itemsPerPage>
+    <atom:link rel="search" type="application/opensearchdescription+xml" href="/search/searchdescription.xml"/>
+    <opensearch:Query role="request"
+      searchTerms="repair"
+      startIndex="1"
+      count="2"
+    />
+    <item>
+      <title>Glossary:Repair Café</title>
+      <link>/content/restarters_en_all_maxi_2026-04/Glossary%3ARepair_Caf%C3%A9</link>
+        <description>...<b>Repair</b> Café <b>Repair</b> Café International is an organisation based in Amsterdam and run by Martine Postma, who developed the original concept for <b>Repair</b> Café events and sparked the community <b>repair</b> movement. <b>Repair</b> Cafés are events at which volunteers help members of the public <b>repair</b> their electrical, electronic, mechanical and clothing items. Since the first ever <b>repair</b> café in 2009, <b>Repair</b> Café International now represents a global grassroots movement promoting <b>repair</b> through community......</description>
+        <book>
+          <title>Restarters</title>
+        </book>
+        <wordCount>93</wordCount>
+    </item>
+    <item>
+      <title>Summary iPhone iPad and iPod repair</title>
+      <link>/content/restarters_en_all_maxi_2026-04/Summary_iPhone_iPad_and_iPod_repair</link>
+        <description>...<b>repair</b> This page summarises the <b>repair</b> of Apple iPhones, iPads and iPods. Summary Apple iPhones, iPads and iPods are frequently seen at a Restart Party, often with broken screens, dead batteries or water damage. None are easy to <b>repair</b> but some are harder than others. This page aims to help you quickly assess whether a given device is likely to be within your capability, whether you are a beginner with such devices, or have some level of experience. In the case of water damage, repairability......</description>
+        <book>
+          <title>Restarters</title>
+        </book>
+        <wordCount>1,669</wordCount>
+    </item>
+  </channel>
+</rss>

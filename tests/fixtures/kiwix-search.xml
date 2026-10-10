@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+  <channel>
+    <title>Search: passive sonobuoy</title>
+    <opensearch:totalResults>2</opensearch:totalResults>
+    <item><title>Sonobuoy</title><link>/content/wikipedia_en_test/Sonobuoy</link>
+      <description>A &lt;b&gt;passive&lt;/b&gt; sonobuoy listens &amp; transmits.</description></item>
+    <item><title>Sonar</title><link>/content/wikipedia_en_test/Sonar</link>
+      <description>Underwater <b>sound</b> detection.</description></item>
+  </channel>
+</rss>
