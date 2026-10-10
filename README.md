@@ -9,7 +9,7 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
 | APPS (via Home) | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy, Space Invaders, Minesweeper, Solitaire, Sudoku), slideshow, GIFs, Quick controls and Tools |
 | TOOLS | Timelapse, timers, network history, selected-photo sharing, presets, recovery, updates and GNSS placeholder |
-| STATUS | CPU/RAM graphs, temperature, storage, uptime; DETAILS shows power, clock sync, Wi-Fi and network |
+| STATUS | CPU/RAM graphs, temperature, storage, uptime; HISTORY shows up to 7 days of temperature, CPU and undervoltage (needs cyberdeck-core); DETAILS shows power, clock sync, Wi-Fi and network |
 | OPTIONS | Pixel level, screensavers, colour test, touch calibration, graph length, photo size, alert banner |
 | EXIT | Close the app, or shut down the Pi safely |
 
@@ -21,6 +21,7 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 ## Files
 
 - `panel_app.py` and `panel_tools/`: the app. Keep the repository together; run `sudo python3 ~/cyberdeck-repo/panel_app.py`.
+- `core/` and `setup_core_service.py`: the local backend (telemetry log and API; librarian next). See [CORE.md](docs/CORE.md).
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
 - `setup_backlight.py`: optional PWM backlight (real dimming, Black saver switches the backlight off). See [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md).
