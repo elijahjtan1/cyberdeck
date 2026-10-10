@@ -9,6 +9,11 @@ No desktop preview or console switching. Hardware imports happen only at startup
 Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.md).
 """
 import argparse
+import sys
+import queue
+from panel_tools.runtime import CameraWorker, Job, data_home
+from panel_tools.camera import CameraDriver, camera_image
+from panel_tools.ui import ToolsUI
 import json
 import os
 from pathlib import Path
@@ -312,60 +317,10 @@ class Framebuffer:
         self.file.close()
 
 
-def camera_image(array):
-    """BGR888 picamera2 arrays are already in R,G,B byte order."""
-    return Image.fromarray(np.ascontiguousarray(array[:, :, :3]))
-
-
-class Camera:
-    """Low-resolution live preview plus an on-demand full-sensor still mode."""
+class Camera(CameraDriver):
+    """Use the current logical screen size for the camera's preview stream."""
     def __init__(self, fps):
-        from picamera2 import Picamera2
-        self.fps = fps
-        self.cam = Picamera2()
-        try:
-            self.preview_config = self.cam.create_video_configuration(
-                main={'size': (W, H), 'format': 'BGR888'},
-                controls={'FrameRate': fps}, buffer_count=4)
-            # One full-size buffer keeps camera memory use modest on the Pi 4.
-            self.still_config = self.cam.create_still_configuration(
-                main={'format': 'BGR888'}, buffer_count=1)
-            self.cam.configure(self.preview_config)
-            self.cam.start(show_preview=False)
-        except Exception:
-            self.cam.close()
-            raise
-
-    def frame(self):
-        return camera_image(self.cam.capture_array('main'))
-
-    def set_fps(self, fps):
-        self.fps = fps
-        self.cam.set_controls({'FrameRate': fps})
-
-    def capture_full(self):
-        """Blocks for roughly a second while the sensor switches mode and back."""
-        array = self.cam.switch_mode_and_capture_array(self.still_config, 'main')
-        self.cam.set_controls({'FrameRate': self.fps})
-        return camera_image(array)
-
-    def recover(self):
-        """Put the preview back after a failed still capture. False if unusable."""
-        try:
-            try:
-                self.cam.stop()
-            except Exception:
-                pass
-            self.cam.configure(self.preview_config)
-            self.cam.start(show_preview=False)
-            self.cam.set_controls({'FrameRate': self.fps})
-            return True
-        except Exception as exc:
-            print('Camera could not restart:', exc, flush=True)
-            return False
-
-    def close(self):
-        self.cam.close()
+        super().__init__(fps, preview_size=(W, H))
 
 
 def photo_label(path):
@@ -1563,8 +1518,8 @@ class SnakeApp:
 
 
 def desktop_user():
-    uid = int(os.environ.get('SUDO_UID', os.getuid()))
-    gid = int(os.environ.get('SUDO_GID', os.getgid()))
+    uid = int(os.environ.get('SUDO_UID', getattr(os, 'getuid', lambda: 0)()))
+    gid = int(os.environ.get('SUDO_GID', getattr(os, 'getgid', lambda: 0)()))
     return uid, gid
 
 
@@ -1582,7 +1537,7 @@ def user_process_kwargs():
         groups = os.getgrouplist(entry.pw_name, gid)
     except (ImportError, KeyError, OSError):
         groups = None
-    if os.getuid() == 0 and uid != 0:
+    if getattr(os, 'getuid', lambda: 0)() == 0 and uid != 0:
         kwargs.update(user=uid, group=gid)
         if groups is not None:
             kwargs['extra_groups'] = groups
@@ -1653,7 +1608,22 @@ class AudioControl:
         return (None, None)
 
     def act(self, action):
+        if action == 'detect':
+            self.backend = self.detect()
+            return
         kind, control = self.backend
+        if action.startswith(('volume:', 'muted:')):
+            name, value = action.split(':', 1)
+            if name == 'volume' and value.isdecimal() and 0 <= int(value) <= 100:
+                cmd = (['wpctl', 'set-volume', '-l', '1.0', self.SINK, value+'%'] if kind == 'wpctl'
+                       else ['amixer', '-M', 'sset', control or '', value+'%'])
+            elif name == 'muted' and value in ('0', '1'):
+                cmd = (['wpctl', 'set-mute', self.SINK, value] if kind == 'wpctl'
+                       else ['amixer', 'sset', control or '', 'mute' if value == '1' else 'unmute'])
+            else:
+                return
+            if kind in ('wpctl', 'amixer'): self.run(cmd)
+            return
         player = self.which('playerctl')
         commands = {
             'wpctl': {'up': ['wpctl', 'set-volume', '-l', '1.0', self.SINK, '5%+'],
@@ -1840,7 +1810,7 @@ class VisualApp:
         return image
 
 
-APP_TILES = (('AUDIO', 'audio'), ('SNAKE', 'snake'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'))
+APP_TILES = (('AUDIO', 'audio'), ('SNAKE', 'snake'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
@@ -2190,15 +2160,18 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
     elif page == 'shutdown':
         centred(d, 52+dy, 'Shut down the Raspberry Pi?', FONT)
         centred(d, 78+dy, 'Save your work in VNC first.', SMALL, MUTED)
-        centred(d, 96+dy, 'Power can be removed once the', SMALL, MUTED)
-        centred(d, 112+dy, 'green LED stops flashing.', SMALL, MUTED)
+        centred(d, 96+dy, 'Wait for the current operation...' if extra.get('busy') else
+                'Power can be removed once the', SMALL, WARN if extra.get('busy') else MUTED)
+        centred(d, 112+dy, 'Then tap SHUT DOWN again.' if extra.get('busy') else
+                'green LED stops flashing.', SMALL, MUTED)
         button(d, (12, 132+dy, W//2-9, 185+dy), 'CANCEL', active=True, action='shut:cancel')
         button(d, (W//2+8, 132+dy, W-13, 185+dy), 'SHUT DOWN', fill=DANGER, action='shut:confirm')
     else:
         top = 12 if portrait() else 0
         centred(d, 52+top, 'Close the app or shut down?', FONT)
         centred(d, 80+top, 'Close releases the camera and touch.', SMALL, MUTED)
-        centred(d, 98+top, 'Shut down asks once more first.', SMALL, MUTED)
+        centred(d, 98+top, 'Busy: wait before closing.' if extra.get('busy') else
+                'Shut down asks once more first.', SMALL, MUTED)
         rects = ([(20, 120+i*46, W-21, 158+i*46) for i in range(3)] if portrait() else
                  row_rects(3, 121, 174, margin=12, gap=11))
         for rect, label, action in zip(rects,
@@ -2272,7 +2245,7 @@ def main():
     parser.add_argument('--calibrate', action='store_true')
     parser.add_argument('--touch', help='Override touchscreen event device')
     parser.add_argument('--status-only', action='store_true')
-    parser.add_argument('--data', help='Data folder (default: cyberdeck-data beside this script)')
+    parser.add_argument('--data', help='Data folder (default: ~/cyberdeck-data for the invoking user)')
     parser.add_argument('--rotation', type=int, choices=(0, 90, 180, 270),
                         help='Turn the UI clockwise for this run only (overrides OPTIONS -> Screen)')
     args = parser.parse_args()
@@ -2285,7 +2258,7 @@ def main():
         lock.close()
         raise RuntimeError('Cyberdeck is already running. Stop the other copy first '
                            f'(boot service: sudo systemctl stop {SERVICE}).')
-    data = Path(args.data) if args.data else Path(__file__).resolve().parent / 'cyberdeck-data'
+    data = data_home(args.data, __file__)
     photos = data / 'photos'
     photos.mkdir(parents=True, exist_ok=True)
     user_owns(data)
@@ -2304,6 +2277,11 @@ def main():
     screen = touch = camera = stats = audio = capture = None
     players = []
     shutdown_requested = False
+    restart_requested = False
+    tools_ui = None
+    photo_job = Job()
+    photo_pending = False
+    lapse_shot = False
     def terminate(signum, frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, terminate)
@@ -2331,7 +2309,7 @@ def main():
         ready_message = 'Live | SNAP saves a photo'
         message = ready_message
         if not args.status_only:
-            camera = start_camera(args.fps)
+            camera = CameraWorker(start_camera, args.fps)
             if camera is None:
                 message = 'Camera unavailable; see terminal'
         page = 'camera' if camera else 'status'
@@ -2411,6 +2389,9 @@ def main():
             next_draw = 0
 
         def open_app(name, now):
+            if name in ('tools', 'quick'):
+                tools_ui.page = 'quick' if name == 'quick' else 'tools'
+                return 'tools'
             if name == 'album':
                 album_show.refresh()
                 album_show.paused = False
@@ -2427,7 +2408,8 @@ def main():
                 gifs = sum(1 for p in gif_dir.iterdir() if p.suffix.lower() == '.gif')
             except OSError:
                 gifs = 0
-            return {'audio': 'Volume, media, visualizer',
+            return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
+                    'audio': 'Volume, media, visualizer',
                     'snake': f"Best score: {apps['snake'].best}",
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
@@ -2459,11 +2441,13 @@ def main():
                 extra = {'notes': app_notes()}
             elif page == 'audio':
                 extra = {'audio': audio.state, 'capture': capture}
+            elif page in ('exit', 'shutdown'):
+                extra = {'busy': photo_pending or tools_ui.job.busy}
             if page == 'camera':
                 thumb = library.preview(library.latest(), (60, 45))[0]
                 countdown = (max(1, math.ceil(countdown_end-now))
                              if countdown_end is not None else None)
-                cam = {'thumb': thumb, 'countdown': countdown, 'capturing': capturing,
+                cam = {'thumb': thumb, 'countdown': countdown, 'capturing': capturing or ('Saving...' if photo_pending else None),
                        'flash': now < flash_until,
                        'saved': saved_text if now < saved_until and not capturing else ''}
             else:
@@ -2471,51 +2455,77 @@ def main():
             photo = photo_state() if page in ('photos', 'photofull', 'photodelete') else None
             text = {'options': option_message, 'savers': option_message,
                     'photos': photo_message}.get(page, message)
+            if page == 'camera' and camera is not None and not camera.ready:
+                text = camera.error or 'Connecting camera...'
             screen.pixel_level = 100 if page == 'colours' else options['pixel_level']
             screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
                                options, alerts=alerts, cam=cam, photo=photo, extra=extra))
             return 1/15 if page == 'audio' else 2. if page == 'apps' else .25
 
-        def take_photo():
-            """Full-resolution still (or the preview frame), then a visible confirmation."""
-            nonlocal camera, message, flash_until, saved_until, saved_text, photo_index
-            note = ''
-            image = None
-            if camera is not None and not paused and options['photo_size'] == 'full':
-                draw(time.monotonic(), capturing='Capturing...')
-                try:
-                    image = turn_image(camera.capture_full(), options['camera_turn'])
-                except Exception as exc:
-                    print('Full-resolution capture failed:', exc, flush=True)
-                    if not camera.recover():
-                        try:
-                            camera.close()
-                        except Exception:
-                            pass
-                        camera = None
-                        message = 'Camera stopped; see terminal'
-                        return
-                    note = ' (full-res failed)'
-            if image is None:
+        def take_photo(timelapse=False):
+            """Schedule one capture/save; publish results on the UI thread."""
+            nonlocal photo_pending, lapse_shot, message
+            if photo_pending:
+                return False
+            full = timelapse or (options['photo_size'] == 'full' and not paused)
+            angle = options['camera_turn']
+            def save_image(image):
+                # Separate library instance keeps UI caches owned by the UI thread.
+                path = PhotoLibrary(photos).save(image)
+                return path, image.size
+            if full:
+                if camera is None or not camera.snapshot(
+                        lambda driver: save_image(turn_image(driver.capture_full(), angle))):
+                    message = 'Camera busy or unavailable; see Tools > Recovery'
+                    return False
+            else:
                 if frame is None:
-                    message = 'No camera frame to save'
-                    return
+                    message = 'No preview frame to save'
+                    return False
                 image = frame.copy()
-            if image.width > W:
-                draw(time.monotonic(), capturing='Saving...')
+                if not photo_job.start(lambda: save_image(image)):
+                    return False
+            photo_pending, lapse_shot = True, timelapse
+            message = 'Capturing in background...'
+            return True
+
+        def retry_camera():
+            nonlocal camera
+            if camera is None:
+                camera = CameraWorker(start_camera, fps)
+            else:
+                camera.retry()
+
+        def apply_preset(value):
+            nonlocal fps
+            if not isinstance(value, dict) or not isinstance(value.get('options'), dict):
+                return 'Invalid preset'
+            previous = dict(options)
+            for key, item in value['options'].items():
+                allowed = OPTION_VALUES.get(key, ())
+                if allowed and type(item) is type(allowed[0]) and item in allowed:
+                    options[key] = item
             try:
-                path = library.save(image)
-            except OSError as exc:
-                print('Could not save photo:', exc, flush=True)
-                message = 'Save failed: ' + ('storage full' if 'storage' in str(exc)
-                                             else 'see terminal')
-                return
-            print('Saved:', path, f'{image.width}x{image.height}', flush=True)
-            now = time.monotonic()
-            flash_until, saved_until = now + .15, now + 1.8
-            saved_text = f'{image.width}x{image.height}{note}'
-            message = f'Saved {path.name[6:21]}  {image.width}x{image.height}{note}'
-            photo_index = len(library.items)-1
+                save_options(options_file, options)
+            except OSError:
+                options.clear(); options.update(previous)
+                return 'Could not save preset settings'
+            apply_rotation()
+            if value.get('fps') in (10, 15, 20):
+                fps = value['fps']
+                if camera: camera.set_fps(fps)
+            volume = value.get('volume')
+            if type(volume) is int and 0 <= volume <= 100:
+                audio.request('volume:' + str(volume))
+            if type(value.get('muted')) is bool:
+                audio.request('muted:' + str(int(value['muted'])))
+            return 'Preset applied'
+
+        tools_ui = ToolsUI(sys.modules[__name__], data, Path(__file__).resolve().parent,
+                           library, options, audio,
+                           {'snap': take_photo, 'busy': lambda: photo_pending,
+                            'fps': lambda: fps, 'preset': apply_preset, 'retry': retry_camera})
+        apps['tools'] = tools_ui
 
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
@@ -2537,7 +2547,12 @@ def main():
                     next_draw = 0
                     ignore_touch_until = now + .3
                     break
-                if page in ('colours', 'photofull'):
+                if tools_ui.clocks.alarm and y < 24:
+                    tools_ui.clocks.alarm = False
+                    alerts = [a for a in alerts if a[1] != 'TIMER DONE - tap to dismiss']
+                    next_draw = 0
+                    break
+                if page == 'colours':
                     page = 'options' if page == 'colours' else 'photos'
                     next_draw = 0
                     ignore_touch_until = now + .3
@@ -2545,7 +2560,19 @@ def main():
                 if not (0 <= x < W and 0 <= y < H):
                     continue
                 if page in apps:
-                    if apps[page].tap(x, y, now) == 'exit':
+                    result = apps[page].tap(x, y, now)
+                    if result == 'restart':
+                        if not tools_ui.job.busy and not photo_pending:
+                            restart_requested, running = True, False
+                        else:
+                            tools_ui.message = 'Wait for the current operation'
+                    elif result == 'shutdown':
+                        exit_return_page, page = page, 'shutdown'
+                    elif result == 'saver':
+                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
+                    elif result in ('camera', 'photos'):
+                        page = result
+                    elif result == 'exit':
                         if page == 'gifs':
                             gif_player.close()
                         page = 'audio' if page == 'visual' else 'apps'
@@ -2618,7 +2645,8 @@ def main():
                     if arg == 'cancel':
                         page = exit_return_page
                     elif arg == 'close':
-                        running = False
+                        if not photo_pending and not tools_ui.job.busy:
+                            running = False
                     else:
                         page = 'shutdown'
                         ignore_touch_until = now + .5
@@ -2626,8 +2654,9 @@ def main():
                     if arg == 'cancel':
                         page = exit_return_page
                     else:
-                        shutdown_requested = True
-                        running = False
+                        if not photo_pending and not tools_ui.job.busy:
+                            shutdown_requested = True
+                            running = False
                 elif kind == 'del':
                     if arg == 'confirm':
                         path = current_photo()
@@ -2691,7 +2720,8 @@ def main():
                     elif arg == 'newer':
                         photo_index = min(len(library.items)-1, photo_index+1)
                     elif arg == 'full':
-                        page = 'photofull'
+                        if tools_ui.open_zoom(current_photo()):
+                            page = 'tools'
                     elif arg == 'delete':
                         page = 'photodelete'
                         ignore_touch_until = now + .35
@@ -2701,10 +2731,43 @@ def main():
             if not running:
                 break
             now = time.monotonic()
+            completed = photo_job.consume()
+            if camera:
+                try:
+                    completed = camera.results.get_nowait()
+                except queue.Empty:
+                    pass
+            if completed is not None:
+                result, error = completed
+                photo_pending = False
+                if lapse_shot:
+                    tools_ui.lapse.completed(now, error)
+                    lapse_shot = False
+                if error:
+                    message = 'Photo failed: ' + error
+                    print(message, flush=True)
+                else:
+                    path, size = result
+                    library.refresh()
+                    photo_index = len(library.items)-1
+                    saved_text = f'{size[0]}x{size[1]}'
+                    message = 'Saved ' + path.name
+                    flash_until, saved_until = now+.15, now+1.8
+                tools_ui.message = message
+                next_draw = 0
+            tools_ui.tick(now, rows, camera)
             if now >= next_stats:
                 rows = stats.read()
                 alerts = health_alerts(rows, now) if options['alerts'] == 'on' else []
                 next_stats = now + 1
+            alerts = [a for a in alerts if a[1] != 'TIMER DONE - tap to dismiss']
+            if tools_ui.clocks.alarm:
+                alerts.insert(0, ('warning', 'TIMER DONE - tap to dismiss'))
+                if active_saver:
+                    active_saver.close()
+                    active_saver = None
+                    next_draw = 0
+                last_touch = now
             if countdown_end is not None:
                 if page != 'camera':
                     countdown_end = None
@@ -2719,16 +2782,20 @@ def main():
                     continue
             # Visualizer audio and volume polling run only while their pages are open.
             listening = page in ('audio', 'visual') and active_saver is None
-            audio.active = listening
+            audio.active = listening or (page == 'tools' and tools_ui.page in ('quick', 'presets', 'recovery'))
             if listening:
                 capture.ensure(options['vis_source'])
             elif capture.source is not None:
                 capture.stop()
             if (active_saver is None and countdown_end is None
+                    and not photo_pending and not tools_ui.clocks.alarm
+                    and not (page == 'tools' and tools_ui.confirm)
                     and not (page == 'snake' and apps['snake'].running)
                     and saver_due(options, now-last_touch, page)):
                 active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
             if active_saver is not None:
+                if camera:
+                    camera.preview = False
                 if now >= next_saver_draw:
                     screen.pixel_level = min(options['pixel_level'],options['saver_level'])
                     image, delay = active_saver.render(now, datetime.now().astimezone(), alerts)
@@ -2737,17 +2804,22 @@ def main():
                 time.sleep(min(.02, max(0, next_saver_draw-time.monotonic())))
                 continue
             live = page == 'camera' and camera is not None and not paused
-            if live:
+            if camera:
+                camera.preview = live and active_saver is None
+            if live and camera.frame() is not None:
                 frame = turn_image(camera.frame(), options['camera_turn'])
-            if live or now >= next_draw:
+            if now >= next_draw:
                 delay = draw(now)
                 next_draw = now + (1/fps if live else delay)
-            if not live:
-                time.sleep(min(.02, max(0, next_draw-time.monotonic())))
+            time.sleep(min(.02, max(0, next_draw-time.monotonic())))
     except KeyboardInterrupt:
         print('\nStopped.', flush=True)
         shutdown_requested = False
     finally:
+        if tools_ui is not None:
+            tools_ui.close()
+        if photo_job.thread and photo_job.thread.is_alive():
+            photo_job.thread.join(timeout=15)
         if stats is not None:
             stats.close()
         for helper in (audio, capture):
@@ -2777,6 +2849,12 @@ def main():
                 if screen is not None:
                     screen.close()
                 lock.close()
+    if restart_requested:
+        # Older revisions also understand --data; keep rollback on the same library.
+        arguments = list(sys.argv)
+        if args.data is None:
+            arguments.extend(['--data', str(data)])
+        os.execv(sys.executable, [sys.executable, *arguments])
     if shutdown_requested:
         # systemd stops this process during shutdown; let SIGTERM end it quietly.
         signal.signal(signal.SIGTERM, signal.SIG_DFL)

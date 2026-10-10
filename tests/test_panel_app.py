@@ -1,5 +1,6 @@
 """Hardware-free tests. Run: python3 -m unittest discover -s tests -v"""
 import json
+import builtins
 import sys
 import tempfile
 import time
@@ -563,7 +564,20 @@ class MainLoopTest(unittest.TestCase):
         (data / 'options.json').write_text(json.dumps({'rotation': 0, **(options or {})}))
         FakeTouch.script, FakeScreen.frames, FakeCamera.instances = script, [], []
         poweroff = mock.Mock()
+        real_open = builtins.open
+        def local_lock(path, *args, **kwargs):
+            if path == '/run/lock/cyberdeck-camera-monitor.lock':
+                path = data / 'test.lock'
+            return real_open(path, *args, **kwargs)
+        fake_stats = mock.Mock()
+        fake_stats.history = []
+        fake_stats.read.return_value = {}
         with mock.patch.object(app, 'Framebuffer', FakeScreen), \
+                mock.patch.dict(sys.modules, {'fcntl': mock.Mock(LOCK_EX=2, LOCK_NB=4)}), \
+                mock.patch('builtins.open', side_effect=local_lock), \
+                mock.patch.object(app, 'Stats', return_value=fake_stats), \
+                mock.patch.object(app, 'user_owns'), \
+                mock.patch('panel_tools.updates.Updates.git', return_value='test'), \
                 mock.patch.object(app, 'Touch', FakeTouch), \
                 mock.patch.object(app, 'Camera', FakeCamera), \
                 mock.patch.object(app, 'request_poweroff', poweroff), \
@@ -576,6 +590,36 @@ class MainLoopTest(unittest.TestCase):
         return data, poweroff
 
     # Coordinates: camera row y=190, tabs y=222, exit/shutdown buttons y=150/160.
+    def test_navigation_stays_responsive_during_full_capture(self):
+        import threading
+        started, finished = threading.Event(), threading.Event()
+        navigated_while_busy = []
+        original_capture, original_render = FakeCamera.capture_full, app.render
+        def slow_capture(camera):
+            started.set()
+            time.sleep(1.2)
+            result = original_capture(camera)
+            finished.set()
+            return result
+        def observed_render(page, *args, **kwargs):
+            if page == 'photos' and started.is_set() and not finished.is_set():
+                navigated_while_busy.append(True)
+            return original_render(page, *args, **kwargs)
+        with mock.patch.object(FakeCamera, 'capture_full', slow_capture), \
+                mock.patch.object(app, 'render', side_effect=observed_render):
+            data, _ = self.run_app([(.5, 40, 190), (.9, 96, 222),
+                                    (2.4, 290, 222), (3.1, 160, 150)])
+        self.assertTrue(navigated_while_busy)
+        self.assertEqual(len(list((data/'photos').glob('*.jpg'))), 1)
+
+    def test_tools_timelapse_runs_after_leaving_its_page(self):
+        data, _ = self.run_app([(.5, 136, 222), (1.1, 80, 164), # APPS > TOOLS
+                               (1.7, 240, 68), (2.3, 80, 142), # TIMELAPSE > START
+                               (2.9, 240, 222), # return to CAMERA
+                               (3.6, 290, 222), (4.3, 160, 150)])
+        self.assertGreaterEqual(FakeCamera.instances[0].full_captures, 1)
+        self.assertGreaterEqual(len(list((data/'photos').glob('*.jpg'))), 1)
+
     def test_snap_review_delete_then_shutdown(self):
         script = [(.5, 40, 190),     # SNAP -> full-resolution capture
                   (1.2, 96, 222),    # PHOTOS tab
@@ -670,6 +714,7 @@ class ServiceSetupTest(unittest.TestCase):
             unit = self.service.install(app_path, 1000, 1000, root=root, run=calls.append)
             text = unit.read_text()
             self.assertIn(f'ExecStart=/usr/bin/python3 {app_path}', text)
+            self.assertIn(f'--data {self.service.default_data(1000)}', text)
             self.assertIn('Restart=on-failure', text)
             self.assertIn('Environment=SUDO_UID=1000 SUDO_GID=1000', text)
             self.assertEqual(calls[-1], ['systemctl', 'enable', 'cyberdeck-panel.service'])
