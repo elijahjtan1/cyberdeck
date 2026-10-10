@@ -178,14 +178,103 @@ class LayoutTest(unittest.TestCase):
         for label in ('TIMER 10s', 'TIMER OFF', 'RESUME', '20 FPS', '< OLDER', 'NEWER >'):
             self.assertLess(d.textlength(label, font=app.SMALL), 72, label)
 
-    def test_hit_helpers(self):
+    def test_hotspots_follow_what_was_drawn(self):
         self.assertEqual(app.TAB_EDGES[-1], 320)
-        self.assertEqual([app.tab_at(x) for x in (0, 57, 58, 120, 180, 230, 319)],
-                         [0, 0, 1, 2, 3, 4, 5])
-        self.assertEqual([app.row_button(x) for x in (0, 79, 80, 319)], [0, 0, 1, 3])
-        self.assertEqual(app.grid_at(20, 160), 6)
-        self.assertEqual(app.grid_at(300, 170), 7)
-        self.assertIsNone(app.grid_at(160, 100))
+        app.render('camera', scene(), False, 20, self.rows, '')
+        self.assertEqual([app.hit(x, 222) for x in (10, 100, 136, 180, 240, 300)],
+                         ['tab:camera', 'tab:photos', 'tab:apps', 'tab:status',
+                          'tab:options', 'tab:exit'])
+        self.assertEqual([app.hit(x, 190) for x in (40, 120, 200, 280)],
+                         ['cam:snap', 'cam:timer', 'cam:pause', 'cam:fps'])
+        self.assertIsNone(app.hit(160, 90))  # Preview area: nothing to press.
+        app.render('options', None, False, 20, self.rows, '')
+        rects = app.grid_rects(10)
+        self.assertEqual(app.hit(*rects[8][:2]), 'opt:8')
+        self.assertLess(rects[-1][3], 204)  # Ten option buttons clear the tab bar.
+        app.render('exit', None, False, 20, self.rows, '')
+        self.assertEqual([app.hit(x, 150) for x in (50, 160, 260)],
+                         ['exit:cancel', 'exit:close', 'exit:shutdown'])
+        self.assertEqual(app.HOTSPOTS_PAGE[0], 'exit')
+
+
+class RotationTest(unittest.TestCase):
+    rows = LayoutTest.rows
+
+    def tearDown(self):
+        app.set_rotation(0)
+
+    def test_coordinates_round_trip_and_match_the_turned_image(self):
+        for degrees in (0, 90, 180, 270):
+            app.set_rotation(degrees)
+            self.assertEqual((app.W, app.H), (240, 320) if degrees in (90, 270) else (320, 240))
+            logical = Image.new('RGB', (app.W, app.H), 'black')
+            for point in ((0, 0), (17, 5), (app.W-1, app.H-1), (app.W-30, 40)):
+                logical.putpixel(point, (255, 255, 255))
+                panel = app.physical_image(logical)
+                self.assertEqual(panel.size, (320, 240))
+                self.assertEqual(panel.getpixel(app.to_physical(*point)), (255, 255, 255), (degrees, point))
+                self.assertEqual(app.to_logical(*app.to_physical(*point)), point)
+                logical.putpixel(point, (0, 0, 0))
+
+    def test_ninety_clockwise_puts_the_top_on_the_right(self):
+        app.set_rotation(90)
+        self.assertEqual(app.to_physical(0, 0), (319, 0))
+        self.assertEqual(app.to_physical(0, app.H-1), (0, 0))
+        with self.assertRaises(ValueError):
+            app.physical_image(Image.new('RGB', (320, 240)))  # Wrong canvas for 90 degrees.
+        with self.assertRaises(ValueError):
+            app.set_rotation(45)
+
+    def test_portrait_pages_fit_and_hotspots_stay_on_canvas(self):
+        app.set_rotation(90)
+        capture = app.AudioCapture(which=lambda name: None)
+        extra = {'notes': {}, 'capture': capture, 'audio': {'volume': 40, 'player': 'Paused'}}
+        photo = {'image': scene((640, 480)), 'size': (3280, 2464), 'index': 1, 'count': 3,
+                 'label': '2026/10/09 19:12:33'}
+        cam = {'thumb': scene((60, 45)), 'countdown': 3}
+        d = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+        for page in ('camera', 'photos', 'photodelete', 'status', 'health', 'options', 'savers',
+                     'saverstyle', 'apps', 'audio', 'calconfirm', 'colours', 'exit', 'shutdown',
+                     'stopped', 'poweroff', 'photofull'):
+            image = app.render(page, scene(), False, 20, self.rows, 'A long status message here',
+                               photo=photo, cam=cam, extra=extra,
+                               alerts=[('warning', 'WARM 77 C')])
+            self.assertEqual(image.size, (240, 320), page)
+            for (x0, y0, x1, y1), action in app.HOTSPOTS:
+                self.assertTrue(0 <= x0 < x1 < 240 and 0 <= y0 < y1 < 320, (page, action))
+        # Tabs sit in two rows of three under the content, all reachable.
+        app.render('status', None, False, 20, self.rows, '')
+        tabs = [a for _, a in app.HOTSPOTS if a.startswith('tab:')]
+        self.assertEqual(len(tabs), 6)
+        self.assertEqual(app.hit(40, 275), 'tab:camera')
+        self.assertEqual(app.hit(200, 305), 'tab:exit')
+        self.assertEqual(app.hit(*app.grid_rects(10)[0][:2]), None)  # Status has no grid.
+        for label in ('Pixel level: 100%', 'Calibrate touch...', 'Screen: 90\u00b0 CW'):
+            self.assertLess(d.textlength(label, font=app.SMALL), 240)
+
+    def test_portrait_savers_and_apps(self):
+        app.set_rotation(90)
+        options = {**app.DEFAULT_OPTIONS, 'bunny_count': 6}
+        saver = app.BunnySaver(options, lambda n: options.update(bunny_count=n) or 'Saved.', seed=1)
+        for t in range(30):
+            image, _ = saver.render(t*.1, datetime.now(), ())
+        self.assertEqual(image.size, (240, 320))
+        self.assertTrue(saver.tap(220, 310, 4))  # + is bottom right in portrait.
+        self.assertEqual(options['bunny_count'], 12)
+        for style in ('radar', 'stars'):
+            self.assertEqual(app.screensaver_frame(style, 3).size, (240, 320))
+        self.assertEqual(app.ClockSaver(options).render(0, datetime(2026, 1, 1, 23, 59, 59), ())[0].size,
+                         (240, 320))
+        snake = app.SnakeApp(seed=2)
+        self.assertEqual((snake.game.cols, snake.game.rows), (19, 20))
+        box, start, quit_ = snake.dialog_rects()
+        self.assertTrue(0 <= box[0] and box[2] < 240)
+        snake.tap((start[0]+start[2])/2, (start[1]+start[3])/2, 0)
+        self.assertTrue(snake.running)
+        self.assertEqual(snake.render(0, datetime.now(), ()).size, (240, 320))
+        app.set_rotation(0)
+        snake.render(0, datetime.now(), ())  # Rotating back starts a fresh landscape board.
+        self.assertEqual((snake.game.cols, snake.game.rows, snake.state), (26, 14, 'ready'))
 
 
 class SnakeTest(unittest.TestCase):
@@ -407,6 +496,7 @@ class FakeScreen:
         self.pixel_level = 100
 
     def show(self, image):
+        app.physical_image(image)  # Same size/rotation check as the real framebuffer.
         FakeScreen.frames.append(image)
 
     def close(self):
@@ -414,7 +504,8 @@ class FakeScreen:
 
 
 class FakeTouch:
-    """Delivers scripted (seconds_after_start, x, y) taps in screen coordinates."""
+    """Delivers scripted (seconds_after_start, x, y) taps given in on-screen (logical)
+    coordinates, turned into panel coordinates the way the real touchscreen reports them."""
     script = []
     timeout = 20
 
@@ -428,7 +519,7 @@ class FakeTouch:
             raise RuntimeError('app did not exit')  # Watchdog for a stuck test.
         if self.pending and time.monotonic()-self.start >= self.pending[0][0]:
             _, x, y = self.pending.pop(0)
-            return [np.array([x, y], dtype=float)]
+            return [np.array(app.to_physical(x, y), dtype=float)]
         return []
 
     def drain_until_idle(self, *args, **kwargs):
@@ -469,8 +560,7 @@ class MainLoopTest(unittest.TestCase):
         (data / 'photos').mkdir()
         (data / 'touch.json').write_text(json.dumps(
             {'device': ['fake', [0, 320], [0, 240]], 'matrix': [[1, 0], [0, 1], [0, 0]]}))
-        if options:
-            (data / 'options.json').write_text(json.dumps(options))
+        (data / 'options.json').write_text(json.dumps({'rotation': 0, **(options or {})}))
         FakeTouch.script, FakeScreen.frames, FakeCamera.instances = script, [], []
         poweroff = mock.Mock()
         with mock.patch.object(app, 'Framebuffer', FakeScreen), \
@@ -479,7 +569,10 @@ class MainLoopTest(unittest.TestCase):
                 mock.patch.object(app, 'request_poweroff', poweroff), \
                 mock.patch.object(app, 'command_output', return_value=''), \
                 mock.patch.object(sys, 'argv', ['panel_app.py', '--data', str(data)]):
-            app.main()
+            try:
+                app.main()
+            finally:
+                app.set_rotation(0)
         return data, poweroff
 
     # Coordinates: camera row y=190, tabs y=222, exit/shutdown buttons y=150/160.
@@ -534,6 +627,24 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(saved['bunny_count'], 12)
         for folder in ('album', 'gifs', 'sprites'):
             self.assertTrue((data / folder).is_dir())
+
+    def test_portrait_snap_and_rotate_back_from_options(self):
+        # Portrait coordinates (240x320): camera row y=243, tab rows y=274 and y=304.
+        script = [(.5, 30, 243),      # SNAP
+                  (1.2, 120, 274),    # PHOTOS tab (top row, middle)
+                  (1.8, 200, 243),    # DELETE
+                  (2.4, 180, 210),    # confirm DELETE (dialog shifted down in portrait)
+                  (3.0, 120, 304),    # OPTIONS tab (bottom row, middle)
+                  (3.6, 60, 216),     # Screen: 90 CW -> Landscape
+                  (4.4, 300, 222),    # EXIT tab, now in landscape
+                  (5.0, 160, 150)]    # CLOSE APP
+        data, _ = self.run_app(script, options={'rotation': 90})
+        self.assertEqual(FakeCamera.instances[0].full_captures, 1)
+        self.assertEqual(list((data / 'photos').iterdir()), [])
+        self.assertEqual(json.loads((data / 'options.json').read_text())['rotation'], 0)
+        sizes = [f.size for f in FakeScreen.frames]
+        self.assertIn((240, 320), sizes)
+        self.assertEqual(sizes[-1], (320, 240))
 
     def test_leaving_camera_cancels_timer(self):
         script = [(.5, 120, 190), (.9, 120, 190),   # TIMER 3 s -> 10 s

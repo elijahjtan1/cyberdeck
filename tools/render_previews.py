@@ -49,14 +49,16 @@ def main():
     ]
     save_sheet(screens, 'camera-photos-power-preview.png')
     fun_screens(clock, rows)
+    portrait_screens(clock, rows)
 
 
 def save_sheet(screens, name, cols=2, gap=8, scale=2):
+    w, h = screens[0].width*scale, screens[0].height*scale
     rows_n = (len(screens)+cols-1)//cols
-    sheet = Image.new('RGB', (cols*(640+gap)-gap, rows_n*(480+gap)-gap), '#05080b')
+    sheet = Image.new('RGB', (cols*(w+gap)-gap, rows_n*(h+gap)-gap), '#05080b')
     for i, screen in enumerate(screens):
-        big = screen.resize((320*scale, 240*scale), Image.NEAREST)
-        sheet.paste(big, ((i % cols)*(640+gap), (i//cols)*(480+gap)))
+        big = screen.resize((w, h), Image.NEAREST)
+        sheet.paste(big, ((i % cols)*(w+gap), (i//cols)*(h+gap)))
     out = ROOT / 'docs/previews' / name
     sheet.save(out, optimize=True)
     print(out)
@@ -107,6 +109,51 @@ def fun_screens(clock, rows):
         frames.append(saver.render(step*.1, clock, ())[0].quantize(64))
     frames[0].save(ROOT / 'docs/previews/bunnies.gif', save_all=True, append_images=frames[1:],
                    duration=100, loop=0, optimize=True)
+
+
+def portrait_screens(clock, rows):
+    """The same pages with OPTIONS -> Screen at 90 degrees clockwise, shown upright."""
+    app.set_rotation(90)
+    try:
+        options = {**app.DEFAULT_OPTIONS, 'snap_timer': 3, 'saver_style': 'bunnies'}
+        common = dict(options=options, wall_time=clock)
+        photo = {'image': scene((640, 480)), 'size': (3280, 2464), 'index': 4, 'count': 7,
+                 'label': '2026/10/09 19:12:33'}
+        capture = app.AudioCapture(which=lambda name: None)
+        capture.source, capture.status = 'output', 'Listening via parec'
+        t = np.arange(app.VIS_CHUNK) / app.VIS_RATE
+        capture.feed((np.sin(2*np.pi*220*t)*9000 + np.sin(2*np.pi*1800*t)*3000).astype(np.int16))
+        notes = {'audio': 'Volume, media, visualizer', 'snake': 'Best score: 12',
+                 'album': '7 pictures | slideshow', 'gifs': '3 GIFs | tap to play'}
+        snake = app.SnakeApp(best=12, seed=5)
+        snake.start(0)
+        snake.game.body = app.deque([(9, 10), (8, 10), (7, 10), (7, 9), (6, 9)])
+        snake.game.food, snake.game.score = (12, 5), 6
+        bunnies = app.BunnySaver({**options, 'bunny_count': 6}, lambda n: 'Saved.', seed=7)
+        for step in range(40):
+            bunnies.render(step*.1, clock, ())
+        screens = [
+            app.render('camera', scene(), False, 20, rows, 'Live | SNAP saves a photo',
+                       cam={'thumb': scene((60, 45))}, **common),
+            app.render('photos', None, False, 20, rows, '', photo=photo, **common),
+            app.render('status', None, False, 20, rows, '', (), 0,
+                       alerts=[('warning', 'WARM 77 C')], **common),
+            app.render('options', None, False, 20, rows, '', **common),
+            app.render('apps', None, False, 20, rows, '', extra={'notes': notes}, **common),
+            app.render('audio', None, False, 20, rows, '',
+                       extra={'audio': {'volume': 55, 'player': 'Playing',
+                                        'title': 'Sample Artist - Sample Track'},
+                              'capture': capture}, **common),
+            snake.render(0, clock, ()),
+            bunnies.render(4.1, clock, ())[0],
+            app.render('exit', None, False, 20, rows, '', **common),
+            app.ClockSaver(options).render(0, clock, ())[0],
+        ]
+        save_sheet(screens, 'portrait-preview.png', cols=5)
+        # What actually goes to the panel: the canvas turned 90 degrees clockwise.
+        save_sheet([app.physical_image(screens[0])], 'portrait-on-panel.png', cols=1)
+    finally:
+        app.set_rotation(0)
 
 
 if __name__ == '__main__':

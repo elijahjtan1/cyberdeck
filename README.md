@@ -13,6 +13,8 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 
 A health banner warns about low voltage, heat, throttling and low storage on every page.
 Screensavers: Radar, Starfield, interactive Bunnies, Clock, Photo album, GIFs, Black.
+The whole UI can be turned (OPTIONS -> Screen); it defaults to portrait, 90° clockwise, with
+layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 
 ## Files
 
@@ -20,6 +22,6 @@ Screensavers: Radar, Starfield, interactive Bunnies, Clock, Photo album, GIFs, B
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/setup_panel_service.py --now`).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
 - `cyberdeck.py`: older first version, kept as a fallback.
-- `docs/`: install notes for each update. The newest is [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown are in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
+- `docs/`: install notes for each update. The newest is [ROTATION.md](docs/ROTATION.md); apps and savers are in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown are in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.

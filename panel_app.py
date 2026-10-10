@@ -2,7 +2,8 @@
 """320x240 RGB565 camera + system monitor for Eli's ILI9341 Pi.
 
 Run: sudo python3 panel_app.py
-Optional: --calibrate, --fps 15, --touch /dev/input/eventN, --status-only, --data DIR
+Optional: --calibrate, --fps 15, --touch /dev/input/eventN, --status-only, --data DIR,
+          --rotation 0|90|180|270 (this run only; normally OPTIONS -> Screen)
 Apps: audio + visualizer, Snake, photo album, GIF player. See docs/APPS-AND-SAVERS.md.
 No desktop preview or console switching. Hardware imports happen only at startup.
 Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.md).
@@ -25,7 +26,9 @@ from collections import deque
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-W, H = 320, 240
+PW, PH = 320, 240  # Physical panel: the framebuffer is always 320x240 landscape.
+W, H = PW, PH      # Logical canvas every screen is drawn on; 240x320 when rotated 90/270.
+ROTATION = 0       # Degrees clockwise the whole UI is turned on the panel.
 BG, PANEL, TEXT, MUTED, ACCENT = '#101923', '#253747', '#eef5fa', '#a9bbc9', '#44d4ad'
 DANGER, WARN = '#d8443c', '#f0b347'
 SERVICE = 'cyberdeck-panel'
@@ -37,7 +40,8 @@ DEFAULT_OPTIONS = {'pixel_level': 100, 'history_seconds': 60,
                    'saver_speed': 'normal', 'saver_level': 70,
                    'photo_size': 'full', 'snap_timer': 0, 'alerts': 'on',
                    'bunny_count': 6, 'clock_format': '24h', 'slide_seconds': 10,
-                   'album_source': 'both', 'album_order': 'order', 'vis_source': 'output'}
+                   'album_source': 'both', 'album_order': 'order', 'vis_source': 'output',
+                   'rotation': 90, 'camera_turn': 0}
 OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'saver_style': SAVER_STYLES,
                  'saver_delay': (30, 60, 300), 'saver_speed': ('slow', 'normal', 'fast'),
@@ -45,9 +49,59 @@ OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'snap_timer': (0, 3, 10), 'alerts': ('on', 'off'),
                  'bunny_count': (1, 3, 6, 12, 24), 'clock_format': ('24h', '12h'),
                  'slide_seconds': (5, 10, 30, 60), 'album_source': ('both', 'camera', 'album'),
-                 'album_order': ('order', 'shuffle'), 'vis_source': ('output', 'mic', 'off')}
+                 'album_order': ('order', 'shuffle'), 'vis_source': ('output', 'mic', 'off'),
+                 'rotation': (90, 0, 270, 180), 'camera_turn': (0, 90, 180, 270)}
 PHOTO_TYPES = ('.jpg', '.jpeg', '.png')
 MIN_FREE_BYTES = 200 * 2**20  # Refuse new photos rather than filling the SD card.
+
+
+ROTATION_NAMES = {0: 'Landscape', 90: '90\u00b0 CW', 180: '180\u00b0', 270: '90\u00b0 CCW'}
+TRANSPOSE = {90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180,
+             270: Image.Transpose.ROTATE_90}  # PIL names count counter-clockwise.
+
+
+def set_rotation(degrees):
+    """Turn the whole UI clockwise on the panel. Layouts read W/H at draw time."""
+    global ROTATION, W, H
+    if degrees not in (0, 90, 180, 270):
+        raise ValueError(f'rotation must be 0, 90, 180 or 270, not {degrees}')
+    ROTATION = degrees
+    W, H = (PH, PW) if degrees in (90, 270) else (PW, PH)
+
+
+def to_logical(px, py):
+    """Panel (landscape) coordinates -> coordinates on the rotated canvas."""
+    if ROTATION == 90:
+        return py, PW-1-px
+    if ROTATION == 180:
+        return PW-1-px, PH-1-py
+    if ROTATION == 270:
+        return PH-1-py, px
+    return px, py
+
+
+def to_physical(lx, ly):
+    if ROTATION == 90:
+        return PW-1-ly, lx
+    if ROTATION == 180:
+        return PW-1-lx, PH-1-ly
+    if ROTATION == 270:
+        return ly, PH-1-lx
+    return lx, ly
+
+
+def physical_image(image):
+    """The logical canvas turned to fit the 320x240 panel."""
+    if ROTATION:
+        image = image.transpose(TRANSPOSE[ROTATION])
+    if image.size != (PW, PH):
+        raise ValueError(f'screen image is {image.size}, expected {(W, H)} before rotation')
+    return image
+
+
+def turn_image(image, degrees):
+    """Rotate a camera picture clockwise (for a camera mounted at an angle)."""
+    return image.transpose(TRANSPOSE[degrees]) if degrees else image
 
 
 def load_options(path):
@@ -230,20 +284,21 @@ class Framebuffer:
         if int((base / 'bits_per_pixel').read_text()) != 16:
             raise RuntimeError('Expected 16-bit RGB565 framebuffer.')
         self.stride = int((base / 'stride').read_text())
-        if self.stride < W * 2:
+        if self.stride < PW * 2:
             raise RuntimeError('Unexpected framebuffer stride.')
         self.file = open(Path('/dev') / base.name, 'r+b', buffering=0)
         self.pixel_level = 100
 
     def show(self, image):
+        image = physical_image(image)
         level = getattr(self, 'pixel_level', 100)
         if level != 100:
             image = image.point([round(v*level/100) for v in range(256)]*3)
         data = rgb565(image)
-        if self.stride != W * 2:
-            rows = np.frombuffer(data, dtype=np.uint8).reshape(H, W * 2)
-            padded = np.zeros((H, self.stride), dtype=np.uint8)
-            padded[:, :W * 2] = rows
+        if self.stride != PW * 2:
+            rows = np.frombuffer(data, dtype=np.uint8).reshape(PH, PW * 2)
+            padded = np.zeros((PH, self.stride), dtype=np.uint8)
+            padded[:, :PW * 2] = rows
             data = padded.tobytes()
         self.file.seek(0)
         view = memoryview(data)
@@ -504,15 +559,19 @@ def fit_calibration(raw, targets):
 
 
 def calibrate(screen, touch):
-    targets = [(26, 26), (293, 26), (293, 213), (26, 213), (160, 120)]
+    """Crosses are drawn upright for the current rotation; the fit is always to panel
+    coordinates, so a saved calibration keeps working when the rotation changes."""
+    targets = [(26, 26), (W-27, 26), (W-27, H-27), (26, H-27), (W//2, H//2)]
+    panel_targets = [to_physical(x, y) for x, y in targets]
     while True:
         raw = []
         for number, (x, y) in enumerate(targets, 1):
             touch.drain_until_idle()
             img = Image.new('RGB', (W, H), BG)
             d = ImageDraw.Draw(img)
-            d.text((65, 70), 'TOUCH CALIBRATION', font=FONT, fill=TEXT)
-            d.text((66, 92), f'Tap + and release ({number}/5)', font=SMALL, fill=MUTED)
+            d.text((W//2, H//2-44), 'TOUCH CALIBRATION', font=FONT, fill=TEXT, anchor='mm')
+            d.text((W//2, H//2-22), f'Tap + and release ({number}/5)', font=SMALL, fill=MUTED,
+                   anchor='mm')
             d.line((x-12, y, x+12, y), fill=ACCENT, width=3)
             d.line((x, y-12, x, y+12), fill=ACCENT, width=3)
             screen.show(img)
@@ -526,7 +585,7 @@ def calibrate(screen, touch):
                     raise RuntimeError('Calibration timed out. Check touch with evtest.')
                 time.sleep(.01)
         try:
-            matrix = fit_calibration(raw, targets)
+            matrix = fit_calibration(raw, panel_targets)
             touch.drain_until_idle()
             return matrix
         except ValueError as exc:
@@ -585,10 +644,82 @@ class Stats:
                 **self.health.snapshot}
 
 
-def button(d, rect, label, active=False, fill=None, font_=None):
+HOTSPOTS = []  # (rect, action) for the screen drawn last by render(); see hit().
+HOTSPOTS_PAGE = [None]  # Which page those belong to, so a stale list is never used.
+
+
+def hotspot(rect, action):
+    if action is not None:
+        HOTSPOTS.append((tuple(rect), action))
+
+
+def hit(x, y, slop=2):
+    """Action of the button under a tap, using exactly the rectangles last drawn."""
+    for (x0, y0, x1, y1), action in reversed(HOTSPOTS):
+        if x0-slop <= x <= x1+slop and y0-slop <= y <= y1+slop:
+            return action
+    return None
+
+
+def button(d, rect, label, active=False, fill=None, font_=None, action=None):
+    """Rounded button; the label shrinks, then truncates, to fit narrow portrait buttons."""
     d.rounded_rectangle(rect, radius=5, fill=fill or (ACCENT if active else PANEL))
-    d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), label,
-           font=font_ or SMALL, fill=BG if active else TEXT, anchor='mm')
+    chosen, room = font_ or SMALL, rect[2]-rect[0]-8
+    if d.textlength(label, font=chosen) > room:
+        chosen = TINY
+    d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), fit_text(d, label, room, chosen),
+           font=chosen, fill=BG if active else TEXT, anchor='mm')
+    hotspot(rect, action)
+
+
+def centred(d, y, text, chosen=None, fill=TEXT, x=None):
+    """Centred line that steps down a font size, then truncates, if the canvas is narrow."""
+    chosen = chosen or SMALL
+    room = W-12
+    if d.textlength(text, font=chosen) > room and chosen is not TINY:
+        chosen = SMALL if chosen is FONT else TINY
+    d.text((W//2 if x is None else x, y), fit_text(d, text, room, chosen), font=chosen,
+           fill=fill, anchor='mm')
+
+
+def portrait():
+    return H > W
+
+
+def index_at(rects, x, y, slop=2):
+    for i, (x0, y0, x1, y1) in enumerate(rects):
+        if x0-slop <= x <= x1+slop and y0-slop <= y <= y1+slop:
+            return i
+    return None
+
+
+def content_bottom():
+    """Lowest y available to a page above the tab bar."""
+    return H-62 if portrait() else 204
+
+
+def row_rects(count, y0, y1, margin=3, gap=6):
+    """Evenly spaced buttons across the canvas (80 px pitch on 320 px, as before)."""
+    width = (W - 2*margin - (count-1)*gap) / count
+    return [(round(margin+i*(width+gap)), y0, round(margin+i*(width+gap)+width), y1)
+            for i in range(count)]
+
+
+def grid_rects(count, top=30, bottom=None, max_pitch=None):
+    """Two-column button grid that fills the content area (Options, Screensavers...)."""
+    bottom = content_bottom() if bottom is None else bottom
+    rows = (count+1)//2
+    pitch = min(max_pitch or (48 if portrait() else 40), (bottom-top-14)//rows)
+    width = (W-24)//2
+    return [(8+(i % 2)*(width+8), top+(i//2)*pitch, 8+(i % 2)*(width+8)+width-1,
+             top+(i//2)*pitch+pitch-6) for i in range(count)]
+
+
+def tab_rects():
+    if portrait():  # Two rows of three under the content area.
+        return [((i % 3)*80+2, H-60+(i//3)*30, (i % 3)*80+77, H-60+(i//3)*30+27)
+                for i in range(len(TABS))]
+    return [(TAB_EDGES[i]+2, 207, TAB_EDGES[i+1]-3, 238) for i in range(len(TABS))]
 
 
 def draw_banner(d, alerts, clock):
@@ -599,7 +730,7 @@ def draw_banner(d, alerts, clock):
     clock_width = d.textlength(clock, font=SMALL)
     summary = '! ' + '  |  '.join(text for _, text in alerts)
     d.text((6, 5), fit_text(d, summary, W-24-clock_width, SMALL), font=SMALL, fill=ink)
-    d.text((314, 5), clock, font=SMALL, fill=ink, anchor='ra')
+    d.text((W-6, 5), clock, font=SMALL, fill=ink, anchor='ra')
 
 
 def graph(d, rect, history, channel, now, colour, seconds=60):
@@ -641,7 +772,7 @@ def screensaver_frame(style, elapsed, speed='normal', wall_time=None, alerts=())
     factor = {'slow': .55, 'normal': 1., 'fast': 1.7}.get(speed, 1.)
     t = max(0, elapsed)*factor
     if style == 'radar':
-        cx, cy, radius = 160, 120, 86
+        cx, cy, radius = W//2, H//2, 86
         angle = (t*math.tau/12) % math.tau
         d.ellipse((cx-radius,cy-radius,cx+radius,cy+radius),fill='#03140e')
         # Draw the fading tail first, then put scope markings over it.
@@ -675,30 +806,31 @@ def screensaver_frame(style, elapsed, speed='normal', wall_time=None, alerts=())
             z = 1-((phase/2+.5+t*.1)%1)
             if z < .05:
                 continue
-            x,y = 160+sx*95/z,120+sy*70/z
-            if not (0 <= x < W and 27 <= y < 213):
+            spread_x, spread_y = W*.3, H*.29
+            x,y = W/2+sx*spread_x/z,H/2+sy*spread_y/z
+            if not (0 <= x < W and 27 <= y < H-27):
                 continue
             brightness = round(80+175*(1-z))
-            tailx,taily = 160+sx*95/(z+.025),120+sy*70/(z+.025)
+            tailx,taily = W/2+sx*spread_x/(z+.025),H/2+sy*spread_y/(z+.025)
             d.line((tailx,taily,x,y),fill=(round(brightness*.6),round(brightness*.8),brightness),width=1)
             d.point((round(x),round(y)),fill=(brightness,brightness,brightness))
         label, colour = 'DEEP SPACE', '#85bded'
     else:
         raise ValueError(f'Unknown screensaver: {style}')
-    d.rectangle((0,0,319,25),fill='black')
-    d.rectangle((0,214,319,239),fill='black')
+    d.rectangle((0,0,W-1,25),fill='black')
+    d.rectangle((0,H-26,W-1,H-1),fill='black')
     if alerts:
         draw_banner(d, alerts, wall_time.strftime('%H:%M'))
     else:
         d.text((8,7),label,font=SMALL,fill=colour)
-        d.text((312,7),wall_time.strftime('%H:%M'),font=SMALL,fill=colour,anchor='ra')
-    d.text((160,226),'SCREENSAVER / TAP TO WAKE',font=TINY,fill=colour,anchor='mm')
+        d.text((W-8,7),wall_time.strftime('%H:%M'),font=SMALL,fill=colour,anchor='ra')
+    d.text((W//2,H-14),'SCREENSAVER / TAP TO WAKE',font=TINY,fill=colour,anchor='mm')
     return image
 
 
 # ---- Fun: screensavers with state, photo album, GIFs, snake and audio ---------------
 
-BIG, BOLD = font(60, bold=True), font(20, bold=True)
+BIG, BOLD, BIG_PORTRAIT = font(60, bold=True), font(20, bold=True), font(50, bold=True)
 
 # Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
 # Drop your own sheet in cyberdeck-data/sprites/bunny.png to replace it.
@@ -759,7 +891,8 @@ def load_bunny_frames(data=None):
         return default
 
 
-def letterbox(picture, size=(W, H)):
+def letterbox(picture, size=None):
+    size = size or (W, H)
     canvas = Image.new('RGB', size, 'black')
     if picture is not None:
         fitted = ImageOps.contain(picture, size)
@@ -770,9 +903,9 @@ def letterbox(picture, size=(W, H)):
 def message_screen(title, lines=(), colour=MUTED):
     image = Image.new('RGB', (W, H), 'black')
     d = ImageDraw.Draw(image)
-    d.text((160, 96), title, font=FONT, fill=TEXT, anchor='mm')
+    centred(d, H//2-24, title, FONT)
     for i, line in enumerate(lines):
-        d.text((160, 122+i*18), fit_text(d, line, 300, SMALL), font=SMALL, fill=colour, anchor='mm')
+        centred(d, H//2+2+i*18, line, SMALL, colour)
     return image
 
 
@@ -782,7 +915,7 @@ def saver_header(d, label, colour, wall_time, alerts):
         draw_banner(d, alerts, wall_time.strftime('%H:%M'))
     else:
         d.text((8, 7), label, font=SMALL, fill=colour)
-        d.text((312, 7), wall_time.strftime('%H:%M'), font=SMALL, fill=colour, anchor='ra')
+        d.text((W-8, 7), wall_time.strftime('%H:%M'), font=SMALL, fill=colour, anchor='ra')
 
 
 class Saver:
@@ -810,11 +943,16 @@ class ClassicSaver(Saver):
         return image, float('inf') if self.style == 'black' else .125
 
 
+def bunny_lane(rng):
+    """Ground line for a bunny: somewhere on the grass between the hills and the dirt."""
+    return rng.uniform(H-70, H-32)
+
+
 class Bunny:
     def __init__(self, rng, entering=None):
         self.rng = rng
         self.direction = rng.choice((-1, 1))
-        self.ground = rng.uniform(170, 208)
+        self.ground = bunny_lane(rng)
         self.x = rng.uniform(10, W-10) if entering is None else (-16 if entering > 0 else W+16)
         if entering is not None:
             self.direction = entering
@@ -841,9 +979,9 @@ class Bunny:
             self.jump(now)
         # Wrap just past the edge so nearly every bunny is visible at any moment.
         if self.x < -18:
-            self.x, self.ground = W+16, self.rng.uniform(170, 208)
+            self.x, self.ground = W+16, bunny_lane(self.rng)
         elif self.x > W+18:
-            self.x, self.ground = -16, self.rng.uniform(170, 208)
+            self.x, self.ground = -16, bunny_lane(self.rng)
 
     def lift(self, now):
         if self.hop_start is None:
@@ -855,19 +993,22 @@ class Bunny:
 def bunny_background():
     image = Image.new('RGB', (W, H))
     d = ImageDraw.Draw(image)
+    grass = H-80
+    sx = W/320  # Scenery positions were designed on the 320 px wide landscape canvas.
     for y in range(H):
-        t = y/150
+        t = min(1, y/(grass-10))
         d.line((0, y, W, y), fill=(round(92+90*t), round(150+75*t), round(235+15*t)))
-    for cx, cy, r in ((40, 172, 70), (150, 182, 90), (270, 168, 80)):
-        d.ellipse((cx-r, cy-r*.55, cx+r, cy+r*.55), fill='#6fae5c')
-    for cx, cy in ((60, 52), (205, 38), (290, 70)):
+    for cx, cy, r in ((40, 12, 70), (150, 22, 90), (270, 8, 80)):
+        d.ellipse((cx*sx-r, grass+cy-r*.55, cx*sx+r, grass+cy+r*.55), fill='#6fae5c')
+    clouds = ((60, 52), (205, 38), (290, 70)) + (((90, 130), (200, 165)) if portrait() else ())
+    for cx, cy in clouds:
         for dx, r in ((-14, 10), (0, 14), (14, 10)):
-            d.ellipse((cx+dx-r, cy-r*.7, cx+dx+r, cy+r*.7), fill='#f4f8ff')
-    d.rectangle((0, 160, W, H), fill='#4f9a3e')
-    d.rectangle((0, 160, W, 163), fill='#7cc95a')
+            d.ellipse((cx*sx+dx-r, cy-r*.7, cx*sx+dx+r, cy+r*.7), fill='#f4f8ff')
+    d.rectangle((0, grass, W, H), fill='#4f9a3e')
+    d.rectangle((0, grass, W, grass+3), fill='#7cc95a')
     for x in range(0, W, 7):
-        d.line((x, 160, x+2, 156), fill='#7cc95a')
-    d.rectangle((0, 214, W, H), fill='#7a5233')
+        d.line((x, grass, x+2, grass-4), fill='#7cc95a')
+    d.rectangle((0, H-26, W, H), fill='#7a5233')
     return image
 
 
@@ -898,9 +1039,9 @@ class BunnySaver(Saver):
         return (bunny.x-frame.width/2, top, bunny.x+frame.width/2, bunny.ground)
 
     def tap(self, x, y, now):
-        if y >= 214 and (x <= 54 or x >= 266):
+        if y >= H-26 and (x <= 54 or x >= W-54):
             values = OPTION_VALUES['bunny_count']
-            index = values.index(self.options['bunny_count']) + (1 if x >= 266 else -1)
+            index = values.index(self.options['bunny_count']) + (1 if x >= W-54 else -1)
             if 0 <= index < len(values):
                 self.message = self.set_count(values[index])
                 self.message_until = now + 1.5
@@ -941,13 +1082,13 @@ class BunnySaver(Saver):
                 hx, hy = bunny.x, bunny.ground-frame.height-lift-8-(1.2-(bunny.heart_until-now))*12
                 d.text((hx, hy), '♥', font=FONT, fill='#ff5a7a', anchor='mm')
         saver_header(d, 'BUNNIES', '#e8f4ff', wall_time, alerts)
-        for x0, label in ((4, '−'), (270, '+')):
-            d.rounded_rectangle((x0, 217, x0+46, 237), radius=5, fill='#5a3a22')
-            d.text((x0+23, 226), label, font=FONT, fill=TEXT, anchor='mm')
+        for x0, label in ((4, '\u2212'), (W-50, '+')):
+            d.rounded_rectangle((x0, H-23, x0+46, H-3), radius=5, fill='#5a3a22')
+            d.text((x0+23, H-14), label, font=FONT, fill=TEXT, anchor='mm')
         count = self.options['bunny_count']
         text = self.message if now < self.message_until else (
             f"{count} bunn{'y' if count == 1 else 'ies'} | tap one!")
-        d.text((160, 227), text, font=TINY, fill='#f2e6d8', anchor='mm')
+        d.text((W//2, H-13), fit_text(d, text, W-120, TINY), font=TINY, fill='#f2e6d8', anchor='mm')
         return image, .1
 
 
@@ -965,9 +1106,11 @@ class ClockSaver(Saver):
         main = f"{hours}:{wall_time.strftime('%M')}"
         # Drift a little each minute so the same pixels are not lit all day.
         minute = wall_time.hour*60 + wall_time.minute
-        cx, cy = 160 + 22*math.sin(minute*.7), 112 + 16*math.cos(minute*1.3)
-        d.text((cx, cy), main, font=BIG, fill=ACCENT, anchor='mm')
-        width = d.textlength(main, font=BIG)
+        big = BIG_PORTRAIT if portrait() else BIG
+        width = d.textlength(main, font=big)
+        sway = max(0, min(22, (W-width-56)/2))  # Keep the seconds/AM-PM on screen.
+        cx, cy = W/2 + sway*math.sin(minute*.7), H/2 - 8 + 16*math.cos(minute*1.3)
+        d.text((cx, cy), main, font=big, fill=ACCENT, anchor='mm')
         suffix = wall_time.strftime('%p') if twelve else wall_time.strftime('%S')
         d.text((cx+width/2+6, cy+20), suffix, font=SMALL, fill=MUTED, anchor='ls')
         d.text((cx, cy+46), wall_time.strftime('%A %d %B %Y'), font=SMALL, fill=TEXT, anchor='mm')
@@ -1164,30 +1307,38 @@ class OverlayApp:
     def top_labels(self):
         return ()
 
+    @staticmethod
+    def top_rects():
+        return row_rects(3, 26, 52)
+
+    @staticmethod
+    def bottom_rects():
+        return row_rects(4, H-32, H-4)
+
     def draw_overlay(self, image, now):
         d = ImageDraw.Draw(image)
         d.rectangle((0, 0, W-1, 21), fill=BG)
-        d.text((6, 4), fit_text(d, self.content.label(), 308, TINY), font=TINY, fill=TEXT)
-        for i, label in enumerate(self.top_labels()):
-            button(d, (i*106+3, 26, i*106+103, 52), label)
-        for i, label in enumerate(self.bottom_labels()):
-            button(d, (i*80+3, 208, i*80+77, 236), label)
+        d.text((6, 4), fit_text(d, self.content.label(), W-12, TINY), font=TINY, fill=TEXT)
+        for rect, label in zip(self.top_rects(), self.top_labels()):
+            button(d, rect, label)
+        for rect, label in zip(self.bottom_rects(), self.bottom_labels()):
+            button(d, rect, label)
 
     def tap(self, x, y, now):
         if now >= self.overlay_until:
             self.overlay_until = now + 5
             return None
         self.overlay_until = now + 5
-        if y >= 204:
-            action = row_button(x)
-            if action == 3:
-                return 'exit'
-            if action == 1:
-                self.content.paused = not self.content.paused
-            else:
-                self.content.move(-1 if action == 0 else 1, now)
-        elif self.top_labels() and 26 <= y <= 52:
-            self.top_action(min(2, int(x)//106))
+        bottom = index_at(self.bottom_rects(), x, y, slop=4)
+        top = index_at(self.top_rects(), x, y, slop=4) if self.top_labels() else None
+        if bottom == 3:
+            return 'exit'
+        if bottom == 1:
+            self.content.paused = not self.content.paused
+        elif bottom is not None:
+            self.content.move(-1 if bottom == 0 else 1, now)
+        elif top is not None:
+            self.top_action(top)
         else:
             self.overlay_until = 0
         return None
@@ -1228,13 +1379,20 @@ class GifApp(OverlayApp):
         self.content = player
 
 
-SNAKE_COLS, SNAKE_ROWS, SNAKE_CELL, SNAKE_ORIGIN = 26, 14, 12, (4, 26)
+SNAKE_CELL = 12
+
+
+def snake_geometry():
+    """(cols, rows, origin) of the board: 26x14 in landscape, 19x20 in portrait."""
+    cols, rows = (W-8)//SNAKE_CELL, (H-72)//SNAKE_CELL
+    return cols, rows, ((W-cols*SNAKE_CELL)//2, 26)
 
 
 class SnakeGame:
-    def __init__(self, cols=SNAKE_COLS, rows=SNAKE_ROWS, seed=None):
+    def __init__(self, cols=None, rows=None, seed=None):
         import random
-        self.cols, self.rows = cols, rows
+        default_cols, default_rows, _ = snake_geometry()
+        self.cols, self.rows = cols or default_cols, rows or default_rows
         self.rng = random.Random(seed)
         self.reset()
 
@@ -1283,8 +1441,9 @@ class SnakeGame:
 
 
 def cell_rect(cell, inset=1):
-    x0 = SNAKE_ORIGIN[0] + cell[0]*SNAKE_CELL
-    y0 = SNAKE_ORIGIN[1] + cell[1]*SNAKE_CELL
+    origin = snake_geometry()[2]
+    x0 = origin[0] + cell[0]*SNAKE_CELL
+    y0 = origin[1] + cell[1]*SNAKE_CELL
     return (x0+inset, y0+inset, x0+SNAKE_CELL-1-inset, y0+SNAKE_CELL-1-inset)
 
 
@@ -1304,14 +1463,32 @@ class SnakeApp:
             self.game.reset()
         self.state, self.next_step = 'running', now + .4
 
+    def fit_board(self):
+        """After a Screen rotation the board shape changes: start a fresh game on it."""
+        cols, rows, _ = snake_geometry()
+        if (self.game.cols, self.game.rows) != (cols, rows):
+            self.game.cols, self.game.rows = cols, rows
+            self.game.reset()
+            if self.state in ('running', 'paused'):
+                self.state = 'ready'
+
+    @staticmethod
+    def dialog_rects():
+        cx, top = W//2, (H-240)//2
+        half = min(130, W//2-10)
+        box = (cx-half, 56+top, cx+half, 204+top)
+        return box, (box[0]+10, 150+top, cx-5, 196+top), (cx+5, 150+top, box[2]-10, 196+top)
+
     def tap(self, x, y, now):
+        self.fit_board()
         if self.state == 'running':
-            if y < 24 and x >= 240:
+            if y < 24 and x >= W-80:
                 self.state = 'paused'
                 return None
             hx, hy = self.game.body[0]
-            cx = SNAKE_ORIGIN[0] + (hx+.5)*SNAKE_CELL
-            cy = SNAKE_ORIGIN[1] + (hy+.5)*SNAKE_CELL
+            origin = snake_geometry()[2]
+            cx = origin[0] + (hx+.5)*SNAKE_CELL
+            cy = origin[1] + (hy+.5)*SNAKE_CELL
             dx, dy = x-cx, y-cy
             axes = [(1 if dx > 0 else -1, 0), (0, 1 if dy > 0 else -1)]
             if abs(dy) > abs(dx):
@@ -1321,8 +1498,9 @@ class SnakeApp:
                     break
             return None
         # Ready / paused / game over: two big buttons.
-        if 150 <= y <= 196:
-            if x < 160:
+        choice = index_at(self.dialog_rects()[1:], x, y, slop=4)
+        if choice is not None:
+            if choice == 0:
                 if self.state == 'paused':
                     self.state, self.next_step = 'running', now + .4
                 else:
@@ -1345,36 +1523,41 @@ class SnakeApp:
                     self.save_best(self.best)
 
     def render(self, now, wall_time, alerts):
+        self.fit_board()
         self.update(now)
         image = Image.new('RGB', (W, H), '#0b1218')
         d = ImageDraw.Draw(image)
-        d.text((8, 4), f'SNAKE  {self.game.score}', font=FONT, fill=ACCENT)
-        d.text((150, 7), f'BEST {self.best}', font=SMALL, fill=MUTED)
+        score = f'SNAKE  {self.game.score}'
+        d.text((8, 4), score, font=FONT, fill=ACCENT)
+        d.text((max(150 if not portrait() else 0, 20+d.textlength(score, font=FONT)), 7),
+               f'BEST {self.best}', font=SMALL, fill=MUTED)
         if self.state == 'running':
-            button(d, (244, 2, 316, 22), 'PAUSE')
+            button(d, (W-76, 2, W-4, 22), 'PAUSE')
         else:
-            d.text((312, 7), wall_time.strftime('%H:%M'), font=SMALL, fill=TEXT, anchor='ra')
-        x0, y0 = SNAKE_ORIGIN
-        d.rectangle((x0-1, y0-1, x0+SNAKE_COLS*SNAKE_CELL, y0+SNAKE_ROWS*SNAKE_CELL), outline=PANEL)
+            d.text((W-8, 7), wall_time.strftime('%H:%M'), font=SMALL, fill=TEXT, anchor='ra')
+        cols, rows, (x0, y0) = snake_geometry()
+        d.rectangle((x0-1, y0-1, x0+cols*SNAKE_CELL, y0+rows*SNAKE_CELL), outline=PANEL)
         if self.game.food:
             d.ellipse(cell_rect(self.game.food, 2), fill='#ff6b5e')
         for i, cell in enumerate(self.game.body):
             d.rectangle(cell_rect(cell), fill=ACCENT if i == 0 else '#2f9e80')
-        d.text((160, 214), 'Tap where the snake should go. Avoid walls and your tail.',
-               font=TINY, fill=MUTED, anchor='mm')
-        d.text((160, 228), 'PAUSE (top right) to stop.', font=TINY, fill=MUTED, anchor='mm')
+        centred(d, H-26, 'Tap where the snake should go. Avoid walls and your tail.', TINY, MUTED)
+        centred(d, H-12, 'PAUSE (top right) to stop.', TINY, MUTED)
         if self.state != 'running':
             title, left, right = {
                 'ready': ('SNAKE', 'START', 'QUIT'),
                 'paused': ('PAUSED', 'RESUME', 'QUIT'),
                 'over': ('YOU WIN!' if self.game.won else 'GAME OVER', 'PLAY AGAIN', 'QUIT')}[self.state]
-            d.rounded_rectangle((30, 56, 290, 204), radius=8, fill=BG, outline=ACCENT, width=2)
-            d.text((160, 84), title, font=BOLD, fill=TEXT, anchor='mm')
-            d.text((160, 115), f'Score {self.game.score}   Best {self.best}', font=SMALL, fill=MUTED, anchor='mm')
+            box, left_rect, right_rect = self.dialog_rects()
+            d.rounded_rectangle(box, radius=8, fill=BG, outline=ACCENT, width=2)
+            d.text((W//2, box[1]+28), title, font=BOLD, fill=TEXT, anchor='mm')
+            d.text((W//2, box[1]+59), f'Score {self.game.score}   Best {self.best}', font=SMALL,
+                   fill=MUTED, anchor='mm')
             if self.state == 'ready':
-                d.text((160, 133), 'Tap ahead of the head to turn.', font=TINY, fill=MUTED, anchor='mm')
-            button(d, (40, 150, 155, 196), left, active=True)
-            button(d, (165, 150, 280, 196), right)
+                d.text((W//2, box[1]+77), 'Tap ahead of the head to turn.', font=TINY, fill=MUTED,
+                       anchor='mm')
+            button(d, left_rect, left, active=True)
+            button(d, right_rect, right)
         self.delay = max(.01, self.next_step-now) if self.state == 'running' else .25
         return image
 
@@ -1648,25 +1831,16 @@ class VisualApp:
     def render(self, now, wall_time, alerts):
         image = Image.new('RGB', (W, H), 'black')
         d = ImageDraw.Draw(image)
-        draw_bars(d, (4, 28, 316, 190), self.capture.bands)
+        draw_bars(d, (4, 28, W-4, H-50), self.capture.bands)
         wave = self.capture.wave
-        points = [(4+i*312/(len(wave)-1), 214+v*40) for i, v in enumerate(wave)]
+        points = [(4+i*(W-8)/(len(wave)-1), H-26+v*40) for i, v in enumerate(wave)]
         d.line(points, fill='#67bfff', width=1)
         saver_header(d, fit_text(d, self.audio.state.get('title') or self.capture.status, 240, SMALL),
                      MUTED, wall_time, alerts)
         return image
 
 
-def app_tile_at(x, y):
-    for i in range(4):
-        col, row = i % 2, i // 2
-        if 8+col*156 <= x <= 155+col*156 and 30+row*86 <= y <= 110+row*86:
-            return i
-    return None
-
-
 APP_TILES = (('AUDIO', 'audio'), ('SNAKE', 'snake'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'))
-AUDIO_ROWS = ((150, 175), (179, 204))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
@@ -1676,16 +1850,6 @@ def saver_due(options, idle_seconds, page):
                              'photodelete','album','gifs','visual'))
 
 
-def grid_at(x, y, count=8):
-    """Two-column, 40 px-pitch button grid shared by Options and Screensavers."""
-    for i in range(count):
-        col,row = i%2,i//2
-        if 8+col*156 <= x <= 155+col*156 and 30+row*40 <= y <= 64+row*40:
-            return i
-    return None
-
-
-saver_control_at = option_at = grid_at
 TABS = ('CAMERA', 'PHOTOS', 'APPS', 'STATUS', 'OPTIONS', 'EXIT')
 TAB_WIDTHS = (58, 56, 44, 52, 62, 48)  # Sized to their labels; sums to 320.
 TAB_EDGES = tuple(sum(TAB_WIDTHS[:i]) for i in range(len(TABS)+1))
@@ -1693,39 +1857,58 @@ TAB_PARENT = {'health': 'status', 'savers': 'options', 'saverstyle': 'options',
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
               'audio': 'apps'}
 TAB_FONT = font(11)
-EXIT_BUTTONS = ((12, 103), (114, 205), (216, 307))  # CANCEL, CLOSE APP, SHUT DOWN
-
-
-def row_button(x):
-    """Index of the four 80 px buttons on the Camera and Photos pages."""
-    return min(3, max(0, int(x)//80))
-
-
-def tab_at(x):
-    return next((i for i in range(len(TABS)) if x < TAB_EDGES[i+1]), len(TABS)-1)
 
 
 def timer_label(seconds):
     return f'TIMER {seconds}s' if seconds else 'TIMER OFF'
 
 
+def preview_area():
+    """(top, height) of the camera/photo picture area for the current orientation."""
+    return (26, min(180, W*3//4)) if portrait() else (25, 132)
+
+
+def option_labels(options):
+    if portrait():  # Same settings, shorter words for 108 px buttons.
+        return [f"Pixels: {options['pixel_level']}%", 'Savers...', 'Preview saver',
+                'Test colours', 'Calibrate...', f"Graph: {options['history_seconds']}s",
+                'Photo: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
+                'Alerts: ' + options['alerts'].title(),
+                'Screen: ' + ROTATION_NAMES[options['rotation']],
+                f"Camera: {options['camera_turn']}°"]
+    return [f"Pixel level: {options['pixel_level']}%", 'Screensavers...',
+            'Preview saver', 'Test colours', 'Calibrate touch...',
+            f"Graph: {options['history_seconds']}s",
+            'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
+            'Alert banner: ' + options['alerts'].title(),
+            'Screen: ' + ROTATION_NAMES[options['rotation']],
+            f"Camera turn: {options['camera_turn']}°"]
+
+
 def render(page, frame, paused, fps, rows, message, history=(), now=None,
            options=None, wall_time=None, alerts=(), cam=None, photo=None,
            service=False, extra=None):
-    """cam: camera overlays. photo: review state. extra: apps/audio page data."""
+    """Draw one page on the W x H logical canvas and register its buttons in HOTSPOTS.
+
+    cam: camera overlays. photo: review state. extra: apps/audio page data.
+    """
     extra = extra or {}
     options = options or DEFAULT_OPTIONS
     wall_time = wall_time or datetime.now().astimezone()
     cam, photo = cam or {}, photo or {}
+    HOTSPOTS.clear()
+    HOTSPOTS_PAGE[0] = page
     image = Image.new('RGB', (W, H), BG)
     d = ImageDraw.Draw(image)
+    bottom = content_bottom()
+    dy = (bottom-204)//2  # Centres dialog-style pages in the taller portrait content area.
     if page == 'photofull':
         if photo.get('image') is not None:
             full = ImageOps.contain(photo['image'], (W, H))
             image.paste(full, ((W-full.width)//2, (H-full.height)//2))
         d.text((6, 4), photo.get('label', ''), font=TINY, fill=TEXT,
                stroke_width=2, stroke_fill='black')
-        d.text((314, 234), 'tap to return', font=TINY, fill=TEXT, anchor='rs',
+        d.text((W-6, H-6), 'tap to return', font=TINY, fill=TEXT, anchor='rs',
                stroke_width=2, stroke_fill='black')
         return image
     title = {'calconfirm':'TOUCH SETUP', 'savers':'SAVERS', 'saverstyle':'SAVER STYLE',
@@ -1733,55 +1916,80 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
              'shutdown':'POWER', 'poweroff':'POWER'}.get(page, page.upper())
     if alerts and page not in ('stopped', 'poweroff'):
         draw_banner(d, alerts, wall_time.strftime('%H:%M'))
+        if page not in ('calconfirm', 'exit', 'shutdown', 'photodelete', 'colours'):
+            hotspot((0, 0, W-1, 23), 'banner')
     else:
-        d.text((8, 4), 'PANEL / ' + title, font=FONT, fill=ACCENT)
-        d.text((312, 6), wall_time.strftime('%H:%M:%S'), font=SMALL, fill=TEXT, anchor='ra')
+        clock = wall_time.strftime('%H:%M:%S')
+        room = W-24-d.textlength(clock, font=SMALL)
+        heading = 'PANEL / ' + title
+        if d.textlength(heading, font=FONT) > room:
+            heading = title
+        d.text((8, 4), fit_text(d, heading, room, FONT), font=FONT, fill=ACCENT)
+        d.text((W-8, 6), clock, font=SMALL, fill=TEXT, anchor='ra')
     if page == 'stopped':
-        d.text((160, 85), 'Panel app is not running', font=FONT, fill=TEXT, anchor='mm')
+        top = H//2-35
+        centred(d, top, 'Panel app is not running', FONT)
         if message:
-            d.text((160, 108), fit_text(d, message, 300, SMALL), font=SMALL, fill=WARN, anchor='mm')
+            centred(d, top+23, message, SMALL, WARN)
         if service:
-            d.text((160, 135), 'Restart it from a terminal, or reboot:', font=SMALL, fill=MUTED, anchor='mm')
-            d.text((160, 158), f'sudo systemctl start {SERVICE}', font=SMALL, fill=ACCENT, anchor='mm')
+            centred(d, top+50, 'Restart it from a terminal, or reboot:', SMALL, MUTED)
+            centred(d, top+73, f'sudo systemctl start {SERVICE}', SMALL, ACCENT)
         else:
-            d.text((160, 135), 'Restart from your VNC terminal.', font=SMALL, fill=MUTED, anchor='mm')
-            d.text((160, 158), 'sudo python3 ~/panel_app.py', font=SMALL, fill=ACCENT, anchor='mm')
+            centred(d, top+50, 'Restart from your VNC terminal.', SMALL, MUTED)
+            centred(d, top+73, 'sudo python3 ~/panel_app.py', SMALL, ACCENT)
         return image
     if page == 'poweroff':
-        d.text((160, 70), 'Shutting down...', font=FONT, fill=TEXT, anchor='mm')
-        d.text((160, 105), 'Wait until the green ACT LED stops', font=SMALL, fill=TEXT, anchor='mm')
-        d.text((160, 123), 'flashing, then switch off the power.', font=SMALL, fill=TEXT, anchor='mm')
-        d.text((160, 160), 'This screen stays lit after shutdown;', font=TINY, fill=MUTED, anchor='mm')
-        d.text((160, 174), 'its backlight is wired straight to 3.3 V.', font=TINY, fill=MUTED, anchor='mm')
+        top = H//2-50
+        centred(d, top, 'Shutting down...', FONT)
+        lines = (('Wait until the green ACT LED stops', 'flashing, then switch off the power.')
+                 if not portrait() else
+                 ('Wait until the green ACT LED', 'stops flashing, then switch', 'off the power.'))
+        for i, line in enumerate(lines):
+            centred(d, top+35+i*18, line, SMALL)
+        notes = ('This screen stays lit after shutdown;', 'its backlight is wired straight to 3.3 V.')
+        for i, line in enumerate(notes):
+            centred(d, top+55+len(lines)*18+i*14, line, TINY, MUTED)
         return image
     if page == 'camera':
+        top, height = preview_area()
         box = None
         if frame is not None:
-            preview = ImageOps.contain(frame, (W, 132))
-            box = ((W-preview.width)//2, 25+(132-preview.height)//2)
+            preview = ImageOps.contain(frame, (W, height))
+            box = ((W-preview.width)//2, top+(height-preview.height)//2)
             image.paste(preview, box)
             box = (*box, box[0]+preview.width-1, box[1]+preview.height-1)
             if cam.get('flash'):
                 d.rectangle(box, fill='white')
         else:
-            d.text((160, 85), 'Camera is not available', font=FONT, fill=MUTED, anchor='mm')
-        # Left gutter: last snapshot (tap to review). Right gutter: capture settings.
-        d.text((36, 33), 'LAST', font=TINY, fill=MUTED, anchor='ma')
+            centred(d, top+height//2-6, 'Camera is not available', FONT, MUTED)
         thumb = cam.get('thumb')
-        if thumb is not None:
-            image.paste(thumb, (36-thumb.width//2, 46+(48-thumb.height)//2))
-            d.rectangle((36-thumb.width//2-1, 45+(48-thumb.height)//2,
-                         36+(thumb.width+1)//2, 46+(48+thumb.height)//2), outline=MUTED)
-            d.text((36, 100), 'tap to view', font=TINY, fill=MUTED, anchor='ma')
-        else:
-            d.rectangle((6, 46, 66, 93), outline=PANEL)
-            d.text((36, 70), 'none', font=TINY, fill=MUTED, anchor='mm')
         size_label = 'FULL' if options['photo_size'] == 'full' else '320x240'
-        for y, label, value in ((33, 'SIZE', size_label),
-                                (75, 'TIMER', f"{options['snap_timer']}s" if options['snap_timer'] else 'OFF')):
-            d.text((284, y), label, font=TINY, fill=MUTED, anchor='ma')
-            d.text((284, y+14), value, font=SMALL, fill=TEXT, anchor='ma')
-        centre = ((box[0]+box[2])//2, (box[1]+box[3])//2) if box else (160, 91)
+        timer_value = f"{options['snap_timer']}s" if options['snap_timer'] else 'OFF'
+        if portrait():
+            # No side gutters: the last photo sits in the preview's corner.
+            if thumb is not None:
+                tx, ty = 4, top+height-thumb.height-4
+                d.rectangle((tx-1, ty-1, tx+thumb.width, ty+thumb.height), outline=TEXT)
+                image.paste(thumb, (tx, ty))
+                hotspot((tx-4, ty-4, tx+thumb.width+4, ty+thumb.height+4), 'cam:last')
+            d.text((W-6, top+height+3), f'{size_label} | T {timer_value}', font=TINY,
+                   fill=MUTED, anchor='ra')
+        else:
+            # Left gutter: last snapshot (tap to review). Right gutter: capture settings.
+            d.text((36, 33), 'LAST', font=TINY, fill=MUTED, anchor='ma')
+            if thumb is not None:
+                image.paste(thumb, (36-thumb.width//2, 46+(48-thumb.height)//2))
+                d.rectangle((36-thumb.width//2-1, 45+(48-thumb.height)//2,
+                             36+(thumb.width+1)//2, 46+(48+thumb.height)//2), outline=MUTED)
+                d.text((36, 100), 'tap to view', font=TINY, fill=MUTED, anchor='ma')
+                hotspot((0, 25, 69, 112), 'cam:last')
+            else:
+                d.rectangle((6, 46, 66, 93), outline=PANEL)
+                d.text((36, 70), 'none', font=TINY, fill=MUTED, anchor='mm')
+            for y, label, value in ((33, 'SIZE', size_label), (75, 'TIMER', timer_value)):
+                d.text((W-36, y), label, font=TINY, fill=MUTED, anchor='ma')
+                d.text((W-36, y+14), value, font=SMALL, fill=TEXT, anchor='ma')
+        centre = ((box[0]+box[2])//2, (box[1]+box[3])//2) if box else (W//2, top+height//2)
         if cam.get('countdown'):
             r = 34
             d.ellipse((centre[0]-r, centre[1]-r, centre[0]+r, centre[1]+r), fill=BG,
@@ -1796,61 +2004,75 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
                                 radius=6, fill=ACCENT)
             d.text((centre[0], centre[1]-8), 'PHOTO SAVED', font=FONT, fill=BG, anchor='mm')
             d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
-        d.text((8, 158), fit_text(d, message, 304, SMALL), font=SMALL, fill=TEXT)
+        message_room = W-16-(70 if portrait() else 0)
+        d.text((8, top+height+1), fit_text(d, message, message_room, SMALL), font=SMALL, fill=TEXT)
         labels = ('CANCEL' if cam.get('countdown') else 'SNAP', timer_label(options['snap_timer']),
                   'RESUME' if paused else 'PAUSE', f'{fps:g} FPS')
-        for i, label in enumerate(labels):
-            button(d, (i*80+3, 176, i*80+77, 203), label, active=(i == 0 and bool(cam.get('countdown'))))
+        for i, (rect, label) in enumerate(zip(row_rects(4, bottom-28, bottom-1), labels)):
+            button(d, rect, label, active=(i == 0 and bool(cam.get('countdown'))),
+                   action=('cam:snap', 'cam:timer', 'cam:pause', 'cam:fps')[i])
     elif page in ('photos', 'photodelete'):
         picture, count = photo.get('image'), photo.get('count', 0)
         if page == 'photodelete':
             if picture is not None:
                 small = ImageOps.contain(picture, (120, 90))
-                image.paste(small, (100+(120-small.width)//2, 28))
-            d.text((160, 132), 'Delete this photo?', font=FONT, fill=TEXT, anchor='mm')
-            d.text((160, 151), photo.get('label', ''), font=SMALL, fill=MUTED, anchor='mm')
-            button(d, (12, 164, 151, 202), 'CANCEL', active=True)
-            button(d, (168, 164, 307, 202), 'DELETE', fill=DANGER)
+                image.paste(small, ((W-small.width)//2, 28+dy))
+            centred(d, 132+dy, 'Delete this photo?', FONT)
+            centred(d, 151+dy, photo.get('label', ''), SMALL, MUTED)
+            button(d, (12, 164+dy, W//2-9, 202+dy), 'CANCEL', active=True, action='del:cancel')
+            button(d, (W//2+8, 164+dy, W-13, 202+dy), 'DELETE', fill=DANGER, action='del:confirm')
         elif not count:
-            d.text((160, 80), 'No photos yet', font=FONT, fill=TEXT, anchor='mm')
-            d.text((160, 106), 'Use SNAP on the Camera page.', font=SMALL, fill=MUTED, anchor='mm')
-            d.text((160, 130), fit_text(d, message, 300, SMALL), font=SMALL, fill=TEXT, anchor='mm')
+            centred(d, 80+dy, 'No photos yet', FONT)
+            centred(d, 106+dy, 'Use SNAP on the Camera page.', SMALL, MUTED)
+            centred(d, 130+dy, message, SMALL)
         else:
+            top, height = preview_area()
             if picture is not None:
-                shown = ImageOps.contain(picture, (W, 132))
-                image.paste(shown, ((W-shown.width)//2, 25+(132-shown.height)//2))
+                shown = ImageOps.contain(picture, (W, height))
+                image.paste(shown, ((W-shown.width)//2, top+(height-shown.height)//2))
+                hotspot((0, top, W-1, top+height), 'photo:full')
             else:
-                d.text((160, 91), 'Cannot open this photo', font=FONT, fill=MUTED, anchor='mm')
+                centred(d, top+height//2, 'Cannot open this photo', FONT, MUTED)
             original = photo.get('size')
             info = f"{photo['index']+1}/{count}  {photo.get('label', '')}"
             if original:
                 info += f'  {original[0]}x{original[1]}'
-            d.text((8, 158), fit_text(d, message or info, 304, SMALL), font=SMALL, fill=TEXT)
-            for i, label in enumerate(('< OLDER', 'NEWER >', 'FULL', 'DELETE')):
+            info_font = TINY if portrait() else SMALL
+            d.text((8, top+height+2), fit_text(d, message or info, W-16, info_font),
+                   font=info_font, fill=TEXT)
+            actions = ('photo:older', 'photo:newer', 'photo:full', 'photo:delete')
+            for i, (rect, label) in enumerate(zip(row_rects(4, bottom-28, bottom-1),
+                                                  ('< OLD', 'NEW >', 'FULL', 'DELETE') if portrait()
+                                                  else ('< OLDER', 'NEWER >', 'FULL', 'DELETE'))):
                 enabled = not ((i == 0 and photo['index'] == 0) or
                                (i == 1 and photo['index'] == count-1))
-                button(d, (i*80+3, 176, i*80+77, 203), label if enabled else '',
-                       fill=None if enabled else '#18252f')
+                button(d, rect, label if enabled else '', fill=None if enabled else '#18252f',
+                       action=actions[i] if enabled else None)
     elif page == 'status':
         now = time.monotonic() if now is None else now
+        tall = 52 if portrait() else 32
         cpu = '--' if rows.get('cpu') is None else f"{rows['cpu']:.0f}%"
         d.text((8, 25), f'CPU  {cpu}', font=SMALL, fill=ACCENT)
-        d.text((308, 25), rows.get('temp', '--'), font=SMALL, fill=TEXT, anchor='ra')
-        graph(d, (28, 43, 310, 75), history, 1, now, ACCENT, options['history_seconds'])
-        d.text((8, 82), 'RAM', font=SMALL, fill='#67bfff')
-        d.text((308, 82), f"{rows.get('ram', '--')}   {rows.get('ram_percent', 0):.0f}%",
+        d.text((W-12, 25), rows.get('temp', '--'), font=SMALL, fill=TEXT, anchor='ra')
+        graph(d, (28, 43, W-10, 43+tall), history, 1, now, ACCENT, options['history_seconds'])
+        ram_y = 43+tall+7
+        d.text((8, ram_y), 'RAM', font=SMALL, fill='#67bfff')
+        d.text((W-12, ram_y), f"{rows.get('ram', '--')}   {rows.get('ram_percent', 0):.0f}%",
                font=SMALL, fill=TEXT, anchor='ra')
-        graph(d, (28, 100, 310, 132), history, 2, now, '#67bfff', options['history_seconds'])
-        d.text((8, 140), 'Disk free  ' + rows.get('disk_free', '--'), font=SMALL, fill=TEXT)
-        d.rounded_rectangle((235, 145, 310, 152), radius=3, fill=PANEL)
+        graph(d, (28, ram_y+18, W-10, ram_y+18+tall), history, 2, now, '#67bfff',
+              options['history_seconds'])
+        disk_y = ram_y+18+tall+8
+        d.text((8, disk_y), 'Disk free  ' + rows.get('disk_free', '--'), font=SMALL, fill=TEXT)
+        bar = W-85
+        d.rounded_rectangle((bar, disk_y+5, W-10, disk_y+12), radius=3, fill=PANEL)
         used_width = round(.75*max(0, min(100, rows.get('disk_used_percent',0))))
         if used_width:
-            d.rectangle((235,145,235+used_width,152),fill='#67bfff')
-        d.text((8, 157), 'Up ' + rows.get('uptime', '--'), font=SMALL, fill=TEXT)
-        d.text((308, 158), 'bar = disk used', font=TINY, fill=MUTED, anchor='ra')
-        d.text((8, 176), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
-        button(d, (213, 174, 310, 202), 'DETAILS')
-        d.text((8, 194), f"{options['history_seconds']}s history | 0-100%", font=TINY, fill=MUTED)
+            d.rectangle((bar, disk_y+5, bar+used_width, disk_y+12), fill='#67bfff')
+        d.text((8, disk_y+17), 'Up ' + rows.get('uptime', '--'), font=SMALL, fill=TEXT)
+        d.text((W-12, disk_y+18), 'bar = disk used', font=TINY, fill=MUTED, anchor='ra')
+        d.text((8, bottom-28), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
+        button(d, (W-107, bottom-30, W-10, bottom-2), 'DETAILS', action='status:details')
+        d.text((8, bottom-10), f"{options['history_seconds']}s history | 0-100%", font=TINY, fill=MUTED)
     elif page == 'health':
         details = [('Date', wall_time.strftime('%Y/%m/%d')),
                    ('Timezone', wall_time.strftime('%Z')),
@@ -1861,117 +2083,150 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
                    ('Past alerts', rows.get('prior_alerts','Unknown')),
                    ('CPU clock', rows.get('freq','Unknown')),
                    ('Network', rows.get('ip','Unknown'))]
+        pitch = 24 if portrait() else 19
         for i, (label, value) in enumerate(details):
-            y = 28+i*19
+            y = 28+i*pitch
             d.text((8,y),label,font=TINY,fill=MUTED)
-            text = fit_text(d, value, 222, SMALL)
+            text = fit_text(d, value, W-98, SMALL)
             colour = WARN if value in ('LOW VOLTAGE','Not synchronized') else TEXT
             d.text((88,y),text,font=SMALL,fill=colour)
-    elif page == 'options':
-        labels = [f"Pixel level: {options['pixel_level']}%", 'Screensavers...',
-                  'Preview saver', 'Test colours', 'Calibrate touch...',
-                  f"Graph: {options['history_seconds']}s",
-                  'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
-                  'Alert banner: ' + options['alerts'].title()]
-        for i, label in enumerate(labels):
-            col, row = i%2, i//2
-            button(d, (8+col*156, 30+row*40, 155+col*156, 64+row*40), label)
-        d.text((8,190),fit_text(d,message or 'Saved automatically. Dimming leaves backlight on.',304,TINY),
-               font=TINY,fill=TEXT if message else MUTED)
-    elif page == 'savers':
-        delay = options['saver_delay']
-        labels = ['Style: ' + SAVER_NAMES[options['saver_style']] + '...',
-                  f"After: {str(delay)+'s' if delay < 60 else str(delay//60)+' min'}",
-                  'Speed: '+options['saver_speed'].title(),
-                  f"Pixel level: {options['saver_level']}%",
-                  f"Bunnies: {options['bunny_count']}",
-                  f"Slides: every {options['slide_seconds']}s",
-                  f"Clock: {options['clock_format']}", 'PREVIEW']
-        for i,label in enumerate(labels):
-            col,row = i%2,i//2
-            button(d,(8+col*156,30+row*40,155+col*156,64+row*40),label,i == 7)
-        d.text((8,190),fit_text(d,message or 'Tap once to wake. Bunnies: tap one to make it jump.',304,TINY),font=TINY,fill=MUTED)
-    elif page == 'saverstyle':
-        for i, style in enumerate(SAVER_STYLES):
-            col,row = i%2,i//2
-            button(d,(8+col*156,30+row*40,155+col*156,64+row*40),SAVER_NAMES[style].upper(),
-                   options['saver_style'] == style)
-        d.text((8,190),fit_text(d,'Pictures: camera + cyberdeck-data/album. GIFs: cyberdeck-data/gifs',304,TINY),
-               font=TINY,fill=MUTED)
+    elif page in ('options', 'savers', 'saverstyle'):
+        if page == 'options':
+            labels = option_labels(options)
+            actions = [f'opt:{i}' for i in range(len(labels))]
+            active = [False]*len(labels)
+            note = message or 'Saved automatically. Dimming leaves backlight on.'
+        elif page == 'savers':
+            delay = options['saver_delay']
+            labels = ['Style: ' + SAVER_NAMES[options['saver_style']] + '...',
+                      f"After: {str(delay)+'s' if delay < 60 else str(delay//60)+' min'}",
+                      'Speed: '+options['saver_speed'].title(),
+                      f"Pixel level: {options['saver_level']}%",
+                      f"Bunnies: {options['bunny_count']}",
+                      f"Slides: {'' if portrait() else 'every '}{options['slide_seconds']}s",
+                      f"Clock: {options['clock_format']}", 'PREVIEW']
+            actions = [f'saver:{i}' for i in range(len(labels))]
+            active = [i == 7 for i in range(len(labels))]
+            note = message or 'Tap once to wake. Bunnies: tap one to make it jump.'
+        else:
+            labels = [SAVER_NAMES[style].upper() for style in SAVER_STYLES]
+            actions = [f'style:{style}' for style in SAVER_STYLES]
+            active = [options['saver_style'] == style for style in SAVER_STYLES]
+            note = 'Pictures: camera + cyberdeck-data/album. GIFs: cyberdeck-data/gifs'
+        rects = grid_rects(len(labels))
+        for rect, label, action, on in zip(rects, labels, actions, active):
+            button(d, rect, label, on, action=action)
+        d.text((8, rects[-1][3]+4), fit_text(d, note, W-16, TINY), font=TINY,
+               fill=TEXT if page == 'options' and message else MUTED)
     elif page == 'apps':
         notes = extra.get('notes', {})
-        for i, (label, key) in enumerate(APP_TILES):
-            col, row = i % 2, i // 2
-            rect = (8+col*156, 30+row*86, 155+col*156, 110+row*86)
+        for rect, (label, key) in zip(grid_rects(len(APP_TILES), 30, bottom+4, max_pitch=200), APP_TILES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
-            d.text(((rect[0]+rect[2])//2, rect[1]+32), label, font=FONT, fill=TEXT, anchor='mm')
-            d.text(((rect[0]+rect[2])//2, rect[1]+56), fit_text(d, notes.get(key, ''), 140, TINY),
-                   font=TINY, fill=MUTED, anchor='mm')
+            middle, room = (rect[1]+rect[3])//2, rect[2]-rect[0]-8
+            title_lines = wrap_text(d, label, room, FONT, 2)
+            note_lines = wrap_text(d, notes.get(key, ''), room, TINY, 2)
+            y = middle - (len(title_lines)*18 + len(note_lines)*13)//2 + 2
+            for line in title_lines:
+                d.text(((rect[0]+rect[2])//2, y+8), line, font=FONT, fill=TEXT, anchor='mm')
+                y += 18
+            y += 4
+            for line in note_lines:
+                d.text(((rect[0]+rect[2])//2, y+6), line, font=TINY, fill=MUTED, anchor='mm')
+                y += 13
+            hotspot(rect, 'app:' + key)
     elif page == 'audio':
         state, capture = extra.get('audio', {}), extra.get('capture')
-        d.rectangle((8, 27, 312, 104), fill='#0b1218')
+        vis_bottom = 104 + (bottom-204)
+        d.rectangle((8, 27, W-8, vis_bottom), fill='#0b1218')
         if capture is not None and capture.source:
-            draw_bars(d, (10, 30, 310, 103), capture.bands)
+            draw_bars(d, (10, 30, W-10, vis_bottom-1), capture.bands)
         status = capture.status if capture is not None else 'Visualizer off'
         source = {'output': 'Visualizer: what is playing', 'mic': 'Visualizer: microphone',
                   'off': 'Visualizer off'}[options['vis_source']]
-        d.text((10, 107), fit_text(d, f'{source} | {status}', 300, TINY), font=TINY, fill=MUTED)
+        d.text((10, vis_bottom+3), fit_text(d, f'{source} | {status}', W-20, TINY), font=TINY, fill=MUTED)
         if state.get('player') in ('Playing', 'Paused'):
             playing = f"{state['player']}: {state.get('title') or 'unknown track'}"
         elif state.get('player'):
             playing = 'No media player running'
         else:
             playing = 'Media keys need playerctl (see docs)'
-        d.text((10, 120), fit_text(d, playing, 300, SMALL), font=SMALL, fill=TEXT)
+        d.text((10, vis_bottom+16), fit_text(d, playing, W-20, SMALL), font=SMALL, fill=TEXT)
         volume = state.get('volume')
-        d.text((10, 136), 'VOL', font=TINY, fill=MUTED)
-        d.rounded_rectangle((40, 137, 250, 145), radius=3, fill=PANEL)
+        bar_y = vis_bottom+33
+        d.text((10, bar_y-1), 'VOL', font=TINY, fill=MUTED)
+        bar_end = W-70
+        d.rounded_rectangle((40, bar_y, bar_end, bar_y+8), radius=3, fill=PANEL)
         if volume is not None:
-            d.rectangle((40, 137, 40+round(2.1*max(0, min(100, volume))), 145),
+            d.rectangle((40, bar_y, 40+round((bar_end-40)*max(0, min(100, volume))/100), bar_y+8),
                         fill=MUTED if state.get('muted') else ACCENT)
         label = (state.get('backend', '') if volume is None else
                  f"{volume}%" + (' MUTED' if state.get('muted') else ''))
-        d.text((310, 135), fit_text(d, label, 56, TINY), font=TINY,
+        d.text((W-10, bar_y-2), fit_text(d, label, 56, TINY), font=TINY,
                fill=WARN if state.get('muted') else TEXT, anchor='ra')
         labels = (('VOL -', 'MUTE', 'VOL +', 'SOURCE'),
                   ('|< PREV', 'PAUSE' if state.get('player') == 'Playing' else 'PLAY', 'NEXT >|', 'FULL'))
-        for (y0, y1), row in zip(AUDIO_ROWS, labels):
-            for i, text in enumerate(row):
-                button(d, (i*80+3, y0, i*80+77, y1), text,
-                       active=(text == 'MUTE' and state.get('muted')))
+        for (y0, y1), row, names in zip(((bottom-54, bottom-29), (bottom-25, bottom)), labels,
+                                         AUDIO_BUTTONS):
+            for rect, text, name in zip(row_rects(4, y0, y1), row, names):
+                button(d, rect, text, active=(text == 'MUTE' and state.get('muted')),
+                       action='audio:' + name)
     elif page == 'calconfirm':
-        d.text((160,57),'Recalibrate the touchscreen?',font=FONT,fill=TEXT,anchor='mm')
-        d.text((160,83),'Only needed if taps miss their targets.',font=SMALL,fill=MUTED,anchor='mm')
-        button(d,(12,121,151,174),'CANCEL',active=True)
-        button(d,(168,121,307,174),'START')
+        centred(d, 57+dy, 'Recalibrate the touchscreen?', FONT)
+        centred(d, 83+dy, 'Only needed if taps miss their targets.', SMALL, MUTED)
+        button(d, (12, 121+dy, W//2-9, 174+dy), 'CANCEL', active=True, action='cal:cancel')
+        button(d, (W//2+8, 121+dy, W-13, 174+dy), 'START', action='cal:start')
     elif page == 'colours':
         colours = ['white','yellow','cyan','lime','magenta','red','blue','black']
+        bar = W/8
         for i, colour in enumerate(colours):
-            d.rectangle((i*40,30,i*40+39,104),fill=colour)
-            d.text((i*40+20,110),('W','Y','C','G','M','R','B','K')[i],font=SMALL,fill=TEXT,anchor='ma')
-        for x in range(320):
-            v = round(x*255/319)
-            d.line((x,133,x,168),fill=(v,v,v))
-        d.text((160,187),'Full intensity | Tap to return',font=SMALL,fill=TEXT,anchor='mm')
+            d.rectangle((round(i*bar), 30+dy, round((i+1)*bar)-1, 104+dy), fill=colour)
+            d.text((round((i+.5)*bar), 110+dy), ('W','Y','C','G','M','R','B','K')[i], font=SMALL,
+                   fill=TEXT, anchor='ma')
+        for x in range(W):
+            v = round(x*255/(W-1))
+            d.line((x, 133+dy, x, 168+dy), fill=(v,v,v))
+        centred(d, 187+dy, 'Full intensity | Tap to return', SMALL)
         return image
     elif page == 'shutdown':
-        d.text((160, 52), 'Shut down the Raspberry Pi?', font=FONT, fill=TEXT, anchor='mm')
-        d.text((160, 78), 'Save your work in VNC first.', font=SMALL, fill=MUTED, anchor='mm')
-        d.text((160, 96), 'Power can be removed once the green LED', font=SMALL, fill=MUTED, anchor='mm')
-        d.text((160, 112), 'stops flashing.', font=SMALL, fill=MUTED, anchor='mm')
-        button(d, (12, 132, 151, 185), 'CANCEL', active=True)
-        button(d, (168, 132, 307, 185), 'SHUT DOWN', fill=DANGER)
+        centred(d, 52+dy, 'Shut down the Raspberry Pi?', FONT)
+        centred(d, 78+dy, 'Save your work in VNC first.', SMALL, MUTED)
+        centred(d, 96+dy, 'Power can be removed once the', SMALL, MUTED)
+        centred(d, 112+dy, 'green LED stops flashing.', SMALL, MUTED)
+        button(d, (12, 132+dy, W//2-9, 185+dy), 'CANCEL', active=True, action='shut:cancel')
+        button(d, (W//2+8, 132+dy, W-13, 185+dy), 'SHUT DOWN', fill=DANGER, action='shut:confirm')
     else:
-        d.text((160, 52), 'Close the app or shut down?', font=FONT, fill=TEXT, anchor='mm')
-        d.text((160, 80), 'Close releases the camera and touch.', font=SMALL, fill=MUTED, anchor='mm')
-        d.text((160, 98), 'Shut down asks once more first.', font=SMALL, fill=MUTED, anchor='mm')
-        for (x0, x1), label in zip(EXIT_BUTTONS, ('CANCEL', 'CLOSE APP', 'SHUT DOWN')):
-            button(d, (x0, 121, x1, 174), label, active=(label == 'CANCEL'),
-                   fill=DANGER if label == 'SHUT DOWN' else None)
-    for i, label in enumerate(TABS):
+        top = 12 if portrait() else 0
+        centred(d, 52+top, 'Close the app or shut down?', FONT)
+        centred(d, 80+top, 'Close releases the camera and touch.', SMALL, MUTED)
+        centred(d, 98+top, 'Shut down asks once more first.', SMALL, MUTED)
+        rects = ([(20, 120+i*46, W-21, 158+i*46) for i in range(3)] if portrait() else
+                 row_rects(3, 121, 174, margin=12, gap=11))
+        for rect, label, action in zip(rects,
+                                       ('CANCEL', 'CLOSE APP', 'SHUT DOWN'),
+                                       ('exit:cancel', 'exit:close', 'exit:shutdown')):
+            button(d, rect, label, active=(label == 'CANCEL'),
+                   fill=DANGER if label == 'SHUT DOWN' else None, action=action)
+    for rect, label in zip(tab_rects(), TABS):
         active = TAB_PARENT.get(page, page) == label.lower()
-        button(d, (TAB_EDGES[i]+2, 207, TAB_EDGES[i+1]-3, 238), label, active, font_=TAB_FONT)
+        button(d, rect, label, active, font_=TAB_FONT, action='tab:' + label.lower())
     return image
+
+
+def wrap_text(draw, value, width, selected_font, max_lines=2):
+    """Greedy word wrap; the last allowed line is truncated with ... if needed."""
+    lines, current = [], ''
+    for word in str(value).split():
+        trial = f'{current} {word}'.strip()
+        if current and draw.textlength(trial, font=selected_font) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = trial
+    if current:
+        lines.append(current)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines-1] + [' '.join(lines[max_lines-1:])]
+    return [fit_text(draw, line, width, selected_font) for line in lines]
 
 
 def fit_text(draw, value, width, selected_font):
@@ -2018,6 +2273,8 @@ def main():
     parser.add_argument('--touch', help='Override touchscreen event device')
     parser.add_argument('--status-only', action='store_true')
     parser.add_argument('--data', help='Data folder (default: cyberdeck-data beside this script)')
+    parser.add_argument('--rotation', type=int, choices=(0, 90, 180, 270),
+                        help='Turn the UI clockwise for this run only (overrides OPTIONS -> Screen)')
     args = parser.parse_args()
     # Prevent two copies from competing for the camera and touchscreen.
     import fcntl
@@ -2036,6 +2293,7 @@ def main():
     calibration_file = data / 'touch.json'
     options_file = data / 'options.json'
     options = load_options(options_file)
+    set_rotation(options['rotation'] if args.rotation is None else args.rotation)
     library = PhotoLibrary(photos)
     album_dir, gif_dir = data / 'album', data / 'gifs'
     for folder in (album_dir, gif_dir, data / 'sprites'):
@@ -2143,6 +2401,15 @@ def main():
                 return GifSaver(saver_gifs)
             return ClassicSaver(style, options, now)
 
+        def apply_rotation():
+            """Re-lay out everything for a new Screen setting (calibration is unaffected)."""
+            nonlocal next_draw
+            set_rotation(options['rotation'])
+            album_show.previous = None  # A crossfade cannot mix two canvas sizes.
+            for player in players:
+                player.close()
+            next_draw = 0
+
         def open_app(name, now):
             if name == 'album':
                 album_show.refresh()
@@ -2217,7 +2484,7 @@ def main():
             if camera is not None and not paused and options['photo_size'] == 'full':
                 draw(time.monotonic(), capturing='Capturing...')
                 try:
-                    image = camera.capture_full()
+                    image = turn_image(camera.capture_full(), options['camera_turn'])
                 except Exception as exc:
                     print('Full-resolution capture failed:', exc, flush=True)
                     if not camera.recover():
@@ -2257,7 +2524,7 @@ def main():
                 if now < ignore_touch_until:
                     continue
                 last_touch = now
-                x, y = np.array([*raw, 1.0]) @ matrix
+                x, y = to_logical(*(np.array([*raw, 1.0]) @ matrix))
                 if active_saver is not None:
                     # Interactive savers (bunnies) may use a tap; otherwise it only wakes
                     # the panel and is consumed so it cannot activate the hidden UI.
@@ -2287,82 +2554,82 @@ def main():
                         ignore_touch_until = now + .12
                     next_draw = 0
                     break
-                if (alerts and y < 24 and
-                        page not in ('calconfirm', 'exit', 'shutdown', 'photodelete')):
+                action = hit(x, y) if HOTSPOTS_PAGE[0] == page else None
+                kind, _, arg = (action or '').partition(':')
+                if kind == 'banner':
                     page = 'health'
-                elif page == 'calconfirm' and 121 <= y <= 174:
-                    if 12 <= x <= 151:
+                elif kind == 'cal':
+                    if arg == 'cancel':
                         page = 'options'
-                    elif 168 <= x <= 307:
+                    else:
                         screen.pixel_level = 100
                         matrix, option_message = recalibrate_safely(screen, touch, matrix, save_calibration)
                         page = 'options'
                         last_touch = time.monotonic()
                         ignore_touch_until = last_touch + .5
-                elif page == 'savers' and saver_control_at(x,y) is not None:
-                    action = saver_control_at(x,y)
-                    if action == 0:
+                elif kind == 'saver':
+                    index = int(arg)
+                    if index == 0:
                         page = 'saverstyle'
-                    elif action < 7:
+                    elif index < 7:
                         option_message = cycle_option({1:'saver_delay',2:'saver_speed',3:'saver_level',
                                                        4:'bunny_count',5:'slide_seconds',
-                                                       6:'clock_format'}[action])
+                                                       6:'clock_format'}[index])
                     else:
                         active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
                     ignore_touch_until = now + .3
-                elif page == 'saverstyle' and saver_control_at(x,y) is not None:
-                    option_message = set_option('saver_style', SAVER_STYLES[saver_control_at(x,y)])
+                elif kind == 'style':
+                    option_message = set_option('saver_style', arg)
                     page = 'savers'
                     ignore_touch_until = now + .3
-                elif page == 'apps' and app_tile_at(x, y) is not None:
-                    page = open_app(APP_TILES[app_tile_at(x, y)][1], now)
+                elif kind == 'app':
+                    page = open_app(arg, now)
                     ignore_touch_until = now + .3
-                elif page == 'audio' and any(y0 <= y <= y1 for y0, y1 in AUDIO_ROWS):
-                    row = 0 if y <= AUDIO_ROWS[0][1] else 1
-                    action = AUDIO_BUTTONS[row][row_button(x)]
-                    if action == 'source':
+                elif kind == 'audio':
+                    if arg == 'source':
                         cycle_option('vis_source')
-                    elif action == 'full':
+                    elif arg == 'full':
                         page = 'visual'
                         ignore_touch_until = now + .3
                     else:
-                        audio.request(action)
-                elif page == 'options' and option_at(x, y) is not None:
-                    action = option_at(x, y)
-                    key = {0:'pixel_level', 5:'history_seconds', 6:'photo_size', 7:'alerts'}.get(action)
+                        audio.request(arg)
+                elif kind == 'opt':
+                    index = int(arg)
+                    key = {0:'pixel_level', 5:'history_seconds', 6:'photo_size', 7:'alerts',
+                           8:'rotation', 9:'camera_turn'}.get(index)
                     if key:
                         option_message = cycle_option(key)
-                    elif action == 1:
+                        if key == 'rotation':
+                            apply_rotation()
+                            ignore_touch_until = now + .6  # The layout just moved.
+                    elif index == 1:
                         page = 'savers'
                         option_message = ''
-                    elif action == 2:
+                    elif index == 2:
                         active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
-                    elif action == 3:
+                    elif index == 3:
                         page = 'colours'
-                    elif action == 4:
+                    elif index == 4:
                         page = 'calconfirm'
-                    ignore_touch_until = now + .3
-                elif page == 'status' and 213 <= x <= 310 and 174 <= y <= 202:
+                    ignore_touch_until = max(ignore_touch_until, now + .3)
+                elif kind == 'status':
                     page = 'health'
-                elif page == 'exit' and 121 <= y <= 174:
-                    choice = next((i for i, (x0, x1) in enumerate(EXIT_BUTTONS) if x0 <= x <= x1), None)
-                    if choice == 0:
+                elif kind == 'exit':
+                    if arg == 'cancel':
                         page = exit_return_page
-                    elif choice == 1:
+                    elif arg == 'close':
                         running = False
-                    elif choice == 2:
+                    else:
                         page = 'shutdown'
                         ignore_touch_until = now + .5
-                elif page == 'shutdown' and 132 <= y <= 185:
-                    if 12 <= x <= 151:
+                elif kind == 'shut':
+                    if arg == 'cancel':
                         page = exit_return_page
-                    elif 168 <= x <= 307:
+                    else:
                         shutdown_requested = True
                         running = False
-                elif page == 'photodelete' and 164 <= y <= 202:
-                    if 12 <= x <= 151:
-                        page = 'photos'
-                    elif 168 <= x <= 307:
+                elif kind == 'del':
+                    if arg == 'confirm':
                         path = current_photo()
                         try:
                             if path is not None:
@@ -2372,27 +2639,25 @@ def main():
                         except OSError as exc:
                             print('Could not delete photo:', exc, flush=True)
                             photo_message = 'Delete failed; see terminal'
-                        page = 'photos'
+                    page = 'photos'
                     ignore_touch_until = now + .3
-                elif y >= 207:
-                    tab = TABS[tab_at(x)].lower()
-                    if tab == 'exit':
+                elif kind == 'tab':
+                    if arg == 'exit':
                         if page not in ('exit', 'shutdown'):
                             exit_return_page = page
                         page = 'exit'
                         ignore_touch_until = time.monotonic() + .35
                     else:
-                        if tab == 'photos':
+                        if arg == 'photos':
                             library.refresh()
                             photo_index = len(library.items)-1
                             photo_message = ''
-                        elif tab == 'options':
+                        elif arg == 'options':
                             option_message = ''
                             ignore_touch_until = now + .3
-                        page = tab
-                elif page == 'camera' and 176 <= y <= 203:
-                    action = row_button(x)
-                    if action == 0:
+                        page = arg
+                elif kind == 'cam':
+                    if arg == 'snap':
                         if countdown_end is not None:
                             countdown_end = None
                             message = 'Timer cancelled'
@@ -2404,37 +2669,33 @@ def main():
                             touch.poll()  # Taps made while capturing are discarded.
                             last_touch = time.monotonic()
                             ignore_touch_until = last_touch + .3
-                    elif action == 1:
+                    elif arg == 'timer':
                         cycle_option('snap_timer')
                         message = ('Self-timer: ' + (f"{options['snap_timer']} s" if options['snap_timer']
                                                      else 'off'))
-                    elif action == 2 and camera:
+                    elif arg == 'pause' and camera:
                         paused = not paused
                         message = 'Preview paused | SNAP saves this frame' if paused else ready_message
-                    elif action == 3 and camera:
+                    elif arg == 'fps' and camera:
                         fps = {10: 15, 15: 20, 20: 10}[fps]
                         camera.set_fps(fps)
                         message = f'Camera target: {fps} FPS'
-                elif page == 'camera' and x < 70 and 25 <= y <= 112 and library.items:
-                    library.refresh()
-                    photo_index = len(library.items)-1
-                    photo_message = ''
-                    page = 'photos'
-                elif page == 'photos' and library.items:
-                    if 176 <= y <= 203:
-                        action = row_button(x)
-                        if action == 0:
-                            photo_index = max(0, photo_index-1)
-                        elif action == 1:
-                            photo_index = min(len(library.items)-1, photo_index+1)
-                        elif action == 2:
-                            page = 'photofull'
-                        else:
-                            page = 'photodelete'
-                            ignore_touch_until = now + .35
+                    elif arg == 'last' and library.items:
+                        library.refresh()
+                        photo_index = len(library.items)-1
                         photo_message = ''
-                    elif 25 <= y <= 157:
+                        page = 'photos'
+                elif kind == 'photo' and library.items:
+                    if arg == 'older':
+                        photo_index = max(0, photo_index-1)
+                    elif arg == 'newer':
+                        photo_index = min(len(library.items)-1, photo_index+1)
+                    elif arg == 'full':
                         page = 'photofull'
+                    elif arg == 'delete':
+                        page = 'photodelete'
+                        ignore_touch_until = now + .35
+                    photo_message = ''
                 next_draw = 0
                 break  # Avoid a second queued tap triggering a newly opened screen.
             if not running:
@@ -2477,7 +2738,7 @@ def main():
                 continue
             live = page == 'camera' and camera is not None and not paused
             if live:
-                frame = camera.frame()
+                frame = turn_image(camera.frame(), options['camera_turn'])
             if live or now >= next_draw:
                 delay = draw(now)
                 next_draw = now + (1/fps if live else delay)
