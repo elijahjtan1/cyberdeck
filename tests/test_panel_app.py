@@ -651,15 +651,15 @@ class MainLoopTest(unittest.TestCase):
         poweroff.assert_not_called()
 
     def test_apps_snake_and_bunny_saver(self):
-        # Coordinates: APPS tab x=136; GAMES tile (240, 70); menu SNAKE (160, 57);
-        # dialog START (100, 170) / QUIT (220, 170); menu BACK (160, 218).
+        # Coordinates: APPS tab x=136; GAMES tile (240, 70); menu SNAKE (80, 62);
+        # dialog START (100, 170) / QUIT (220, 170); menu BACK (237, 194).
         script = [(.5, 136, 222),    # APPS tab
                   (1.1, 240, 70),    # GAMES
-                  (1.7, 160, 57),    # SNAKE in the Games menu
+                  (1.7, 80, 62),     # SNAKE in the Games menu (top left)
                   (2.3, 100, 170),   # START
                   (2.9, 280, 12),    # PAUSE (header)
                   (3.5, 220, 170),   # QUIT -> back to the Games menu
-                  (4.1, 160, 218),   # BACK -> Apps
+                  (4.1, 237, 194),   # BACK -> Apps (bottom right)
                   (4.7, 240, 222),   # OPTIONS tab
                   (5.3, 240, 47),    # Screensavers...
                   (5.9, 80, 47),     # Style...

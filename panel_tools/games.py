@@ -229,3 +229,174 @@ class PongGame:
                     self.serve(toward_player=False)
                     return 'player'
         return None
+
+
+# ---- Brick breaker ----------------------------------------------------------------
+
+class BrickGame:
+    """Breakout in court coordinates (0..width across, 0..height down; paddle at the bottom)."""
+    COLS, ROWS = 8, 6
+    PADDLE, THICK, BALL = 52, 6, 6
+    ROW_POINTS = (50, 40, 30, 20, 10, 10)  # Top rows are worth more.
+
+    def __init__(self, width, height, seed=None):
+        self.rng = random.Random(seed)
+        self.width, self.height = width, height
+        self.score, self.lives, self.level = 0, 3, 1
+        self.paddle = width/2
+        self.new_level()
+
+    def new_level(self):
+        self.bricks = {(row, col) for row in range(self.ROWS) for col in range(self.COLS)}
+        self.reset_ball()
+
+    def reset_ball(self):
+        self.stuck = True  # Ball rests on the paddle until launched.
+        self.speed = 160. + 20*(self.level-1)
+        self.ball = [self.paddle, self.paddle_y() - self.BALL]
+        self.velocity = [0., 0.]
+
+    def resize(self, width, height):
+        if (width, height) != (self.width, self.height):
+            self.width, self.height = width, height
+            self.paddle = width/2
+            self.reset_ball()
+
+    def paddle_y(self):
+        return self.height - 12
+
+    def brick_rect(self, row, col):
+        margin, gap, top = 6, 3, 18
+        width = (self.width - 2*margin - (self.COLS-1)*gap) / self.COLS
+        x0 = margin + col*(width+gap)
+        y0 = top + row*(10+gap)
+        return (x0, y0, x0+width, y0+10)
+
+    def aim(self, across):
+        half = self.PADDLE/2
+        self.paddle = max(half, min(self.width-half, across))
+        if self.stuck:
+            self.ball[0] = self.paddle
+
+    def launch(self):
+        if self.stuck and self.lives > 0:
+            angle = self.rng.uniform(-.5, .5)
+            self.velocity = [self.speed*math.sin(angle), -self.speed*math.cos(angle)]
+            self.stuck = False
+
+    @property
+    def over(self):
+        return self.lives <= 0
+
+    def _hit_brick(self):
+        r = self.BALL/2
+        bx, by = self.ball
+        for row, col in sorted(self.bricks):
+            x0, y0, x1, y1 = self.brick_rect(row, col)
+            if x0-r <= bx <= x1+r and y0-r <= by <= y1+r:
+                self.bricks.discard((row, col))
+                self.score += self.ROW_POINTS[row] * self.level
+                return True
+        return False
+
+    def update(self, dt):
+        """Advance; returns 'lost' when the ball is missed, 'cleared' on a new level."""
+        dt = min(dt, .05)
+        if self.stuck or self.over:
+            return None
+        steps = max(1, math.ceil(dt/(1/240)))
+        r = self.BALL/2
+        for _ in range(steps):
+            h = dt/steps
+            # Move one axis at a time so a brick hit flips the right component.
+            self.ball[0] += self.velocity[0]*h
+            if self.ball[0] < r or self.ball[0] > self.width-r:
+                self.ball[0] = max(r, min(self.width-r, self.ball[0]))
+                self.velocity[0] = -self.velocity[0]
+            elif self._hit_brick():
+                self.velocity[0] = -self.velocity[0]
+            self.ball[1] += self.velocity[1]*h
+            if self.ball[1] < r:
+                self.ball[1], self.velocity[1] = r, abs(self.velocity[1])
+            elif self._hit_brick():
+                self.velocity[1] = -self.velocity[1]
+            top = self.paddle_y()
+            if (self.velocity[1] > 0 and top-r <= self.ball[1] <= top+self.THICK
+                    and abs(self.ball[0]-self.paddle) <= self.PADDLE/2 + r):
+                offset = max(-1., min(1., (self.ball[0]-self.paddle)/(self.PADDLE/2)))
+                self.speed = min(380., self.speed*1.02)
+                self.velocity = [self.speed*math.sin(offset), -self.speed*math.cos(offset)]
+                self.ball[1] = top - r
+            if self.ball[1] > self.height + r:
+                self.lives -= 1
+                if self.lives > 0:
+                    self.reset_ball()
+                return 'lost'
+            if not self.bricks:
+                self.level += 1
+                self.new_level()
+                return 'cleared'
+        return None
+
+
+# ---- Flappy bird ------------------------------------------------------------------
+
+class FlappyGame:
+    """Fly between pipes. Court coordinates: 0..width across, 0..height down."""
+    GRAVITY, FLAP, SPEED = 620., -215., 85.
+    RADIUS, PIPE = 6, 30
+
+    def __init__(self, width, height, seed=None):
+        self.rng = random.Random(seed)
+        self.width, self.height = width, height
+        self.reset()
+
+    def reset(self):
+        self.x = self.width * .28
+        self.y, self.vy = self.height/2, 0.
+        self.score, self.alive = 0, True
+        self.gap = max(62, min(84, self.height*.3))
+        self.pipes = []  # [x, gap_centre, passed]
+        self.next_pipe = self.width*.55
+
+    def resize(self, width, height):
+        if (width, height) != (self.width, self.height):
+            self.width, self.height = width, height
+            self.reset()
+
+    def flap(self):
+        if self.alive:
+            self.vy = self.FLAP
+
+    def _spawn(self):
+        margin = self.gap/2 + 12
+        self.pipes.append([self.width + self.PIPE, self.rng.uniform(margin, self.height-margin), False])
+
+    def update(self, dt):
+        """Returns 'point' when a pipe is passed, 'crash' when the bird hits something."""
+        dt = min(dt, .05)
+        if not self.alive:
+            return None
+        self.vy = min(self.vy + self.GRAVITY*dt, 400.)
+        self.y += self.vy*dt
+        event = None
+        self.next_pipe -= self.SPEED*dt
+        if self.next_pipe <= 0:
+            self._spawn()
+            self.next_pipe = max(120., self.width*.5)
+        for pipe in self.pipes:
+            pipe[0] -= self.SPEED*dt
+            if not pipe[2] and pipe[0] + self.PIPE/2 < self.x:
+                pipe[2] = True
+                self.score += 1
+                event = 'point'
+        self.pipes = [p for p in self.pipes if p[0] > -self.PIPE]
+        r = self.RADIUS
+        if self.y - r < 0 or self.y + r > self.height:
+            self.alive = False
+            return 'crash'
+        for x, centre, _ in self.pipes:
+            if abs(self.x - x) < self.PIPE/2 + r and abs(self.y - centre) > self.gap/2 - r:
+                self.alive = False
+                return 'crash'
+        return event

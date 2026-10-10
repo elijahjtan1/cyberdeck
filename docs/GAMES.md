@@ -1,4 +1,4 @@
-# Games: Tetris and Pong
+# Games: Tetris, Pong, Brick Breaker and Flappy
 
 ![Games in landscape](previews/games-landscape-preview.png)
 
@@ -6,7 +6,7 @@
 
 *The previews are drawn by the app's own code with sample game states.*
 
-The Apps page's **SNAKE** tile is now **GAMES**. It opens a menu with **Snake**, **Tetris** and **Pong**, each showing your record. **BACK** returns to Apps. Quitting a game returns to the Games menu.
+The Apps page's **GAMES** tile opens a two-column menu: **Snake**, **Tetris**, **Pong**, **Bricks** (Brick Breaker) and **Flappy**. Each shows your record. **BACK** returns to Apps. Quitting a game returns to the Games menu.
 
 All three games work in every screen rotation. While a game is running, the screensaver won't start.
 
@@ -43,6 +43,24 @@ You play against the computer, and the first to 7 points wins.
 
 Dragging needed one small addition to the touch code: the app can now see where a finger is while it's still down. Before, it only learned about a tap when the finger lifted. Everything else still acts on release, as before.
 
+## Brick Breaker
+
+Clear the wall of 48 bricks with the ball. You have 3 lives (the hearts in the header).
+
+- **Paddle:** drag a finger anywhere on the court and the paddle follows it. The paddle is at the bottom in every rotation.
+- **Launch:** the ball waits on the paddle; tap the court to launch it, including after losing a life.
+- **Angles:** where the ball hits the paddle decides its angle, as in Pong.
+- **Speed:** the ball speeds up slightly with each paddle hit.
+- **Scoring:** top rows are worth more (50, 40, 30, 20, 10, 10), multiplied by the level.
+- **Levels:** clearing the wall starts the next level with a fresh wall and a faster ball.
+
+## Flappy
+
+Fly between the pipes, scoring a point for each one you pass. Hitting a pipe, the ground or the top ends the run.
+
+- **Flap:** touch anywhere. It flaps the moment your finger touches the screen, not when you lift it, so it reacts immediately. Keeping your finger down doesn't keep flapping; touch again for the next flap.
+- **Gap size:** the gap scales with the screen height, so it's a little roomier in portrait.
+
 ## Records
 
 `~/cyberdeck-data/games.json` now holds:
@@ -50,12 +68,14 @@ Dragging needed one small addition to the touch code: the app can now see where 
 - `snake_best`
 - `tetris_best`
 - `pong_wins`
+- `bricks_best`
+- `flappy_best`
 
 Saving one game's record keeps the others. Your existing Snake best score carries over.
 
 ## Checks
 
-All 83 automated tests pass (`python3 -m unittest discover -s tests -v`), including 16 new ones in `tests/test_games.py`:
+All 91 automated tests pass (`python3 -m unittest discover -s tests -v`), including 24 in `tests/test_games.py`:
 
 - **Tetris rules:**
   - every piece has 4 cells in every rotation
@@ -84,11 +104,29 @@ All 83 automated tests pass (`python3 -m unittest discover -s tests -v`), includ
   - wins are saved
   - pausing works
   - the court resizes after a screen rotation
-- **Games menu:** every button leads to the right game in both orientations.
+- **Brick Breaker rules:**
+  - the ball rides on the paddle until launched
+  - hitting a brick removes it, scores, and bounces the ball back
+  - the paddle returns the ball
+  - a missed ball costs a life, and three misses end the game
+  - clearing the wall starts a faster level with a full wall
+- **Flappy rules:**
+  - gravity and flapping
+  - a point for each pipe passed
+  - crashes into pipes and the ground
+  - pipes keep coming, with the gap always fully on screen
+- **Brick Breaker and Flappy controls, in landscape and portrait:**
+  - the paddle follows a drag
+  - a tap launches the ball
+  - Flappy flaps on press, ignores the release, and doesn't flap on PAUSE
+  - records are saved
+- **Games menu:** all five buttons and BACK lead to the right place in both orientations.
 - **Real application loop** with a simulated screen, touch and camera:
   1. Apps → Games → Tetris → Start → Drop → Pause → Quit
   2. Pong → Start → Pause → Quit
-  3. Back → Exit
+  3. Bricks → Start → launch → Pause → Quit
+  4. Flappy → Start → Pause → Quit
+  5. Back → Exit
 - **Updated Snake test:** the end-to-end Snake test now goes through the Games menu.
 
 **Still needs checking on the Pi:**
@@ -96,3 +134,4 @@ All 83 automated tests pass (`python3 -m unittest discover -s tests -v`), includ
 - how responsive Tetris's buttons and hold-to-repeat feel on the resistive screen
 - how smoothly Pong's paddle tracks your finger
 - whether the computer opponent is fun to play against: easy to adjust if it's too easy or too hard
+- whether Flappy's flap and gravity feel right on the 2.8" screen: easy to tune

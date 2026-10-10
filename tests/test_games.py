@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 import panel_app as app  # noqa: E402
-from panel_tools.games import PIECES, TetrisGame, PongGame  # noqa: E402
+from panel_tools.games import PIECES, TetrisGame, PongGame, BrickGame, FlappyGame  # noqa: E402
 
 
 def centre(rect):
@@ -212,21 +212,158 @@ class GameAppsTest(unittest.TestCase):
             app.set_rotation(rotation)
             menu = app.GamesMenu(lambda: {'tetris': 'Best score: 9'})
             games, back = menu.rects()
-            self.assertEqual([menu.tap(*centre(r), 0) for r in games], ['snake', 'tetris', 'pong'])
+            self.assertEqual([menu.tap(*centre(r), 0) for r in games],
+                             ['snake', 'tetris', 'pong', 'bricks', 'flappy'])
             self.assertEqual(menu.tap(*centre(back), 0), 'exit')
             self.assertEqual(menu.render(0, datetime.now(), ()).size, (app.W, app.H))
+
+
+class BrickRulesTest(unittest.TestCase):
+    def test_launch_bricks_paddle_and_lives(self):
+        game = BrickGame(300, 200, seed=1)
+        self.assertTrue(game.stuck)
+        game.aim(40)
+        self.assertEqual(game.ball[0], 40)  # The resting ball rides on the paddle.
+        game.launch()
+        self.assertFalse(game.stuck)
+        self.assertLess(game.velocity[1], 0)
+        bricks = len(game.bricks)
+        x0, y0, x1, y1 = game.brick_rect(5, 3)
+        game.ball, game.velocity = [(x0+x1)/2, y1+6], [0, -200]
+        game.update(.05)
+        self.assertEqual(len(game.bricks), bricks-1)
+        self.assertEqual(game.score, 10)
+        self.assertGreater(game.velocity[1], 0)  # Bounced back down.
+        game.paddle = 150
+        game.ball, game.velocity = [150, game.paddle_y()-5], [0, 200]
+        game.update(.02)
+        self.assertLess(game.velocity[1], 0)  # Paddle return.
+        game.ball, game.velocity = [10, game.height-2], [0, 300]
+        game.paddle = 280
+        self.assertIn('lost', [game.update(.05) for _ in range(3)])
+        self.assertEqual(game.lives, 2)
+        self.assertTrue(game.stuck)
+
+    def test_clearing_all_bricks_starts_a_faster_level(self):
+        game = BrickGame(300, 200, seed=2)
+        game.bricks = {(0, 0)}
+        x0, y0, x1, y1 = game.brick_rect(0, 0)
+        game.stuck, game.ball, game.velocity = False, [(x0+x1)/2, y1+5], [0, -200]
+        self.assertEqual(game.update(.05), 'cleared')
+        self.assertEqual(game.level, 2)
+        self.assertEqual(len(game.bricks), 48)
+        self.assertGreater(game.speed, 160)
+
+    def test_game_over_after_three_lives(self):
+        game = BrickGame(300, 200, seed=3)
+        for _ in range(3):
+            game.stuck, game.ball, game.velocity = False, [5, 199], [0, 300]
+            game.paddle = 280
+            game.update(.05)
+        self.assertTrue(game.over)
+
+
+class FlappyRulesTest(unittest.TestCase):
+    def test_gravity_flap_points_and_crashes(self):
+        game = FlappyGame(320, 214, seed=1)
+        y = game.y
+        game.update(.05)
+        self.assertGreater(game.y, y)  # Falls.
+        game.flap()
+        game.update(.02)
+        self.assertLess(game.vy, 0)
+        game.pipes = [[game.x - game.PIPE, game.y, False]]  # Just flown through.
+        self.assertEqual(game.update(.01), 'point')
+        self.assertEqual(game.score, 1)
+        game.pipes = [[game.x, game.y + game.gap, False]]  # Bird is outside the gap.
+        self.assertEqual(game.update(.01), 'crash')
+        self.assertFalse(game.alive)
+        game.reset()
+        game.y, game.vy = game.height - 3, 100
+        self.assertEqual(game.update(.02), 'crash')  # Hit the ground.
+
+    def test_pipes_keep_coming_with_the_gap_on_screen(self):
+        game = FlappyGame(240, 294, seed=2)
+        for _ in range(400):
+            ahead = [p for p in game.pipes if p[0] + game.PIPE/2 + game.RADIUS >= game.x]
+            game.vy, game.y = 0, (ahead[0][1] if ahead else game.height/2)  # Fly the gaps.
+            game.update(.05)
+        self.assertGreater(game.score, 5)
+        for x, centre, _ in game.pipes:
+            self.assertTrue(game.gap/2 < centre < game.height - game.gap/2)
+
+
+class ArcadeAppsTest(unittest.TestCase):
+    def tearDown(self):
+        app.set_rotation(0)
+
+    def test_bricks_drag_launch_and_record(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            saved = []
+            bricks = app.BrickApp(save_best=saved.append, seed=1)
+            bricks.tap(*centre(app.SnakeApp.dialog_rects()[1]), 0)
+            bricks.hold((50, app.H-20), .1)
+            self.assertEqual(bricks.game.paddle, 50)
+            bricks.tap(app.W/2, app.H/2, .2)  # Tap the court: launch.
+            self.assertFalse(bricks.game.stuck)
+            bricks.game.score, bricks.game.lives = 120, 1
+            bricks.game.ball, bricks.game.velocity = [5, bricks.game.height-1], [0, 300]
+            bricks.game.paddle = app.W - 40
+            for t in (.3, .35, .4):
+                bricks.render(t, datetime.now(), ())
+            self.assertEqual(bricks.state, 'over')
+            self.assertEqual(saved, [120])
+            self.assertEqual(bricks.render(.5, datetime.now(), ()).size, (app.W, app.H))
+
+    def test_flappy_flaps_on_press_not_release(self):
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            flappy = app.FlappyApp(seed=2)
+            flappy.tap(*centre(app.SnakeApp.dialog_rects()[1]), 0)
+            self.assertTrue(flappy.running)
+            flappy.game.vy = 50
+            flappy.hold((100, 150), .1)  # Finger down: flap now.
+            self.assertEqual(flappy.game.vy, flappy.game.FLAP)
+            flappy.game.vy = 50
+            flappy.hold((100, 150), .15)  # Still held: no second flap.
+            flappy.tap(100, 150, .2)  # Release tap after a press: ignored.
+            flappy.hold(None, .2)
+            self.assertEqual(flappy.game.vy, 50)
+            flappy.tap(100, 150, .3)  # A tap with no press seen still flaps.
+            self.assertEqual(flappy.game.vy, flappy.game.FLAP)
+            flappy.hold((app.W-20, 10), .4)  # Finger on PAUSE: not a flap.
+            flappy.tap(app.W-20, 10, .5)
+            self.assertEqual(flappy.state, 'paused')
+            self.assertEqual(flappy.render(.5, datetime.now(), ()).size, (app.W, app.H))
+
+    def test_flappy_crash_saves_best(self):
+        saved = []
+        flappy = app.FlappyApp(best=1, save_best=saved.append, seed=3)
+        flappy.tap(*centre(app.SnakeApp.dialog_rects()[1]), 0)
+        flappy.game.score = 4
+        flappy.game.y, flappy.game.vy = flappy.game.height - 2, 200
+        flappy.render(.05, datetime.now(), ())
+        flappy.render(.1, datetime.now(), ())
+        self.assertEqual(flappy.state, 'over')
+        self.assertEqual(saved, [4])
 
 
 class GamesLoopTest(unittest.TestCase):
     def test_menu_tetris_and_pong_through_the_real_loop(self):
         import test_panel_app as t
         # Landscape: APPS tab, GAMES tile, TETRIS, START, DROP, PAUSE, QUIT,
-        # PONG, START, PAUSE (header), QUIT, BACK, EXIT tab, CLOSE.
+        # PONG, START, PAUSE (header), QUIT, BRICKS..., FLAPPY..., BACK, EXIT tab, CLOSE.
         drop = centre([r for r, a, _ in app.tetris_layout()[4] if a == 'drop'][0])
-        script = [(.5, 136, 222), (1.1, 240, 70), (1.7, 160, 111), (2.3, 100, 170),
+        script = [(.5, 136, 222), (1.1, 240, 70), (1.7, 237, 62), (2.3, 100, 170),
                   (2.9, *drop), (3.5, 300, 12), (4.1, 220, 170),
-                  (4.7, 160, 165), (5.3, 100, 170), (5.9, 300, 12), (6.5, 220, 170),
-                  (7.1, 160, 218), (7.7, 300, 222), (8.3, 160, 150)]
+                  (4.7, 80, 128), (5.3, 100, 170), (5.9, 300, 12), (6.5, 220, 170),
+                  (7.1, 237, 128), (7.7, 100, 170), (8.3, 160, 120), (8.9, 300, 12),
+                  (9.5, 220, 170),                       # BRICKS: start, launch, pause, quit
+                  (10.1, 80, 194), (10.7, 100, 170), (11.3, 300, 12),
+                  (11.9, 220, 170),                      # FLAPPY: start, pause, quit
+                  (12.5, 237, 194), (13.1, 300, 222), (13.7, 160, 150)]
+        t.FakeTouch.timeout = 30
         runner = t.MainLoopTest('test_leaving_camera_cancels_timer')
         data, _ = runner.run_app(script)
         frames = t.FakeScreen.frames

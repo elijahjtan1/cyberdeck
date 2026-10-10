@@ -180,23 +180,44 @@ def games_screens(clock):
         pong.last = None
         return pong
 
+    def bricks_midgame():
+        bricks = app.BrickApp(best=960, seed=2)
+        bricks.state = 'running'
+        game = bricks.game
+        game.bricks -= {(5, 1), (5, 2), (4, 2), (5, 6), (3, 4), (4, 4), (5, 4), (5, 5)}
+        game.score, game.lives, game.stuck = 360, 2, False
+        game.paddle = game.width*.45
+        game.ball = [game.width*.6, game.height*.55]
+        bricks.last = None
+        return bricks
+
+    def flappy_midgame():
+        flappy = app.FlappyApp(best=14, seed=5)
+        flappy.state = 'running'
+        game = flappy.game
+        game.score = 6
+        game.pipes = [[game.width*.45, game.height*.45, True], [game.width*.95, game.height*.6, False]]
+        game.y, game.vy = game.height*.5, -60
+        flappy.last = None
+        return flappy
+
     sheets = []
     for rotation in (0, 90):
         app.set_rotation(rotation)
         try:
-            notes = {'snake': 'Best score: 23', 'tetris': 'Best score: 4200', 'pong': 'Games won: 3'}
-            ready = app.TetrisApp(best=4200, seed=1)
+            notes = {'snake': 'Best score: 23', 'tetris': 'Best score: 4200', 'pong': 'Games won: 3',
+                     'bricks': 'Best score: 960', 'flappy': 'Best score: 14'}
             screens = [app.GamesMenu(lambda: notes).render(0, clock, ()),
                        tetris_midgame().render(0, clock, ()),
-                       ready.render(0, clock, ()),
-                       pong_rally().render(0, clock, ())]
-            pong_ready = app.PongApp(wins=3)
-            screens.append(pong_ready.render(0, clock, ()))
+                       pong_rally().render(0, clock, ()),
+                       bricks_midgame().render(0, clock, ()),
+                       flappy_midgame().render(0, clock, ()),
+                       app.BrickApp(best=960).render(0, clock, ())]
             sheets.append(screens)
         finally:
             app.set_rotation(0)
     save_sheet(sheets[0], 'games-landscape-preview.png', cols=3)
-    save_sheet(sheets[1], 'games-portrait-preview.png', cols=5)
+    save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
 
 
 if __name__ == '__main__':

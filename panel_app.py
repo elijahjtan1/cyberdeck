@@ -14,7 +14,7 @@ import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
 from panel_tools.camera import CameraDriver
 from panel_tools.backlight import load_backlight
-from panel_tools.games import TetrisGame, PongGame, PIECES, PIECE_COLOURS
+from panel_tools.games import TetrisGame, PongGame, BrickGame, FlappyGame, PIECES, PIECE_COLOURS
 from panel_tools.ui import ToolsUI
 import json
 import os
@@ -1928,17 +1928,200 @@ class PongApp:
         return image
 
 
+def court_rect():
+    """Play area under the 26 px header, used by Brick breaker and Flappy."""
+    return (0, 26, W-1, H-1), W, H-26
+
+
+class BrickApp:
+    """Brick breaker: drag to move the paddle, tap to launch. 3 lives, levels speed up."""
+    COLOURS = ('#f0605a', '#f29b42', '#f2d24b', '#5fd36b', '#4fd8e8', '#4f86f0')
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        _, width, height = court_rect()
+        self.game = BrickGame(width, height, seed=seed)
+        self.best, self.save_best = best, save_best
+        self.state, self.delay, self.last = 'ready', .25, None
+        self.flash, self.flash_until = '', 0.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def tap(self, x, y, now):
+        if self.state == 'running':
+            if pause_tapped(x, y):
+                self.state = 'paused'
+            elif y >= 26:
+                self.game.launch()
+            return None
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                _, width, height = court_rect()
+                self.game = BrickGame(width, height)
+            self.state, self.last = 'running', now
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def hold(self, point, now):
+        if point is not None and self.running and point[1] >= 26:
+            self.game.aim(point[0])
+
+    def update(self, now):
+        _, width, height = court_rect()
+        self.game.resize(width, height)
+        if self.state != 'running':
+            self.last = None
+            return
+        dt = 0 if self.last is None else now - self.last
+        self.last = now
+        event = self.game.update(dt)
+        if event == 'cleared':
+            self.flash, self.flash_until = f'LEVEL {self.game.level}', now + 1.5
+        elif event == 'lost' and not self.game.over:
+            self.flash, self.flash_until = f'{self.game.lives} LEFT - TAP TO LAUNCH', now + 1.5
+        if self.game.over:
+            self.state = 'over'
+            if self.game.score > self.best:
+                self.best = self.game.score
+                self.save_best(self.best)
+
+    def render(self, now, wall_time, alerts):
+        self.update(now)
+        game = self.game
+        (cx0, cy0, _, _), _, _ = court_rect()
+        image = Image.new('RGB', (W, H), '#070d12')
+        d = ImageDraw.Draw(image)
+        game_header(d, f'BRICKS  {game.score}', wall_time, self.running)
+        d.text((W-84 if self.running else W-56, 7), '\u2665'*game.lives, font=SMALL,
+               fill='#ff5a7a', anchor='ra')
+        for row, col in game.bricks:
+            x0, y0, x1, y1 = game.brick_rect(row, col)
+            d.rectangle((cx0+x0, cy0+y0, cx0+x1, cy0+y1), fill=self.COLOURS[row])
+        py = cy0 + game.paddle_y()
+        d.rectangle((game.paddle-game.PADDLE/2, py, game.paddle+game.PADDLE/2, py+game.THICK),
+                    fill=ACCENT)
+        bx, by, r = game.ball[0], cy0+game.ball[1], game.BALL/2
+        d.rectangle((bx-r, by-r, bx+r, by+r), fill='white')
+        if self.running and (now < self.flash_until or game.stuck):
+            centred(d, cy0 + game.height*.6, self.flash if now < self.flash_until
+                    else 'TAP TO LAUNCH', SMALL, WARN)
+        if self.state != 'running':
+            title, left, right = {
+                'ready': ('BRICK BREAKER', 'START', 'QUIT'),
+                'paused': ('PAUSED', 'RESUME', 'QUIT'),
+                'over': ('GAME OVER', 'PLAY AGAIN', 'QUIT')}[self.state]
+            draw_game_dialog(d, title, f'Score {game.score}   Best {self.best}', left, right,
+                             'Drag to move the paddle, tap to launch.' if self.state == 'ready' else '')
+        self.delay = 1/30 if self.running and not game.stuck else .1 if self.running else .25
+        return image
+
+
+class FlappyApp:
+    """Flappy bird: touch the screen to flap (on press, not on release)."""
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        _, width, height = court_rect()
+        self.game = FlappyGame(width, height, seed=seed)
+        self.best, self.save_best = best, save_best
+        self.state, self.delay, self.last = 'ready', .25, None
+        self.down = False          # Finger currently on the court.
+        self.pressed = False       # A press flapped since the last release tap.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def tap(self, x, y, now):
+        if self.state == 'running':
+            if pause_tapped(x, y):
+                self.state = 'paused'
+            elif not self.pressed and y >= 26:
+                self.game.flap()  # No press seen (no live touch position): flap on release.
+            self.pressed = False
+            return None
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                self.game.reset()
+            self.state, self.last = 'running', now
+            self.game.flap()
+            self.pressed = False
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def hold(self, point, now):
+        down = point is not None and point[1] >= 26 and not pause_tapped(*point)
+        if down and not self.down and self.running:
+            self.game.flap()
+            self.pressed = True
+        self.down = down
+
+    def update(self, now):
+        _, width, height = court_rect()
+        self.game.resize(width, height)
+        if self.state != 'running':
+            self.last = None
+            return
+        dt = 0 if self.last is None else now - self.last
+        self.last = now
+        if self.game.update(dt) == 'crash':
+            self.state = 'over'
+            if self.game.score > self.best:
+                self.best = self.game.score
+                self.save_best(self.best)
+
+    def render(self, now, wall_time, alerts):
+        self.update(now)
+        game = self.game
+        (_, cy0, _, cy1), _, _ = court_rect()
+        image = Image.new('RGB', (W, H), '#0b1218')
+        d = ImageDraw.Draw(image)
+        for y in range(cy0, cy1+1, 4):  # Dusk sky in bands (cheap, and tiny over SPI).
+            t = (y-cy0)/max(1, cy1-cy0)
+            d.rectangle((0, y, W, y+3), fill=(round(40+50*t), round(70+60*t), round(120+40*t)))
+        for x, centre, _ in game.pipes:
+            gap_top, gap_bottom = cy0+centre-game.gap/2, cy0+centre+game.gap/2
+            left, right = x-game.PIPE/2, x+game.PIPE/2
+            for y0, y1 in ((cy0, gap_top), (gap_bottom, cy1)):
+                d.rectangle((left, y0, right, y1), fill='#4fae4a', outline='#2c6a2a')
+            d.rectangle((left-3, gap_top-8, right+3, gap_top), fill='#5fc35a', outline='#2c6a2a')
+            d.rectangle((left-3, gap_bottom, right+3, gap_bottom+8), fill='#5fc35a', outline='#2c6a2a')
+        bx, by, r = game.x, cy0+game.y, game.RADIUS
+        tilt = max(-3, min(3, game.vy/80))
+        d.ellipse((bx-r-1, by-r, bx+r+1, by+r), fill='#f2d24b', outline='#7a5a10')
+        d.ellipse((bx+2, by-4+tilt/2, bx+5, by-1+tilt/2), fill='white')
+        d.polygon([(bx+r, by), (bx+r+5, by+1+tilt), (bx+r, by+3)], fill='#f29b42')
+        d.rectangle((0, 0, W, 25), fill='#0b1218')
+        game_header(d, f'FLAPPY  {game.score}', wall_time, self.running)
+        if self.state != 'running':
+            title, left, right = {
+                'ready': ('FLAPPY', 'START', 'QUIT'),
+                'paused': ('PAUSED', 'RESUME', 'QUIT'),
+                'over': ('CRASHED!', 'FLY AGAIN', 'QUIT')}[self.state]
+            draw_game_dialog(d, title, f'Score {game.score}   Best {self.best}', left, right,
+                             'Touch anywhere to flap.' if self.state == 'ready' else '')
+        self.delay = 1/30 if self.running else .25
+        return image
+
+
 class GamesMenu:
-    GAMES = (('SNAKE', 'snake'), ('TETRIS', 'tetris'), ('PONG', 'pong'))
+    GAMES = (('SNAKE', 'snake'), ('TETRIS', 'tetris'), ('PONG', 'pong'),
+             ('BRICKS', 'bricks'), ('FLAPPY', 'flappy'))
 
     def __init__(self, notes):
         self.notes, self.delay = notes, 1.
 
     def rects(self):
-        bottom = H-44
-        pitch = (bottom-34)//len(self.GAMES)
-        return ([(10, 34+i*pitch, W-11, 34+i*pitch+pitch-8) for i in range(len(self.GAMES))],
-                (10, H-38, W-11, H-6))
+        """Two columns of tiles; the last slot is BACK."""
+        rects = grid_rects(len(self.GAMES)+1, 32, H+6, max_pitch=200)
+        return rects[:-1], rects[-1]
 
     def tap(self, x, y, now):
         games, back = self.rects()
@@ -1961,9 +2144,10 @@ class GamesMenu:
         notes = self.notes()
         for rect, (label, key) in zip(games, self.GAMES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
-            middle = (rect[1]+rect[3])//2
-            d.text((W//2, middle-8), label, font=BOLD, fill=TEXT, anchor='mm')
-            d.text((W//2, middle+13), notes.get(key, ''), font=TINY, fill=MUTED, anchor='mm')
+            mid_x, mid_y = (rect[0]+rect[2])//2, (rect[1]+rect[3])//2
+            d.text((mid_x, mid_y-8), label, font=BOLD, fill=TEXT, anchor='mm')
+            d.text((mid_x, mid_y+13), fit_text(d, notes.get(key, ''), rect[2]-rect[0]-8, TINY),
+                   font=TINY, fill=MUTED, anchor='mm')
         button(d, back, 'BACK')
         return image
 
@@ -2261,7 +2445,7 @@ class VisualApp:
         return image
 
 
-GAME_PAGES = ('snake', 'tetris', 'pong')
+GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy')
 APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
@@ -2903,6 +3087,8 @@ def main():
         apps = {'snake': SnakeApp(scores.get('snake_best', 0), score_saver('snake_best')),
                 'tetris': TetrisApp(scores.get('tetris_best', 0), score_saver('tetris_best')),
                 'pong': PongApp(scores.get('pong_wins', 0), score_saver('pong_wins')),
+                'bricks': BrickApp(scores.get('bricks_best', 0), score_saver('bricks_best')),
+                'flappy': FlappyApp(scores.get('flappy_best', 0), score_saver('flappy_best')),
                 'album': AlbumApp(album_show, cycle_option),
                 'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
 
@@ -2950,7 +3136,7 @@ def main():
                 gifs = 0
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
-                    'games': 'Snake, Tetris, Pong',
+                    'games': 'Snake, Tetris, Pong, Bricks, Flappy',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -3069,7 +3255,9 @@ def main():
         apps['games'] = GamesMenu(lambda: {
             'snake': f"Best score: {apps['snake'].best}",
             'tetris': f"Best score: {apps['tetris'].best}",
-            'pong': f"Games won: {apps['pong'].wins}"})
+            'pong': f"Games won: {apps['pong'].wins}",
+            'bricks': f"Best score: {apps['bricks'].best}",
+            'flappy': f"Best score: {apps['flappy'].best}"})
 
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
@@ -3122,8 +3310,7 @@ def main():
                     elif result == 'exit':
                         if page == 'gifs':
                             gif_player.close()
-                        page = {'visual': 'audio', 'snake': 'games', 'tetris': 'games',
-                                'pong': 'games'}.get(page, 'apps')
+                        page = 'audio' if page == 'visual' else 'games' if page in GAME_PAGES else 'apps'
                         ignore_touch_until = now + .3
                     else:
                         ignore_touch_until = now + .12
