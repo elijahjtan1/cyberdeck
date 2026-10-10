@@ -41,6 +41,7 @@ class BacklightTest(unittest.TestCase):
             light = PwmBacklight(root=folder, frequency=2000)
             self.assertEqual((pwm / 'period').read_text(), '500000')
             self.assertEqual((pwm / 'enable').read_text(), '1')
+            self.assertEqual((pwm / 'duty_cycle').read_text(), '500000')  # Starts fully lit.
             light.set(100)
             self.assertEqual((pwm / 'duty_cycle').read_text(), '500000')
             light.set(0)
@@ -57,10 +58,42 @@ class BacklightTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             pwm = fake_pwm(Path(folder))
             light = PwmBacklight(root=folder, invert=True)
+            self.assertEqual((pwm / 'duty_cycle').read_text(), '0')  # Lit = held low.
             light.set(0)
             self.assertEqual((pwm / 'duty_cycle').read_text(), '500000')  # Off = held high.
             light.set(100)
             self.assertEqual((pwm / 'duty_cycle').read_text(), '0')
+
+    def test_waits_for_the_pwm_driver_at_boot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, naps = Path(folder), []
+
+            def sleep(seconds):  # The driver loads while the app is waiting.
+                naps.append(seconds)
+                if len(naps) == 3:
+                    fake_pwm(root)
+            light = PwmBacklight(root=root, wait=10, sleep=sleep)
+            self.assertEqual(len(naps), 3)
+            self.assertEqual((root / 'pwmchip0/pwm0/duty_cycle').read_text(), str(light.period))
+            with self.assertRaises(RuntimeError):
+                PwmBacklight(root=root / 'none', wait=1, sleep=lambda s: None)
+
+    def test_already_lit_channel_is_not_blanked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pwm = fake_pwm(Path(folder))
+            writes = []
+            real = PwmBacklight._write
+
+            def spy(self, name, value):
+                writes.append((name, value))
+                real(self, name, value)
+            (pwm / 'period').write_text('500000')
+            (pwm / 'duty_cycle').write_text('500000')  # Lit by the boot service.
+            with mock.patch.object(PwmBacklight, '_write', spy):
+                light = PwmBacklight(root=folder)
+                light.set(100)
+            self.assertNotIn(('duty_cycle', 0), writes)
+            self.assertEqual(writes.count(('duty_cycle', 500000)), 1)
 
     def test_perceptual_curve_keeps_low_levels_visible(self):
         self.assertEqual(duty_fraction(0), 0)
@@ -75,7 +108,7 @@ class BacklightTest(unittest.TestCase):
             self.assertIsInstance(load_backlight(data, sysfs), NoBacklight)
             (data / 'backlight.json').write_text(json.dumps({'chip': 0, 'channel': 0}))
             messages = []
-            self.assertIsInstance(load_backlight(data, sysfs, messages.append), NoBacklight)
+            self.assertIsInstance(load_backlight(data, sysfs, messages.append, wait=0), NoBacklight)
             self.assertIn('pixel dimming', messages[0])  # No pwmchip yet: not rebooted.
             fake_pwm(sysfs)
             self.assertTrue(load_backlight(data, sysfs).available)
@@ -306,6 +339,36 @@ class BlackSaverPowerOffTest(unittest.TestCase):
             self.assertIn(70, after)                        # Brightness restored on wake.
             self.assertEqual(levels[-1], 100)               # Left lit after exit.
             self.assertEqual((pwm / 'duty_cycle').read_text(), str(round(1e9/2000)))
+
+
+class BootLightTest(unittest.TestCase):
+    def test_unit_lights_panel_before_the_app(self):
+        text = setup_backlight.unit_text(Path('/home/eli/cyberdeck-repo/setup_backlight.py'),
+                                         Path('/home/eli/cyberdeck-data'))
+        self.assertIn('ExecStart=/usr/bin/python3 /home/eli/cyberdeck-repo/setup_backlight.py '
+                      '--on --data /home/eli/cyberdeck-data', text)
+        self.assertIn('Before=cyberdeck-panel.service', text)
+        self.assertIn('Type=oneshot', text)
+        import setup_panel_service
+        self.assertIn('cyberdeck-backlight.service', setup_panel_service.unit_text(
+            Path('/home/eli/cyberdeck-repo/panel_app.py'), 1000, 1000))
+
+    def test_install_and_remove(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, commands = Path(folder), []
+            path = setup_backlight.install_unit(Path('/r/setup_backlight.py'), Path('/d'),
+                                                root=root, run=commands.append)
+            self.assertIn(['systemctl', 'enable', setup_backlight.UNIT], commands)
+            setup_backlight.install_unit(Path('/r/setup_backlight.py'), Path('/d'),
+                                         root=root, run=commands.append)  # Re-run is fine.
+            self.assertTrue(setup_backlight.remove_unit(root=root, run=commands.append))
+            self.assertFalse(path.exists())
+            self.assertFalse(setup_backlight.remove_unit(root=root, run=commands.append))
+            path.write_text('someone else\n')
+            with self.assertRaises(RuntimeError):
+                setup_backlight.install_unit(Path('/r/x.py'), Path('/d'), root=root, run=commands.append)
+            self.assertFalse(setup_backlight.remove_unit(root=root, run=commands.append))
+            self.assertTrue(path.exists())  # Not ours: left alone.
 
 
 if __name__ == '__main__':

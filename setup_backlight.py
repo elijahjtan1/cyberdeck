@@ -3,24 +3,30 @@
 
 Wire the module's LED pin to a PWM-capable GPIO first (see docs/BACKLIGHT-PWM.md), then:
 
-  sudo python3 setup_backlight.py            # GPIO18 (pin 12): adds dtoverlay=pwm, reboot
+  sudo python3 setup_backlight.py            # GPIO18 (pin 12): adds dtoverlay=pwm and a
+                                             # boot service that lights the panel; reboot
   sudo python3 setup_backlight.py --test     # after rebooting: steps the brightness
   sudo python3 setup_backlight.py --on       # light the panel without the app running
+  sudo python3 setup_backlight.py --boot     # (re)install only the light-at-boot service
   sudo python3 setup_backlight.py --undo     # back to the always-on 3.3 V behaviour
 
 Options: --gpio 12|13|18|19, --invert (active-low driver such as a PNP switch),
 --frequency HZ (default 2000), --data DIR (default ~/cyberdeck-data).
 Only lines this script added to config.txt are ever removed.
+Set up before the boot service existed? Add it with: sudo python3 setup_backlight.py --boot
 """
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 MARK = '# panel backlight (setup_backlight.py)'
+UNIT = 'cyberdeck-backlight.service'
+UNIT_MARK = '# Managed by setup_backlight.py'
 # BCM2711 PWM0: channel 0 on GPIO12 (ALT0) / GPIO18 (ALT5); channel 1 on GPIO13 / GPIO19.
 PINS = {12: (4, 0), 13: (4, 1), 18: (2, 0), 19: (2, 1)}
 
@@ -123,6 +129,56 @@ def open_backlight(data):
     return light
 
 
+def unit_path(root=Path('/')):
+    return root / 'etc/systemd/system' / UNIT
+
+
+def unit_text(script, data):
+    """Lights the panel early in boot. The PWM pin idles low (dark) from the moment the
+    kernel loads the PWM driver until something sets a duty cycle."""
+    for path in (script, data):
+        if any(c.isspace() for c in str(path)) or any(c in str(path) for c in '%"'):
+            raise RuntimeError(f'Use a path without spaces, quotes or %: {path}')
+    return f'''{UNIT_MARK}
+[Unit]
+Description=Cyberdeck TFT backlight on at boot
+After=local-fs.target systemd-modules-load.service
+Before=cyberdeck-panel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {script} --on --data {data}
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
+'''
+
+
+def install_unit(script, data, root=Path('/'), run=None):
+    run = run or (lambda cmd: subprocess.run(cmd, check=True))
+    path = unit_path(root)
+    if path.is_symlink() or (path.exists() and not path.read_text().startswith(UNIT_MARK)):
+        raise RuntimeError(f'{path} was not created by this script; left unchanged.')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(unit_text(script, data))
+    path.chmod(0o644)
+    run(['systemctl', 'daemon-reload'])
+    run(['systemctl', 'enable', UNIT])
+    return path
+
+
+def remove_unit(root=Path('/'), run=None):
+    run = run or (lambda cmd: subprocess.run(cmd, check=True))
+    path = unit_path(root)
+    if path.is_file() and path.read_text().startswith(UNIT_MARK):
+        run(['systemctl', 'disable', UNIT])
+        path.unlink()
+        run(['systemctl', 'daemon-reload'])
+        return True
+    return False
+
+
 def run_test(data):
     light = open_backlight(data)
     for level in (100, 70, 40, 15, 5, 0, 100):
@@ -141,6 +197,8 @@ def main():
     parser.add_argument('--data', help='panel data folder (default ~/cyberdeck-data)')
     parser.add_argument('--test', action='store_true', help='step the brightness to check wiring')
     parser.add_argument('--on', action='store_true', help='set the backlight to 100%% and exit')
+    parser.add_argument('--boot', action='store_true',
+                        help='install only the service that lights the panel at boot')
     parser.add_argument('--undo', action='store_true', help='remove PWM backlight control')
     parser.add_argument('--force', action='store_true', help='skip the pin-in-use check')
     args = parser.parse_args()
@@ -154,9 +212,16 @@ def main():
         open_backlight(data).set(100)
         print('Backlight on (stays on until the app or a reboot changes it).')
         return
+    if args.boot:
+        if not (data / 'backlight.json').is_file():
+            raise RuntimeError(f'{data / "backlight.json"} not found: run the setup without --boot first')
+        install_unit(Path(__file__).resolve(), data.resolve())
+        print(f'Boot service {UNIT} enabled: the panel lights up early in every boot.')
+        return
     config = config_path()
     if args.undo:
         changed = remove_overlay(config)
+        remove_unit()
         (data / 'backlight.json').unlink(missing_ok=True)
         print('PWM backlight control removed.' + (' Reboot to release the pin.' if changed else ''))
         print('Rewire LED back to 3.3 V if you want it always on without the app.')
@@ -166,6 +231,8 @@ def main():
     added = add_overlay(config, args.gpio, args.force)
     path = write_settings(data, args.gpio, args.frequency, args.invert)
     print(f'Backlight settings: {path}')
+    install_unit(Path(__file__).resolve(), data.resolve())
+    print(f'Boot service {UNIT} enabled: the panel lights up early in every boot.')
     if added:
         print(f'Added "{overlay_line(args.gpio)}" to {config}. Reboot, then run --test.')
     else:
