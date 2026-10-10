@@ -21,8 +21,6 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 ## Files
 
 - [LIBRARIAN.md](docs/LIBRARIAN.md): offline source retrieval and Kiwix configuration.
-- [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
-
 - `panel_app.py` and `panel_tools/`: the app. Keep the repository together; run `sudo python3 ~/cyberdeck-repo/panel_app.py`.
 - `core/` and `setup_core_service.py`: the local backend (telemetry log and API; librarian next). See [CORE.md](docs/CORE.md).
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
@@ -32,4 +30,5 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `docs/`: [GAMES.md](docs/GAMES.md) covers the games; [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md) (backlight wiring, power and performance changes); [TOOLS.md](docs/TOOLS.md) covers the tools update, data-folder migration and installation. Rotation notes are in [ROTATION.md](docs/ROTATION.md); apps and savers in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
 - `AGENTS.md`: rules for the coding agents working on this repo; [ROADMAP.md](docs/ROADMAP.md) is the shared task list.
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
+- [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.
