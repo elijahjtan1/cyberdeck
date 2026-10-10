@@ -25,6 +25,20 @@ class FakeOpener:
 
 
 class SourcesTest(unittest.TestCase):
+    def test_recorded_installed_version_xml(self):
+        opener = FakeOpener((FIXTURES / 'kiwix-3.7.0-restarters.xml').read_bytes())
+        client = KiwixClient('http://127.0.0.1:8080', opener,
+                             book='restarters_en_all_maxi_2026-04')
+        rows = client.search('repair', 2)
+        self.assertEqual([row.title for row in rows],
+                         ['Glossary:Repair Café', 'Summary iPhone iPad and iPod repair'])
+        self.assertEqual(rows[0].url, 'http://127.0.0.1:8080/content/'
+                         'restarters_en_all_maxi_2026-04/Glossary%3ARepair_Caf%C3%A9')
+        self.assertIn('Repair Café International', rows[0].snippet)
+        self.assertNotIn('<b>', rows[0].snippet)
+        self.assertEqual(parse_qs(urlsplit(opener.requests[0][0]).query)['books.name'],
+                         ['restarters_en_all_maxi_2026-04'])
+
     def test_modern_search_and_mixed_snippets(self):
         opener = FakeOpener((FIXTURES / 'kiwix-search.xml').read_bytes())
         client = KiwixClient('http://127.0.0.1:8080', opener, book='wikipedia_en_test')

@@ -6,8 +6,18 @@ the backend uses the already-approved Flask package. It never falls back to the 
 ## Kiwix setup
 
 Eli reports kiwix-tools 3.7.0 / libkiwix 14.0.0; see [PI-BASELINE.md](PI-BASELINE.md).
-That version's source confirms `books.name` and RSS output. The port, book names and
-real Pi recordings are still pending. Do not assume those from the test fixtures.
+Its real recorded XML confirms `books.name`, RSS output, port 8080 and book key
+`restarters_en_all_maxi_2026-04` for the foreground test. No Wikipedia archive is
+confirmed yet. Use these settings for Restarters; change the book key when adding Wikipedia.
+
+Start the confirmed archive in a terminal on the Pi (leave it open):
+
+```bash
+kiwix-serve --address=127.0.0.1 --port=8080 /home/eli/kiwix/zims/restarters_en_all_maxi_2026-04.zim
+```
+
+This is a foreground process, not a boot service. If port 8080 is already occupied,
+use the existing Kiwix instance or choose a free port and update the client base URL.
 
 `KiwixClient(base_url, opener=None, book='', book_parameter='books.name', timeout=2.0)`
 uses `/search?pattern=...&format=xml&pageLength=...`. Set `book_parameter='content'`
@@ -28,8 +38,9 @@ does not execute scripts or load linked assets.
 
 ## Known limits and Pi check
 
-The compatibility fixtures are synthetic; installed-version validation is pending the
-baseline and real recordings. On the Pi, search for `passive sonobuoy`, verify that the
+The recorded XML verifies the installed search format; other compatibility fixtures are
+synthetic and real article HTML is still pending. With a Wikipedia ZIM installed, search
+for `passive sonobuoy`, verify that the
 result URL opens offline, then check that fetched paragraphs describe hydrophones and
 radio transmission. Stop kiwix-serve and confirm a clear error instead of a hang.
 
