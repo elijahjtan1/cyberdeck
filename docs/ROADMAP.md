@@ -49,17 +49,17 @@ Browser UI (Chromium on the Pi, or a PC on the network)      2.8" touch panel (p
 | --- | --- | --- | --- | --- |
 | 0.1 | Record system facts: `uname -m`, `free -h`, `df -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`, `lsblk`, `kiwix-serve --version`, ZIM file names and port, `ollama --version`, `ollama list` | Eli | todo | Paste into `docs/PI-BASELINE.md`. Needed before 2.1 |
 | 0.2 | Photo or video of the camera tearing artifact on the TFT | Eli | todo | Needed before 4.3 |
-| 0.3 | Decide on `sudo apt install python3-flask` | Eli | todo | Needed before 1.2 |
+| 0.3 | Decide on `sudo apt install python3-flask` | Eli | done | Approved |
 
 ## Phase 1: telemetry and backend skeleton
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Move status reading and `get_throttled` decoding out of `panel_app.py` into a shared module | - | todo | Panel behaviour unchanged |
-| 1.2 | `core/` package and Flask app on localhost, with a systemd installer like `setup_panel_service.py` | - | todo | `/api/health` endpoint first |
-| 1.3 | Telemetry logger: sample every 5 s, write to SQLite once a minute, keep 7 days | - | todo | Limit SD-card writes |
-| 1.4 | Activity markers: record Kiwix searches, AI answers and camera captures in the log | - | todo | To see whether undervoltage follows inference |
-| 1.5 | Panel: history chart on STATUS -> DETAILS and an "AI busy" indicator, read from the backend | - | todo | Must work without the backend |
+| 1.1 | Move status reading and `get_throttled` decoding out of `panel_app.py` into a shared module | Claude | in progress | Panel behaviour unchanged |
+| 1.2 | `core/` package and Flask app on localhost, with a systemd installer like `setup_panel_service.py` | Claude | in progress | `/api/health` endpoint first |
+| 1.3 | Telemetry logger: sample every 5 s, write to SQLite once a minute, keep 7 days | Claude | in progress | Limit SD-card writes |
+| 1.4 | Activity markers: record Kiwix searches, AI answers and camera captures in the log | Claude | in progress | To see whether undervoltage follows inference |
+| 1.5 | Panel: history chart on STATUS -> DETAILS and an "AI busy" indicator, read from the backend | Claude | in progress | Must work without the backend |
 
 Note: firmware flags say whether undervoltage happened, not the voltage. If the log ties
 undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cable), not code.
@@ -68,11 +68,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | - | todo | Match the installed kiwix-serve version (0.1) |
-| 2.2 | Fetch an article and turn its HTML into clean paragraphs | - | todo | Standard library HTML parser |
-| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | - | todo | No vector database |
-| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | - | todo | Keeps the model out of the search step |
-| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | - | todo | Context size sets the wait on the Pi |
+| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | todo | Match the installed kiwix-serve version (0.1) |
+| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | todo | Standard library HTML parser |
+| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | todo | No vector database |
+| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | todo | Keeps the model out of the search step |
+| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | todo | Context size sets the wait on the Pi |
 
 ## Phase 3: AI answers (librarian, part 2)
 
