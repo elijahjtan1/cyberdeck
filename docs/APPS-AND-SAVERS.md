@@ -52,6 +52,36 @@ The tabs are now **CAMERA, PHOTOS, APPS, STATUS, OPTIONS, EXIT**. APPS opens fou
 
 Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests, then hops along; now and then one turns around.
 
+![Bunny breeds and coats](previews/bunny-breeds.png)
+
+**Every bunny is different.** Each one gets a random breed and coat:
+
+| Breed | How often | Look | Coats |
+| --- | --- | --- | --- |
+| Standard | About 34% | Upright ears | All 15 coats |
+| Lop | About 22% | Ears hang down beside the head | All 15 coats |
+| Lionhead | About 16% | A shaggy, lighter mane around the head and neck | All 15 coats |
+| Rex | About 14% | Shorter, broader ears on a plush body | Castor, black, blue, lilac, sable, opal, white, chestnut, cinnamon |
+| Flemish Giant | About 14% | Drawn 1.5× larger. Moves a little slower and hops higher. | Grey, chestnut, black, fawn, white, blue, sable |
+
+- **Coats:** white, grey, chestnut, black, fawn, orange, castor, blue, lilac, sable, opal and cinnamon, plus three marked coats: Dutch (black patches), spotted (brown patches) and harlequin (orange with black patches).
+- **Bigger bunnies:** a giant's tap area matches its bigger size.
+- **New bunnies:** ones added with **+** get their own random look.
+
+![A moment in the bunny field](previews/bunny-life.png)
+
+**Bunnies have a life of their own.** Each time a bunny finishes resting, it usually hops on. Sometimes it does something else instead:
+
+- **Snacking:** it lowers its head and nibbles a **carrot** or a tuft of **hay** for 4–8 seconds. The carrot is eaten from the tip; the hay gets smaller as it goes.
+- **Napping:** it closes its eyes for 7–15 seconds while little **z**'s drift up.
+- **Pooping:** it leaves one to three droppings behind. They sink into the grass and disappear after about 45 seconds, with at most 40 on screen.
+- **Grooming:** it sits up and rubs a front paw over its face for 3–6 seconds, closing its eyes on each stroke.
+- **Binky:** the happy rabbit leap. It springs about three times higher than a normal hop, tilts into the jump, twists its body round at the top, and lands nose-down with sparkles around it. Half the time it lands facing the other way.
+
+Tapping a bunny still makes it jump with a heart, and that wakes a sleeper or interrupts a snack, a grooming session or a binky. A bunny in mid-binky can be tapped where it is in the air.
+
+- **Shape:** the sitting pose is rounder and more compact than the first version, which had a long, flat torso.
+
 - **Tap a bunny:** it does a big jump and a heart pops up. The saver stays on.
 - **− / +** (bottom corners): change how many bunnies there are: 1, 3, 6, 12 or 24. The count is saved.
 - **Tap the sky or grass:** wakes the panel, as with the other savers.
@@ -70,7 +100,7 @@ Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests,
 | `scale` | Pixel enlargement, 1 to 4. |
 | `faces` | The way the drawing faces. The app flips frames to suit the direction a bunny is moving. |
 
-A sheet that doesn't match its settings is ignored, with a message in the terminal or journal, and the built-in bunny is used instead.
+A sheet that doesn't match its settings is ignored, with a message in the terminal or journal, and the built-in bunnies are used instead. A valid custom sprite replaces all the breeds and coats; every bunny then uses your sprite.
 
 ## 2. Clock screensaver
 

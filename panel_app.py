@@ -12,9 +12,13 @@ import argparse
 import sys
 import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
+from panel_tools.backend import Backend
+from core.sysinfo import (SystemSampler, command_output, decode_throttle, health_alerts,
+                          undervoltage_seen, wireless_signal)
 from panel_tools.camera import CameraDriver
 from panel_tools.backlight import load_backlight
-from panel_tools.games import TetrisGame, PongGame, BrickGame, FlappyGame, PIECES, PIECE_COLOURS
+from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
+                               Klondike, SudokuGame, PIECES, PIECE_COLOURS, SUITS, rank_name)
 from panel_tools.ui import ToolsUI
 import json
 import os
@@ -48,6 +52,7 @@ DEFAULT_OPTIONS = {'pixel_level': 100, 'history_seconds': 60,
                    'photo_size': 'full', 'snap_timer': 0, 'alerts': 'on',
                    'bunny_count': 6, 'clock_format': '24h', 'slide_seconds': 10,
                    'album_source': 'both', 'album_order': 'order', 'vis_source': 'output',
+                   'start_page': 'home',
                    'rotation': 90, 'camera_turn': 0}
 OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'saver_style': SAVER_STYLES,
@@ -57,6 +62,7 @@ OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'bunny_count': (1, 3, 6, 12, 24), 'clock_format': ('24h', '12h'),
                  'slide_seconds': (5, 10, 30, 60), 'album_source': ('both', 'camera', 'album'),
                  'album_order': ('order', 'shuffle'), 'vis_source': ('output', 'mic', 'off'),
+                 'start_page': ('home', 'camera'),
                  'rotation': (90, 0, 270, 180), 'camera_turn': (0, 90, 180, 270)}
 PHOTO_TYPES = ('.jpg', '.jpeg', '.png')
 MIN_FREE_BYTES = 200 * 2**20  # Refuse new photos rather than filling the SD card.
@@ -136,83 +142,6 @@ def save_options(path, options):
     temporary.replace(path)
 
 
-def command_output(args):
-    try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=.6,
-                              check=True).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ''
-
-
-def decode_throttle(output):
-    match = re.fullmatch(r'throttled=(0x[0-9a-fA-F]+)', output)
-    if not match:
-        return {'power': 'Unknown', 'limits': 'Unknown', 'prior_alerts': 'Unknown',
-                'flags': None}
-    flags = int(match[1], 16)
-    active = []
-    if flags & 4:
-        active.append('Throttled')
-    if flags & 2:
-        active.append('Capped')
-    if flags & 8:
-        active.append('Temp limit')
-    return {'power': 'LOW VOLTAGE' if flags & 1 else 'No undervoltage',
-            'limits': ', '.join(active) or 'None active',
-            'prior_alerts': 'Yes, since boot' if flags & 0xf0000 else 'None since boot',
-            'flags': flags}
-
-
-def health_alerts(rows, now=None):
-    """Return (level, text) pairs for the banner, most serious first."""
-    now = time.monotonic() if now is None else now
-    alerts = []
-    if rows.get('power') == 'LOW VOLTAGE':
-        alerts.append(('critical', 'LOW VOLTAGE'))
-    elif rows.get('undervolt_seen_at') is not None and now-rows['undervolt_seen_at'] < 300:
-        # The sticky firmware bit flipped since launch: a dip happened between polls.
-        alerts.append(('warning', 'VOLTAGE DIPPED'))
-    temp = rows.get('temp_c')
-    if temp is not None:
-        if temp >= 80:
-            alerts.append(('critical', f'HOT {temp:.0f} C'))
-        elif temp >= 75:
-            alerts.append(('warning', f'WARM {temp:.0f} C'))
-    limits = rows.get('limits')
-    if limits not in (None, 'Unknown', 'None active'):
-        alerts.append(('warning', 'THROTTLED' if 'Throttled' in limits else
-                       'CPU CAPPED' if 'Capped' in limits else 'TEMP LIMIT'))
-    free = rows.get('disk_free_gib')
-    if free is not None:
-        if free < .25:
-            alerts.append(('critical', f'STORAGE {free*1024:.0f} MB'))
-        elif free < 1 or rows.get('disk_used_percent', 0) >= 95:
-            alerts.append(('warning', f'LOW STORAGE {free:.1f} GB'))
-    alerts.sort(key=lambda alert: alert[0] != 'critical')
-    return alerts
-
-
-def wireless_signal(proc=Path('/proc/net/wireless')):
-    """Signal level from the kernel's table (no `iw` process); falls back to `iw`."""
-    try:
-        for line in proc.read_text().splitlines()[2:]:
-            name, _, fields = line.partition(':')
-            parts = fields.split()
-            if len(parts) >= 3:
-                level = float(parts[2].rstrip('.'))
-                if level < 0:
-                    return f'{name.strip()}: {level:.0f} dBm'
-    except (OSError, ValueError):
-        pass
-    for path in Path('/sys/class/net').glob('*'):
-        if (path/'wireless').exists():
-            match = re.search(r'signal:\s*(-?\d+(?:\.\d+)?)\s*dBm',
-                              command_output(['iw', 'dev', path.name, 'link']))
-            if match:
-                return f'{path.name}: {match[1]} dBm'
-    return None
-
-
 class HealthPoller:
     """Bounded slow commands run away from the camera/touch rendering loop."""
     def __init__(self):
@@ -226,9 +155,7 @@ class HealthPoller:
 
     def note_throttle(self, flags, now=None):
         if flags is not None:
-            new_sticky = (self.previous_flags is not None and flags & 0x10000
-                          and not self.previous_flags & 0x10000)
-            if flags & 1 or new_sticky:
+            if undervoltage_seen(self.previous_flags, flags):
                 self.undervolt_seen_at = time.monotonic() if now is None else now
             self.previous_flags = flags
         return self.undervolt_seen_at
@@ -248,7 +175,7 @@ class HealthPoller:
                     values['ip'] = f'{addresses[0][0]} {addresses[0][1]}'
             except (ValueError, KeyError, TypeError):
                 values['ip'] = 'Unavailable'
-            values['wifi'] = wireless_signal() or values['wifi']
+            values['wifi'] = wireless_signal(run=command_output) or values['wifi']
             # Clock sync changes rarely; one process spawn a minute is plenty.
             if self.sync_due <= 0:
                 synced = command_output(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'])
@@ -642,7 +569,7 @@ def calibrate(screen, touch):
 
 class Stats:
     def __init__(self):
-        self.previous = None
+        self.sampler = SystemSampler()
         self.health = HealthPoller()
         self.history = deque(maxlen=180)
 
@@ -653,42 +580,19 @@ class Stats:
         self.health.close()
 
     def read(self):
-        cpu = [int(v) for v in Path('/proc/stat').read_text().splitlines()[0].split()[1:9]]
-        total, idle = sum(cpu), cpu[3] + cpu[4]
-        usage = None
-        if self.previous:
-            dt, di = total-self.previous[0], idle-self.previous[1]
-            if dt > 0:
-                usage = max(0, min(100, 100*(1-di/dt)))
-        self.previous = (total, idle)
-        mem = {}
-        for line in Path('/proc/meminfo').read_text().splitlines():
-            parts = line.split()
-            mem[parts[0].rstrip(':')] = int(parts[1])
-        used = (mem['MemTotal'] - mem['MemAvailable']) / 1048576
-        allmem = mem['MemTotal'] / 1048576
-        memory_percent = 100*used/allmem
-        disk = shutil.disk_usage('/')
-        seconds = int(float(Path('/proc/uptime').read_text().split()[0]))
-        try:
-            temp_c = int(Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
-            temp = f'{temp_c:.1f} C'
-        except (OSError, ValueError):
-            temp_c, temp = None, 'Unavailable'
-        try:
-            freq = f"{int(Path('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq').read_text())/1000:.0f} MHz"
-        except (OSError, ValueError):
-            freq = 'Unknown'
+        v = self.sampler.read()
         now = time.monotonic()
-        self.history.append((now, usage, memory_percent))
+        self.history.append((now, v['cpu'], v['mem_percent']))
         while self.history and self.history[0][0] < now-120:
             self.history.popleft()
-        return {'cpu': usage, 'temp': temp, 'ram_percent': memory_percent,
-                'ram': f'{used:.1f}/{allmem:.1f} GiB',
-                'disk_free': f'{disk.free/2**30:.1f} GiB', 'disk_free_gib': disk.free/2**30,
-                'temp_c': temp_c,
-                'disk_used_percent': 100*disk.used/disk.total,
-                'uptime': f'{seconds//3600}h {(seconds//60)%60}m', 'freq': freq,
+        seconds = v['uptime_s']
+        return {'cpu': v['cpu'], 'ram_percent': v['mem_percent'], 'temp_c': v['temp_c'],
+                'temp': 'Unavailable' if v['temp_c'] is None else f"{v['temp_c']:.1f} C",
+                'ram': f"{v['mem_used_gib']:.1f}/{v['mem_total_gib']:.1f} GiB",
+                'disk_free': f"{v['disk_free_gib']:.1f} GiB", 'disk_free_gib': v['disk_free_gib'],
+                'disk_used_percent': v['disk_used_percent'],
+                'uptime': f'{seconds//3600}h {(seconds//60)%60}m',
+                'freq': 'Unknown' if v['freq_mhz'] is None else f"{v['freq_mhz']:.0f} MHz",
                 **self.health.snapshot}
 
 
@@ -879,40 +783,171 @@ def screensaver_frame(style, elapsed, speed='normal', wall_time=None, alerts=())
 # ---- Fun: screensavers with state, photo album, GIFs, snake and audio ---------------
 
 BIG, BOLD, BIG_PORTRAIT = font(60, bold=True), font(20, bold=True), font(50, bold=True)
+HOME_CLOCK, HOME_LABEL, HOME_LABEL_SMALL = font(34, bold=True), font(14, bold=True), font(12, bold=True)
 
 # Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
 # Drop your own sheet in cyberdeck-data/sprites/bunny.png to replace it.
-BUNNY_PALETTE = {'o': (46, 40, 56), 'w': (240, 240, 244), 'g': (178, 178, 192),
-                 'p': (232, 150, 170), 'e': (20, 16, 24), 'n': (232, 120, 150)}
-BUNNY_SIT = ["..........o.o...", ".........owowo..", ".........opopo..", ".........opopo..",
-             ".........owowo..", "........owwwwwo.", "........owwwewo.", "...oooooowwwwwno",
-             "..owwwwwwwwwwwo.", ".owgwwwwwwwwwo..", ".owgwwwwwwwwwo..", "..ogggwwwgwwgo..",
-             "...oooooooooo..."]
-BUNNY_HOP = [".........o.o....", "........owowo...", "........opopo...", "........opopo...",
-             "........owowo...", ".......owwwwwo..", ".......owwwewo..", "..oooooowwwwwno.",
-             ".owwwwwwwwwwwo..", "owgwwwwwwwwwwo..", ".ogggwwwwwwgo...", "..ogo.....ogo...",
-             "..oo.......oo..."]
+# Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
+# Keys: o outline, w fur, g shading, m markings (fur colour unless the coat has patches),
+# p inner ear, e eye, n nose. Drop your own sheet in cyberdeck-data/sprites/bunny.png
+# to replace them all.
+BUNNY_BASE = {'o': (46, 40, 56), 'p': (232, 150, 170), 'e': (20, 16, 24), 'n': (232, 120, 150)}
+BUNNY_COATS = {
+    'white': {'w': (240, 240, 244), 'g': (178, 178, 192)},
+    'grey': {'w': (150, 150, 160), 'g': (110, 110, 122)},
+    'chestnut': {'w': (166, 112, 70), 'g': (122, 80, 48)},
+    'black': {'w': (58, 54, 64), 'g': (34, 32, 40), 'o': (16, 14, 20), 'e': (210, 210, 220)},
+    'fawn': {'w': (238, 214, 170), 'g': (205, 170, 120)},
+    'orange': {'w': (232, 152, 74), 'g': (190, 112, 48)},
+    'dutch': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (58, 54, 64)},
+    'spotted': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (166, 112, 70)},
+    'castor': {'w': (150, 92, 58), 'g': (98, 60, 38)},
+    'blue': {'w': (120, 128, 150), 'g': (86, 92, 112)},
+    'lilac': {'w': (196, 176, 186), 'g': (156, 136, 148)},
+    'sable': {'w': (110, 82, 64), 'g': (70, 50, 40)},
+    'harlequin': {'w': (232, 152, 74), 'g': (190, 112, 48), 'm': (40, 36, 44)},
+    'opal': {'w': (176, 168, 150), 'g': (128, 130, 140)},
+    'cinnamon': {'w': (184, 120, 82), 'g': (136, 92, 70)},
+}
+# Compact, rounded sitting pose (a shorter, taller body than the first version) + hop pose.
+BUNNY_SIT = ["...........o.o..", "..........owowo.", "..........opopo.", "..........opopo.",
+             "..........owowo.", ".........owwwwo.", "......oooowwwewo", ".....owwwwwwwwno",
+             "....owmwwwwwwwo.", "...owmmwwwwwwo..", "..owmmmwwwwwwo..", "..owgmmwwwwwwo..",
+             "...oggwwwwgwo...", "....ooooooooo..."]
+BUNNY_HOP = ["..........o.o...", ".........owowo..", ".........opopo..", ".........opopo..",
+             ".........owowo..", "........owwwwo..", "....ooooowwwewo.", "...owmwwwwwwwno.",
+             "..owmmmwwwwwwo..", ".owgmmwwwwwwo...", "..oggwwwwwwgo...", "...ogo...ogo....",
+             "...oo....oo.....", "................"]
+# Lop: ears hang down beside a rounder head.
+LOP_SIT = ["................", "................", "................", "................",
+           "..........ooo...", "........ooowwwo.", "......oogggowwwo", ".....owogggowewo",
+           "....owmogggowwwn", "...owmmogggowwo.", "..owmmmwoggowo..", "..owgmmwwoooo...",
+           "...oggwwwwgwo...", "....ooooooooo..."]
+LOP_HOP = ["................", "................", "................", "................",
+           ".........ooo....", ".......ooowwwo..", "....oooogggowwwo", "...owmmogggowewo",
+           "..owmmmogggowwwn", ".owgmmwwoggowwo.", "..oggwwwwoooo...", "...ogo...ogo....",
+           "...oo....oo.....", "................"]
+# Lionhead: a shaggy mane ('f', a lighter shade of the coat) around the neck and head.
+LION_SIT = ["................", "...........o.o..", "..........owowo.", "......o.o.opopo.",
+            ".....ofoffowwwo.", "....offgffwwwwwo", "...ofgfffwwwwewo", "...offgffwwwwwno",
+            "..owffffgfwwwwo.", "..owmfgffffwwo..", ".owmmmwwfwwwwo..", ".owgmmwwwwwwwo..",
+            "..oggwwwwwgwo...", "...ooooooooo...."]
+LION_HOP = ["................", "..........o.o...", ".........owowo..", ".....o.o.opopo..",
+            "....ofoffowwwo..", "...offgffwwwwwo.", "..ofgfffwwwwewo.", ".owffgffwwwwwno.",
+            "owgmffffwwwwo...", ".oggwfwwwwwgo...", "..ogo....ogo....", "..oo.....oo.....",
+            "................", "................"]
+# Rex: shorter, broader ears over the same compact plush body.
+REX_SIT = ["................", "................", "...........oo.o.", "..........owwowo",
+           "..........opwopo", "..........owwowo", ".........owwwwo.", "......oooowwwewo",
+           ".....owwwwwwwwno", "....owmwwwwwwwo.", "...owmmwwwwwwo..", "..owgmmwwwwwwo..",
+           "...oggwwwwgwo...", "....ooooooooo..."]
+REX_HOP = ["................", ".........oo.o...", "........owwowo..", "........opwopo..",
+           "........owwowo..", "........owwwwo.."] + BUNNY_HOP[6:]
+BUNNY_SHAPES = {'standard': (BUNNY_SIT, BUNNY_HOP), 'lop': (LOP_SIT, LOP_HOP),
+                'lionhead': (LION_SIT, LION_HOP), 'rex': (REX_SIT, REX_HOP)}
 
 
-def pixel_sprite(rows, scale=2):
+def eating_pose(rows):
+    """Head lowered one row to nibble: the head columns shift down, the feet stay put."""
+    out = [list(r) for r in rows]
+    last = len(rows) - 3
+    for r in range(last, 0, -1):
+        for c in range(9, len(rows[0])):
+            out[r][c] = rows[r-1][c]
+    for c in range(9, len(rows[0])):
+        out[0][c] = '.'
+    return [''.join(r) for r in out]
+
+
+def sleeping_pose(rows):
+    """Eyes closed (a dark line)."""
+    return [r.replace('e', 'o') for r in rows]
+
+
+def grooming_pose(rows, raised=False):
+    """A front paw lifted to the face: under the chin, or (raised) rubbing over the nose with
+    the eyes shut. The paw gets its own outline so it shows against the fur."""
+    grid = [list(r) for r in rows]
+    ny = next(i for i, r in enumerate(rows) if 'n' in r)
+    nx = rows[ny].index('n')
+    py = ny if raised else ny + 1
+    paw = {(py, nx-1), (py, nx), (py+1, nx-1), (py+1, nx)}
+    for y in range(py-1, py+3):
+        for x in range(nx-2, nx+2):
+            inside = 0 <= y < len(grid) and 0 <= x < len(grid[0])
+            if inside and (y, x) not in paw and (y, x) != (ny, nx) and grid[y][x] in '.wgmf':
+                grid[y][x] = 'o'
+    for y, x in paw:
+        grid[y][x] = 'w'
+    if raised:
+        grid = [['o' if k == 'e' else k for k in r] for r in grid]
+    return [''.join(r) for r in grid]
+
+# Breeds: (shape, scale, weight, coats). Flemish giants are drawn 1.5x and come in the
+# solid colours the breed is known for.
+BUNNY_BREEDS = {
+    'standard': ('standard', 2, 34, tuple(BUNNY_COATS)),
+    'lop': ('lop', 2, 22, tuple(BUNNY_COATS)),
+    'lionhead': ('lionhead', 2, 16, tuple(BUNNY_COATS)),
+    'rex': ('rex', 2, 14, ('castor', 'black', 'blue', 'lilac', 'sable', 'opal', 'white',
+                           'chestnut', 'cinnamon')),
+    'giant': ('standard', 3, 14, ('grey', 'chestnut', 'black', 'fawn', 'white', 'blue', 'sable')),
+}
+BUNNY_PALETTE = {**BUNNY_BASE, **BUNNY_COATS['white']}  # The classic white bunny.
+
+
+def pixel_sprite(rows, scale=2, coat='white'):
+    colours = {**BUNNY_BASE, **BUNNY_COATS[coat]}
+    colours.setdefault('m', colours['w'])
+    colours.setdefault('f', tuple(round(v + (255-v)*.35) for v in colours['w']))  # Mane.
     image = Image.new('RGBA', (len(rows[0]), len(rows)), (0, 0, 0, 0))
     for y, row in enumerate(rows):
         for x, key in enumerate(row):
-            if key in BUNNY_PALETTE:
-                image.putpixel((x, y), BUNNY_PALETTE[key] + (255,))
+            if key in colours:
+                image.putpixel((x, y), colours[key] + (255,))
     return image.resize((image.width*scale, image.height*scale), Image.NEAREST)
 
 
-def load_bunny_frames(data=None):
-    """Right-facing RGBA frames. Frame 0 = resting; the rest animate while hopping.
+def bunny_look(shape='standard', coat='white', scale=2):
+    """[sit, hop] frames for one breed/coat."""
+    poses = bunny_poses(shape, coat, scale)
+    return [poses['sit'], poses['hop'][0]]
 
-    Custom sheet: <data>/sprites/bunny.png, optional bunny.json with
+
+def bunny_poses(shape='standard', coat='white', scale=2):
+    """{'sit', 'hop' (list), 'eat', 'sleep', 'groom', 'groom2'} frames for one breed/coat,
+    trimmed of shared empty rows on top so the tap target hugs the visible bunny."""
+    sit, hop = BUNNY_SHAPES[shape]
+    templates = {'sit': sit, 'hop': hop, 'eat': eating_pose(sit), 'sleep': sleeping_pose(sit),
+                 'groom': grooming_pose(sit), 'groom2': grooming_pose(sit, raised=True)}
+    frames = {name: pixel_sprite(rows, scale, coat) for name, rows in templates.items()}
+    top = min(f.getbbox()[1] for f in frames.values())
+    frames = {name: f.crop((0, top, f.width, f.height)) for name, f in frames.items()}
+    frames['hop'] = [frames['hop']]
+    return frames
+
+
+def mirrored_poses(poses):
+    return {name: [ImageOps.mirror(f) for f in value] if isinstance(value, list)
+            else ImageOps.mirror(value) for name, value in poses.items()}
+
+
+def random_breed(rng):
+    names = list(BUNNY_BREEDS)
+    breed = rng.choices(names, weights=[BUNNY_BREEDS[n][2] for n in names])[0]
+    shape, scale, _, coats = BUNNY_BREEDS[breed]
+    return breed, (shape, rng.choice(coats), scale)
+
+
+def custom_bunny_frames(data):
+    """Right-facing frames from <data>/sprites/bunny.png, or None (missing or unusable) to use
+    the built-in breeds. Optional bunny.json beside it:
     {"frames": 1, "layout": "vertical" | "horizontal", "scale": 2, "faces": "right" | "left"}.
+    Frame 0 = resting; the rest animate while hopping.
     """
-    default = [pixel_sprite(BUNNY_SIT), pixel_sprite(BUNNY_HOP)]
     path = Path(data) / 'sprites' / 'bunny.png' if data else None
     if path is None or not path.is_file():
-        return default
+        return None
     try:
         meta = path.with_suffix('.json')
         meta = json.loads(meta.read_text()) if meta.is_file() else {}
@@ -936,7 +971,12 @@ def load_bunny_frames(data=None):
         return frames
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         print('Custom bunny sprite ignored:', exc, flush=True)
-        return default
+        return None
+
+
+def load_bunny_frames(data=None):
+    """The custom sprite if there is a usable one, else the classic white bunny."""
+    return custom_bunny_frames(data) or bunny_look()
 
 
 def letterbox(picture, size=None):
@@ -997,41 +1037,91 @@ def bunny_lane(rng):
 
 
 class Bunny:
-    def __init__(self, rng, entering=None):
+    def __init__(self, rng, entering=None, breed=None, look=None, half=16):
         self.rng = rng
+        self.breed, self.look = breed, look  # look = (shape, coat, scale); None = custom sprite.
+        self.half = half  # Half the sprite width, for wrapping at the screen edges.
         self.direction = rng.choice((-1, 1))
         self.ground = bunny_lane(rng)
-        self.x = rng.uniform(10, W-10) if entering is None else (-16 if entering > 0 else W+16)
+        self.x = rng.uniform(10, W-10) if entering is None else (-half if entering > 0 else W+half)
         if entering is not None:
             self.direction = entering
         self.hop_start, self.hop_length, self.hop_height = None, .45, 10
         self.rest_until = 0
         self.heart_until = 0
+        self.activity, self.activity_start, self.activity_until = None, 0., 0.
+        self.food = None  # 'carrot' or 'hay' while eating.
+
+    ACTIVITIES = (  # (name, chance each time a rest ends, duration range in seconds)
+        ('eat', .10, (4., 8.)), ('sleep', .05, (7., 15.)), ('poop', .04, (.8, .8)),
+        ('groom', .07, (3., 6.)), ('binky', .05, (.9, .9)))
 
     def jump(self, now, big=False):
+        self.activity = self.food = None  # A tap wakes a sleeper / interrupts a snack.
         self.hop_start = now
-        self.hop_length = .8 if big else self.rng.uniform(.38, .5)
-        self.hop_height = 34 if big else self.rng.uniform(6, 13)
+        heavy = self.breed == 'giant'  # Giants: slower, bigger hops.
+        self.hop_length = .8 if big else self.rng.uniform(.38, .5) * (1.35 if heavy else 1)
+        self.hop_height = (34 if big else self.rng.uniform(6, 13)) * (1.3 if heavy else 1)
         if big:
             self.heart_until = now + 1.2
 
+    def start_activity(self, now):
+        """Maybe eat, sleep, poop, groom or binky instead of the next hop."""
+        roll = self.rng.random()
+        for name, chance, (shortest, longest) in self.ACTIVITIES:
+            if roll < chance:
+                self.activity, self.activity_start = name, now
+                self.activity_until = now + self.rng.uniform(shortest, longest)
+                self.food = self.rng.choice(('carrot', 'hay')) if name == 'eat' else None
+                return name
+            roll -= chance
+        return None
+
     def update(self, now, dt, speed):
+        """Move/animate; returns 'poop' once when droppings should appear."""
+        if self.activity is not None:
+            if now >= self.activity_until:
+                if self.activity == 'binky' and self.rng.random() < .5:
+                    self.direction *= -1  # Lands facing the other way half the time.
+                self.activity = self.food = None
+                self.rest_until = now + self.rng.uniform(.3, 1.)
+            elif self.activity == 'binky':  # A short leap forward while twisting.
+                self.x += self.direction*speed*dt*.8
+                self.wrap()
+            return None
         if self.hop_start is not None:
-            self.x += self.direction*speed*dt
+            self.x += self.direction*speed*dt*(.75 if self.breed == 'giant' else 1)
             if now-self.hop_start >= self.hop_length:
                 self.hop_start = None
                 self.rest_until = now + self.rng.uniform(.15, 1.4)
                 if self.rng.random() < .08:
                     self.direction *= -1
         elif now >= self.rest_until:
+            started = self.start_activity(now)
+            if started:
+                return 'poop' if started == 'poop' else None
             self.jump(now)
-        # Wrap just past the edge so nearly every bunny is visible at any moment.
-        if self.x < -18:
-            self.x, self.ground = W+16, bunny_lane(self.rng)
-        elif self.x > W+18:
-            self.x, self.ground = -16, bunny_lane(self.rng)
+        self.wrap()
+        return None
+
+    def wrap(self):
+        """Wrap just past the edge so nearly every bunny is visible at any moment."""
+        if self.x < -self.half-2:
+            self.x, self.ground = W+self.half, bunny_lane(self.rng)
+        elif self.x > W+self.half+2:
+            self.x, self.ground = -self.half, bunny_lane(self.rng)
+
+    def binky_phase(self, now):
+        """0..1 through a binky, or None when not doing one."""
+        if self.activity != 'binky':
+            return None
+        span = max(.1, self.activity_until - self.activity_start)
+        return max(0., min(1., (now - self.activity_start) / span))
 
     def lift(self, now):
+        phase = self.binky_phase(now)
+        if phase is not None:  # A binky leaps well above a normal hop.
+            return 4*28*(1.2 if self.breed == 'giant' else 1)*phase*(1-phase)
         if self.hop_start is None:
             return 0
         phase = min(1, (now-self.hop_start)/self.hop_length)
@@ -1065,24 +1155,49 @@ class BunnySaver(Saver):
     style = 'bunnies'
 
     def __init__(self, options, set_count, frames=None, seed=None):
+        """frames: a custom sprite used for every bunny; None = random breeds and coats."""
         import random
         self.options, self.set_count = options, set_count
         self.rng = random.Random(seed)
-        self.frames = frames or load_bunny_frames()
-        self.mirrored = [ImageOps.mirror(f) for f in self.frames]
+        self.custom = frames
+        self.looks = {}  # (shape, coat, scale) -> (right-facing, left-facing) pose dicts.
+        self.pellets = []  # [x, y, born]: droppings fade away after a while.
         self.background = bunny_background()
-        self.bunnies = [Bunny(self.rng) for _ in range(options['bunny_count'])]
+        self.bunnies = [self.new_bunny() for _ in range(options['bunny_count'])]
         self.last = None
         self.message, self.message_until = '', 0
+
+    def poses_for(self, look):
+        if look not in self.looks:
+            if look is None:  # Custom sprite: frame 0 rests (eats, sleeps, grooms), the rest hop.
+                frames = self.custom
+                right = {'sit': frames[0], 'hop': frames[1:] or frames[:1], 'eat': frames[0],
+                         'sleep': frames[0], 'groom': frames[0], 'groom2': frames[0]}
+            else:
+                right = bunny_poses(*look)
+            self.looks[look] = (right, mirrored_poses(right))
+        return self.looks[look]
+
+    def frames_for(self, look):
+        """Plain right-facing frames: the custom sprite as given, else [sit, hop]."""
+        if look is None:
+            return list(self.custom), None
+        right = self.poses_for(look)[0]
+        return [right['sit'], *right['hop']], None
+
+    def new_bunny(self, entering=None):
+        breed, look = (None, None) if self.custom else random_breed(self.rng)
+        half = self.poses_for(look)[0]['sit'].width // 2
+        return Bunny(self.rng, entering, breed, look, half)
 
     def sync_count(self):
         target = self.options['bunny_count']
         while len(self.bunnies) < target:
-            self.bunnies.append(Bunny(self.rng, entering=self.rng.choice((-1, 1))))
+            self.bunnies.append(self.new_bunny(entering=self.rng.choice((-1, 1))))
         del self.bunnies[target:]
 
     def bunny_box(self, bunny, now):
-        frame = self.frames[0]
+        frame = self.poses_for(bunny.look)[0]['sit']
         top = bunny.ground - frame.height - bunny.lift(now)
         return (bunny.x-frame.width/2, top, bunny.x+frame.width/2, bunny.ground)
 
@@ -1106,6 +1221,37 @@ class BunnySaver(Saver):
             return True
         return False
 
+    def draw_food(self, d, bunny, now):
+        """A carrot or hay tuft in front of the nose, in the bunnies' chunky pixel scale,
+        shrinking as it is eaten."""
+        px = bunny.look[2] if bunny.look else 2  # Screen pixels per sprite pixel.
+        span = max(.1, bunny.activity_until - bunny.activity_start)
+        left = 1 - min(1, (now - bunny.activity_start) / span)
+        facing = bunny.direction
+        near = bunny.x + facing*(bunny.half + px)  # Just in front of the nose.
+        base = bunny.ground - px
+
+        def block(col, row, colour):  # One sprite pixel, `col` counted away from the bunny.
+            x = near + facing*col*px
+            x0, x1 = sorted((x, x + facing*px))
+            d.rectangle((x0, base - (row+1)*px, x1 - 1, base - row*px - 1), fill=colour)
+
+        if bunny.food == 'carrot':
+            length = max(1, round(6*left))  # Eaten from the tip, which faces the mouth.
+            for col in range(length):
+                block(col, 0, '#e8781e')
+                if col >= 1:
+                    block(col, 1, '#f39a3c')
+            for row, colour in ((1, '#3fa34d'), (2, '#5fc35a'), (0, '#3fa34d')):
+                block(length, row, colour)  # Leafy top on the far end.
+            block(length+1, 2, '#3fa34d')
+        else:
+            blades = max(1, round(5*left))
+            for col in range(blades):
+                height = 2 + (col % 2)
+                for row in range(height):
+                    block(col, row, '#e3cf74' if (row+col) % 2 else '#c9ad4f')
+
     def render(self, now, wall_time, alerts):
         dt = 0 if self.last is None else min(.25, now-self.last)
         self.last = now
@@ -1113,19 +1259,58 @@ class BunnySaver(Saver):
         speed = {'slow': .6, 'normal': 1., 'fast': 1.7}[self.options['saver_speed']] * 40
         image = self.background.copy()
         d = ImageDraw.Draw(image)
+        self.pellets = [p for p in self.pellets if now - p[2] < 45][-40:]
+        for x, y, born in self.pellets:  # Under the bunnies; fade into the grass.
+            age = (now - born) / 45
+            colour = tuple(round(a + (b-a)*age) for a, b in ((70, 79), (46, 154), (30, 62)))
+            d.ellipse((x-2, y-2, x+1, y+1), fill=colour)
         for bunny in sorted(self.bunnies, key=lambda b: b.ground):
-            bunny.update(now, dt, speed)
-            frames = self.frames if bunny.direction > 0 else self.mirrored
-            if bunny.hop_start is None or len(frames) == 1:
-                frame = frames[0]
-            elif len(frames) == 2:
-                frame = frames[1]
+            if bunny.update(now, dt, speed) == 'poop':
+                behind = bunny.x - bunny.direction*(bunny.half-3)
+                for _ in range(self.rng.randint(1, 3)):
+                    self.pellets.append([behind + self.rng.uniform(-3, 3),
+                                         bunny.ground - self.rng.uniform(0, 2), now])
+            right, left = self.poses_for(bunny.look)
+            poses = right if bunny.direction > 0 else left
+            binky = bunny.binky_phase(now)
+            if binky is not None:
+                # Twist mid-air: the body tilts up, flicks round (mirrored) at the top, then
+                # tilts down for the landing.
+                twisted = .35 <= binky < .65
+                frame = ((left if bunny.direction > 0 else right) if twisted else poses)['hop'][0]
+                frame = frame.rotate(22*math.cos(binky*math.pi)*bunny.direction, Image.NEAREST,
+                                     expand=True)
+            elif bunny.hop_start is not None:
+                hops = poses['hop']
+                frame = hops[int((now-bunny.hop_start)*10) % len(hops)]
+            elif bunny.activity == 'eat':
+                frame = poses['eat'] if int(now*4) % 2 else poses['sit']  # Nibbling.
+            elif bunny.activity == 'sleep':
+                frame = poses['sleep']
+            elif bunny.activity == 'groom':  # Paw strokes over the face.
+                frame = poses['groom2'] if int(now*5) % 2 else poses['groom']
             else:
-                frame = frames[1 + int((now-bunny.hop_start)*10) % (len(frames)-1)]
+                frame = poses['sit']
             lift = bunny.lift(now)
             shadow = max(4, frame.width//2 - lift/3)
             d.ellipse((bunny.x-shadow, bunny.ground-2, bunny.x+shadow, bunny.ground+2), fill='#3d7a30')
             image.paste(frame, (round(bunny.x-frame.width/2), round(bunny.ground-frame.height-lift)), frame)
+            if bunny.activity == 'eat' and bunny.food:
+                self.draw_food(d, bunny, now)
+            elif bunny.activity == 'sleep':
+                for k in range(3):  # Little z's drifting up from the head.
+                    phase = (now*.5 + k/3) % 1
+                    zx = bunny.x + bunny.direction*(bunny.half*.4 + phase*8)
+                    zy = bunny.ground - frame.height - 4 - phase*16
+                    d.text((zx, zy), 'z', font=TINY if phase < .5 else SMALL, fill='#eef6ff', anchor='mm')
+            elif binky is not None and .15 < binky < .85:
+                top = bunny.ground - frame.height - lift
+                for k in range(4):  # Sparkles of joy around the leap.
+                    angle = k*math.pi/2 + now*5
+                    sx = bunny.x + math.cos(angle)*(frame.width*.6 + 3)
+                    sy = top + frame.height/2 + math.sin(angle)*(frame.height*.6 + 3)
+                    d.line((sx-2, sy, sx+2, sy), fill='#fff6a8')
+                    d.line((sx, sy-2, sx, sy+2), fill='#fff6a8')
             if now < bunny.heart_until:
                 hx, hy = bunny.x, bunny.ground-frame.height-lift-8-(1.2-(bunny.heart_until-now))*12
                 d.text((hx, hy), '♥', font=FONT, fill='#ff5a7a', anchor='mm')
@@ -2111,16 +2296,579 @@ class FlappyApp:
         return image
 
 
+class GameBase:
+    """Start / pause / quit handling shared by the newer games."""
+    TITLE, HINT = 'GAME', ''
+    LOWER_IS_BETTER = False  # True for best times.
+
+    def __init__(self, best=0, save_best=lambda best: None):
+        self.best, self.save_best = best, save_best
+        self.state, self.delay, self.last = 'ready', .25, None
+        self.elapsed = 0.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def new_game(self, now):
+        raise NotImplementedError
+
+    def tick(self, now):
+        """Advance the play clock; returns seconds since the last call while running."""
+        if self.state != 'running':
+            self.last = None
+            return 0.
+        dt = 0. if self.last is None else now - self.last
+        self.last = now
+        self.elapsed += dt
+        return dt
+
+    def finish(self, result, won=True):
+        """End the game and keep the record if it is better (0 = no record yet)."""
+        self.state, self.won = 'over', won
+        if won and result is not None and (
+                not self.best or (result < self.best if self.LOWER_IS_BETTER else result > self.best)):
+            self.best = result
+            self.save_best(result)
+
+    def tap_dialog(self, x, y, now):
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                self.elapsed, self.won = 0., False
+                self.new_game(now)
+            self.state, self.last = 'running', now
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def draw_dialog(self, d, summary, over_title):
+        title, left = {'ready': (self.TITLE, 'START'), 'paused': ('PAUSED', 'RESUME'),
+                       'over': (over_title, 'PLAY AGAIN')}[self.state]
+        draw_game_dialog(d, title, summary, left, 'QUIT', self.HINT if self.state == 'ready' else '')
+
+
+def clock_text(seconds):
+    seconds = int(seconds)
+    return f'{seconds//60}:{seconds % 60:02}'
+
+
+ALIEN_SPRITES = (
+    (["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", ".X.XX.X."],
+     ["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", "X.X..X.X"], '#f0605a'),
+    (["X......X", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", ".X....X."],
+     [".X....X.", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", "X......X"], '#f2d24b'),
+    (["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", ".XX..XX."],
+     ["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", "XX....XX"], '#5fd36b'),
+)
+_ALIEN_CACHE = {}
+
+
+def alien_sprite(row, frame):
+    kind = 0 if row == 0 else 1 if row < 3 else 2
+    key = (kind, frame)
+    if key not in _ALIEN_CACHE:
+        rows, colour = ALIEN_SPRITES[kind][frame], ALIEN_SPRITES[kind][2]
+        image = Image.new('RGBA', (8, 5), (0, 0, 0, 0))
+        for y, line in enumerate(rows):
+            for x, c in enumerate(line):
+                if c == 'X':
+                    image.putpixel((x, y), Image.new('RGB', (1, 1), colour).getpixel((0, 0)) + (255,))
+        _ALIEN_CACHE[key] = image.resize((16, 10), Image.NEAREST)
+    return _ALIEN_CACHE[key]
+
+
+class InvadersApp(GameBase):
+    """Drag to move; keep a finger down to keep firing (one shot in the air at a time)."""
+    TITLE, HINT = 'SPACE INVADERS', 'Drag to move. Hold a finger down to fire.'
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        _, width, height = court_rect()
+        self.game = InvadersGame(width, height, seed=seed)
+        self.flash, self.flash_until = '', 0.
+
+    def new_game(self, now):
+        _, width, height = court_rect()
+        self.game = InvadersGame(width, height)
+
+    def tap(self, x, y, now):
+        if self.running:
+            if pause_tapped(x, y):
+                self.state = 'paused'
+            elif y >= 26:
+                self.game.fire()
+            return None
+        return self.tap_dialog(x, y, now)
+
+    def hold(self, point, now):
+        if point is not None and self.running and point[1] >= 26:
+            self.game.aim(point[0])
+            self.game.fire()
+
+    def render(self, now, wall_time, alerts):
+        _, width, height = court_rect()
+        self.game.resize(width, height)
+        dt = self.tick(now)
+        game = self.game
+        if self.running:
+            event = game.update(dt)
+            if event == 'wave':
+                self.flash, self.flash_until = f'WAVE {game.wave}', now + 1.5
+            elif event == 'hit' and not game.over:
+                self.flash, self.flash_until = 'HIT!', now + 1
+            if game.over:
+                self.finish(game.score)
+        top = 26
+        image = Image.new('RGB', (W, H), 'black')
+        d = ImageDraw.Draw(image)
+        game_header(d, f'INVADERS  {game.score}', wall_time, self.running)
+        d.text((W-84 if self.running else W-56, 7), '▲'*max(0, game.lives), font=SMALL,
+               fill=ACCENT, anchor='ra')
+        for row, col in game.aliens:
+            x0, y0, _, _ = game.alien_rect(row, col)
+            sprite = alien_sprite(row, game.frame)
+            image.paste(sprite, (round(x0), round(top+y0)), sprite)
+        for bx, by in game.shields:
+            d.rectangle((bx, top+by, bx+3, top+by+3), fill='#3fa34d')
+        px, py = game.player, top+game.player_y
+        d.rectangle((px-9, py, px+9, py+6), fill=ACCENT)
+        d.rectangle((px-2, py-4, px+2, py), fill=ACCENT)
+        if game.bullet:
+            d.line((game.bullet[0], top+game.bullet[1], game.bullet[0], top+game.bullet[1]+5),
+                   fill='white', width=2)
+        for bx, by in game.bombs:
+            d.line((bx-1, top+by, bx+1, top+by+3, bx-1, top+by+6), fill='#ff8a6a', width=2)
+        d.line((0, H-3, W, H-3), fill='#3fa34d')
+        if self.running and now < self.flash_until:
+            centred(d, top+height*.55, self.flash, FONT, WARN)
+        if not self.running:
+            self.draw_dialog(d, f'Score {game.score}   Best {self.best}', 'GAME OVER')
+        self.delay = 1/30 if self.running else .25
+        return image
+
+
+def mines_layout():
+    """(cell, cols, rows, mines, origin, toolbar rects) sized for a fingertip on each rotation."""
+    if portrait():
+        cell, cols, rows, mines = 24, 9, 10, 14
+    else:
+        cell, cols, rows, mines = 22, 13, 8, 16
+    origin = ((W - cols*cell)//2, 28)
+    bottom = origin[1] + rows*cell
+    toolbar = row_rects(2, bottom+6, min(H-3, bottom+36), margin=8, gap=8)
+    return cell, cols, rows, mines, origin, toolbar
+
+
+MINE_COLOURS = {1: '#67bfff', 2: '#5fd36b', 3: '#f0605a', 4: '#b07cf0', 5: '#f29b42',
+                6: '#4fd8e8', 7: TEXT, 8: MUTED}
+
+
+class MinesApp(GameBase):
+    """Tap to dig. Press and hold (or switch to FLAG mode) to flag. Tap a number whose
+    mines are all flagged to open its other neighbours. Best time is kept."""
+    TITLE, HINT = 'MINESWEEPER', 'Tap to dig, hold to flag. First tap is always safe.'
+    LOWER_IS_BETTER = True
+    HOLD_FLAG = .45
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.flag_mode = False
+        self.press = None  # (cell, started, flagged_already)
+        self.new_game(0)
+
+    def new_game(self, now):
+        _, cols, rows, mines, _, _ = mines_layout()
+        self.game = MinesGame(cols, rows, mines, seed=self.seed)
+        self.press = None
+
+    def cell_at(self, x, y):
+        cell, cols, rows, _, (ox, oy), _ = mines_layout()
+        cx, cy = int((x-ox)//cell), int((y-oy)//cell)
+        return (cx, cy) if 0 <= cx < cols and 0 <= cy < rows and x >= ox and y >= oy else None
+
+    def after(self, result, now):
+        if result == 'boom':
+            self.finish(None, won=False)
+        elif result == 'win':
+            self.finish(max(1, round(self.elapsed)))
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        if self.press and self.press[2]:  # This release ends a long-press flag.
+            self.press = None
+            return None
+        self.press = None
+        toolbar = mines_layout()[5]
+        choice = index_at(toolbar, x, y, slop=3)
+        if choice == 0:
+            self.flag_mode = not self.flag_mode
+        elif choice == 1:
+            self.new_game(now)
+            self.elapsed = 0.
+        else:
+            cell = self.cell_at(x, y)
+            if cell is not None:
+                if self.flag_mode and cell not in self.game.revealed:
+                    self.game.toggle_flag(cell)
+                elif cell in self.game.revealed:
+                    self.after(self.game.chord(cell), now)
+                else:
+                    self.after(self.game.reveal(cell), now)
+        return None
+
+    def hold(self, point, now):
+        if point is None or not self.running:
+            if point is None and self.press and not self.press[2]:
+                self.press = None
+            return
+        cell = self.cell_at(*point)
+        if cell is None:
+            return
+        if self.press is None or self.press[0] != cell:
+            self.press = (cell, now, False)
+        elif not self.press[2] and now - self.press[1] >= self.HOLD_FLAG:
+            if cell not in self.game.revealed:
+                self.game.toggle_flag(cell)
+            self.press = (cell, self.press[1], True)
+
+    def render(self, now, wall_time, alerts):
+        if (self.game.cols, self.game.rows) != mines_layout()[1:3] and self.state != 'over':
+            self.new_game(now)  # Rotation changed the board shape.
+            if self.running:
+                self.state = 'ready'
+        self.tick(now)
+        game = self.game
+        cell, cols, rows, _, (ox, oy), toolbar = mines_layout()
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        left = len(game.mines or range(game.mine_count)) - len(game.flags)
+        game_header(d, f'MINES  ⚑{left}  {clock_text(self.elapsed)}', wall_time, self.running)
+        number_font = SMALL if cell < 24 else FONT
+        for x in range(cols):
+            for y in range(rows):
+                rect = (ox+x*cell, oy+y*cell, ox+x*cell+cell-2, oy+y*cell+cell-2)
+                spot = (x, y)
+                centre = ((rect[0]+rect[2])//2, (rect[1]+rect[3])//2)
+                if spot in game.revealed:
+                    d.rectangle(rect, fill='#0b1218')  # Dug: dark and flat.
+                    count = game.count(spot)
+                    if count:
+                        d.text(centre, str(count), font=number_font, fill=MINE_COLOURS[count], anchor='mm')
+                elif game.lost and spot in game.mines:
+                    d.rectangle(rect, fill=DANGER if spot == game.exploded else '#3a2a2a')
+                    d.ellipse((centre[0]-4, centre[1]-4, centre[0]+4, centre[1]+4), fill='black')
+                else:
+                    pressed = self.press and self.press[0] == spot and not self.press[2]
+                    d.rectangle(rect, fill='#5d7a8f' if pressed else '#3b5266')  # Covered: raised.
+                    d.line((rect[0], rect[1], rect[2], rect[1]), fill='#557086')
+                    if spot in game.flags:
+                        wrong = game.lost and spot not in game.mines
+                        d.text(centre, '⚑', font=number_font, fill=WARN if not wrong else MUTED,
+                               anchor='mm')
+        button(d, toolbar[0], 'MODE: FLAG' if self.flag_mode else 'MODE: DIG', active=self.flag_mode)
+        button(d, toolbar[1], 'NEW BOARD')
+        if not self.running:
+            summary = (f'Time {clock_text(self.elapsed)}   Best {clock_text(self.best) if self.best else "--"}')
+            self.draw_dialog(d, summary, 'CLEARED!' if getattr(self, 'won', False) else 'BOOM!')
+        # Long presses need a check-in even if the finger does not move.
+        self.delay = .1 if self.press and not self.press[2] else 1. if self.running else .25
+        return image
+
+
+def solitaire_layout():
+    gap = 4
+    width = (W - 8*gap) // 7
+    height = round(width*1.36)
+    top = 30
+    xs = [gap + i*(width+gap) for i in range(7)]
+    return width, height, xs, top, top + height + 8
+
+
+SUIT_COLOURS = ('#202830', '#d8443c', '#d8443c', '#202830')
+
+
+class SolitaireApp(GameBase):
+    """Klondike, draw one. Tap a card to pick it up, then tap where it should go. Tap the
+    picked-up card again to send it to the foundations (or the first legal pile)."""
+    LOWER_IS_BETTER = True  # Record = fewest moves for a win.
+    TITLE, HINT = 'SOLITAIRE', 'Tap a card, then where it goes. Tap twice to auto-move.'
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.selected = None
+        self.new_game(0)
+
+    def new_game(self, now):
+        self.game = Klondike(seed=self.seed)
+        self.selected = None
+
+    def fan(self, pile):
+        """Vertical offsets for each card in a tableau pile, squeezed to fit the screen."""
+        width, height, xs, top, tab_top = solitaire_layout()
+        cards = self.game.tableau[pile]
+        down = sum(1 for _, up in cards if not up)
+        up = len(cards) - down
+        room = H - 4 - height - tab_top
+        down_step, up_step = 5, max(height*.3, 12)
+        if down*down_step + max(0, up-1)*up_step > room and up > 1:
+            up_step = (room - down*down_step) / (up-1)
+            if up_step < 6:  # Very long pile: squeeze the face-down cards too.
+                down_step = 2
+                up_step = max(3, (room - down*down_step) / (up-1))
+        offsets, y = [], tab_top
+        for _, face_up in cards:
+            offsets.append(y)
+            y += up_step if face_up else down_step
+        return offsets
+
+    def target_at(self, x, y):
+        """('stock',), ('waste',), ('found', s), ('tab', pile, index) or ('tab', pile, None)."""
+        width, height, xs, top, tab_top = solitaire_layout()
+        col = next((i for i, x0 in enumerate(xs) if x0 <= x <= x0+width), None)
+        if col is None:
+            return None
+        if top <= y <= top+height:
+            if col == 0:
+                return ('stock',)
+            if col == 1:
+                return ('waste',)
+            if col >= 3:
+                return ('found', col-3)
+            return None
+        if y >= tab_top:
+            offsets = self.fan(col)
+            # Each card shows from its own offset to the next card's; the last is fully visible.
+            for index, start in enumerate(offsets):
+                end = offsets[index+1] if index+1 < len(offsets) else start + height
+                if start <= y < end:
+                    return ('tab', col, index)
+            return ('tab', col, None)  # Below the pile (or an empty pile): a destination.
+        return None
+
+    def source_ok(self, target):
+        if target[0] == 'tab':
+            return target[2] is not None and bool(self.game.cards_at(target))
+        return target[0] in ('waste', 'found') and bool(self.game.cards_at(target))
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        target = self.target_at(x, y)
+        game = self.game
+        if target is None:
+            self.selected = None
+        elif target[0] == 'stock':
+            game.draw()
+            self.selected = None
+        elif self.selected is not None:
+            same = (target[:2] == self.selected[:2] if target[0] == 'tab' else
+                    target == self.selected)
+            if same:
+                game.auto_move(self.selected)
+                self.selected = None
+            else:
+                destination = ('found',) if target[0] == 'found' else ('tab', target[1]) \
+                    if target[0] == 'tab' else None
+                if destination and game.move(self.selected, destination):
+                    self.selected = None
+                else:
+                    self.selected = target if self.source_ok(target) else None
+        elif self.source_ok(target):
+            self.selected = target
+        if game.won:
+            self.finish(game.moves, won=True)
+        return None
+
+    def draw_card(self, d, x, y, card, face_up=True, highlight=False):
+        width, height, *_ = solitaire_layout()
+        rect = (x, y, x+width-1, y+height-1)
+        if not face_up:
+            d.rounded_rectangle(rect, radius=3, fill='#2f5f9e', outline='#9ab8dd')
+            d.rectangle((x+3, y+3, x+width-4, y+height-4), outline='#5f86bd')
+            return
+        d.rounded_rectangle(rect, radius=3, fill='#fbfbf6' if not highlight else '#fff2b3',
+                            outline=ACCENT if highlight else '#9aa4ac', width=2 if highlight else 1)
+        colour = SUIT_COLOURS[card[1]]
+        label = rank_name(card) + SUITS[card[1]]
+        small = TINY if width < 36 else SMALL
+        d.text((x+2, y+1), label, font=small, fill=colour)
+        if height > 44:
+            d.text((x+width//2, y+height*.62), SUITS[card[1]], font=FONT, fill=colour, anchor='mm')
+
+    def render(self, now, wall_time, alerts):
+        self.tick(now)
+        game = self.game
+        width, height, xs, top, tab_top = solitaire_layout()
+        image = Image.new('RGB', (W, H), '#14532d')
+        d = ImageDraw.Draw(image)
+        d.rectangle((0, 0, W, 25), fill=BG)
+        game_header(d, f'SOLITAIRE  {game.moves}', wall_time, self.running)
+        sel = self.selected
+
+        def slot(x):
+            d.rounded_rectangle((x, top, x+width-1, top+height-1), radius=3, outline='#3f8a5a')
+
+        slot(xs[0])
+        if game.stock:
+            self.draw_card(d, xs[0], top, None, face_up=False)
+        else:
+            d.text((xs[0]+width//2, top+height//2), '↻', font=FONT, fill='#7fc79a', anchor='mm')
+        slot(xs[1])
+        if game.waste:
+            self.draw_card(d, xs[1], top, game.waste[-1], highlight=sel == ('waste',))
+        for suit in range(4):
+            x = xs[3+suit]
+            slot(x)
+            pile = game.foundations[suit]
+            if pile:
+                self.draw_card(d, x, top, pile[-1], highlight=sel == ('found', suit))
+            else:
+                d.text((x+width//2, top+height//2), SUITS[suit], font=FONT, fill='#3f8a5a', anchor='mm')
+        for col in range(7):
+            x = xs[col]
+            d.rounded_rectangle((x, tab_top, x+width-1, tab_top+height-1), radius=3, outline='#2f7048')
+            for index, ((card, up), y) in enumerate(zip(game.tableau[col], self.fan(col))):
+                lit = sel is not None and sel[0] == 'tab' and sel[1] == col and index >= sel[2]
+                self.draw_card(d, x, round(y), card, up, lit)
+        if not self.running:
+            summary = f'Moves {game.moves}   Best {self.best or "--"}'
+            self.draw_dialog(d, summary, 'YOU WIN!')
+        self.delay = 1. if self.running else .25
+        return image
+
+
+def sudoku_layout():
+    """(cell, origin, keypad [(rect, value)]) - value 0 erases."""
+    if portrait():
+        cell, origin = 25, (7, 28)
+        bottom = origin[1] + 9*cell
+        keys = list(range(1, 10)) + [0]
+        rects = row_rects(5, bottom+5, bottom+33) + row_rects(5, bottom+37, min(H-3, bottom+65))
+    else:
+        cell, origin = 22, (6, 30)
+        left = origin[0] + 9*cell + 8
+        width = (W - 6 - left - 8) / 3
+        keys, rects = list(range(1, 10)) + [0], []
+        for i in range(10):
+            row, col = divmod(i, 3)
+            x0 = left + col*(width+4)
+            y0 = 30 + row*52
+            rects.append((round(x0), y0, round(x0+width), y0+46))
+        rects[9] = (left, 30+3*52, W-6, 30+3*52+46)  # ERASE spans the last row.
+    return cell, origin, list(zip(rects, keys))
+
+
+class SudokuApp(GameBase):
+    """Tap a square, then a number. Wrong numbers show in red. Best time is kept."""
+    TITLE, HINT = 'SUDOKU', 'Tap a square, then a number.'
+    LOWER_IS_BETTER = True
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        super().__init__(best, save_best)
+        self.seed = seed
+        self.game = None
+
+    def new_game(self, now):
+        self.game = SudokuGame(seed=self.seed)
+
+    def tap(self, x, y, now):
+        if not self.running:
+            return self.tap_dialog(x, y, now)
+        if pause_tapped(x, y):
+            self.state = 'paused'
+            return None
+        cell, (ox, oy), keys = sudoku_layout()
+        col, row = int((x-ox)//cell), int((y-oy)//cell)
+        if x >= ox and y >= oy and 0 <= col < 9 and 0 <= row < 9:
+            self.game.selected = row*9 + col
+            return None
+        for rect, value in keys:
+            if index_at([rect], x, y, slop=3) is not None:
+                if self.game.place(value) == 'win':
+                    self.finish(max(1, round(self.elapsed)))
+                break
+        return None
+
+    def render(self, now, wall_time, alerts):
+        self.tick(now)
+        if self.game is None:
+            self.new_game(now)
+        game = self.game
+        cell, (ox, oy), keys = sudoku_layout()
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        mistakes = f'  ✗{game.mistakes}' if game.mistakes else ''
+        game_header(d, f'SUDOKU  {clock_text(self.elapsed)}{mistakes}', wall_time, self.running)
+        sel = game.selected
+        sel_value = game.entries[sel] if sel is not None else 0
+        digit_font = font(16, bold=True) if cell >= 25 else SMALL
+        for i in range(81):
+            row, col = divmod(i, 9)
+            rect = (ox+col*cell, oy+row*cell, ox+col*cell+cell-1, oy+row*cell+cell-1)
+            fill = '#0e161d'
+            if sel is not None:
+                srow, scol = divmod(sel, 9)
+                if row == srow or col == scol or (row//3, col//3) == (srow//3, scol//3):
+                    fill = '#182634'
+                if sel_value and game.entries[i] == sel_value:
+                    fill = '#23445a'
+                if i == sel:
+                    fill = '#2f6f63'
+            d.rectangle(rect, fill=fill, outline='#2a3a46')
+            value = game.entries[i]
+            if value:
+                colour = TEXT if game.given(i) else DANGER if game.wrong(i) else ACCENT
+                d.text(((rect[0]+rect[2])//2+1, (rect[1]+rect[3])//2+1), str(value),
+                       font=digit_font, fill=colour, anchor='mm')
+        for k in range(0, 10, 3):  # Heavier 3x3 box lines.
+            d.line((ox+k*cell, oy, ox+k*cell, oy+9*cell), fill=MUTED, width=2)
+            d.line((ox, oy+k*cell, ox+9*cell, oy+k*cell), fill=MUTED, width=2)
+        for rect, value in keys:
+            complete = value and game.entries.count(value) == 9 and all(
+                game.entries[i] == value for i in range(81) if game.solution[i] == value)
+            button(d, rect, str(value) if value else 'ERASE',
+                   fill='#18252f' if complete else None)
+        if not self.running:
+            best = clock_text(self.best) if self.best else '--'
+            self.draw_dialog(d, f'Time {clock_text(self.elapsed)}   Best {best}', 'SOLVED!')
+        self.delay = 1. if self.running else .25
+        return image
+
+
 class GamesMenu:
     GAMES = (('SNAKE', 'snake'), ('TETRIS', 'tetris'), ('PONG', 'pong'),
-             ('BRICKS', 'bricks'), ('FLAPPY', 'flappy'))
+             ('BRICKS', 'bricks'), ('FLAPPY', 'flappy'), ('INVADERS', 'invaders'),
+             ('MINES', 'mines'), ('SOLITAIRE', 'solitaire'), ('SUDOKU', 'sudoku'))
+    LABEL, LABEL_SMALL = font(16, bold=True), font(13, bold=True)
 
     def __init__(self, notes):
         self.notes, self.delay = notes, 1.
 
     def rects(self):
-        """Two columns of tiles; the last slot is BACK."""
-        rects = grid_rects(len(self.GAMES)+1, 32, H+6, max_pitch=200)
+        """Three columns in landscape, two in portrait; BACK follows the last game."""
+        cols = 2 if portrait() else 3
+        count = len(self.GAMES) + 1
+        rows = -(-count // cols)
+        gap, top, bottom = 6, 30, H-4
+        width = (W - 12 - (cols-1)*gap) / cols
+        height = (bottom - top - (rows-1)*gap) / rows
+        rects = []
+        for i in range(count):
+            row, col = divmod(i, cols)
+            x0, y0 = 6 + col*(width+gap), top + row*(height+gap)
+            rects.append((round(x0), round(y0), round(x0+width), round(y0+height)))
         return rects[:-1], rects[-1]
 
     def tap(self, x, y, now):
@@ -2145,8 +2893,10 @@ class GamesMenu:
         for rect, (label, key) in zip(games, self.GAMES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
             mid_x, mid_y = (rect[0]+rect[2])//2, (rect[1]+rect[3])//2
-            d.text((mid_x, mid_y-8), label, font=BOLD, fill=TEXT, anchor='mm')
-            d.text((mid_x, mid_y+13), fit_text(d, notes.get(key, ''), rect[2]-rect[0]-8, TINY),
+            room = rect[2]-rect[0]-8
+            label_font = self.LABEL if d.textlength(label, font=self.LABEL) <= room else self.LABEL_SMALL
+            d.text((mid_x, mid_y-7), label, font=label_font, fill=TEXT, anchor='mm')
+            d.text((mid_x, mid_y+12), fit_text(d, notes.get(key, ''), room, TINY),
                    font=TINY, fill=MUTED, anchor='mm')
         button(d, back, 'BACK')
         return image
@@ -2445,7 +3195,8 @@ class VisualApp:
         return image
 
 
-GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy')
+GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
+              'sudoku')
 APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
@@ -2456,12 +3207,29 @@ def saver_due(options, idle_seconds, page):
                              'photodelete','album','gifs','visual'))
 
 
-TABS = ('CAMERA', 'PHOTOS', 'APPS', 'STATUS', 'OPTIONS', 'EXIT')
+TABS = ('CAMERA', 'PHOTOS', 'HOME', 'STATUS', 'OPTIONS', 'EXIT')
 TAB_WIDTHS = (58, 56, 44, 52, 62, 48)  # Sized to their labels; sums to 320.
 TAB_EDGES = tuple(sum(TAB_WIDTHS[:i]) for i in range(len(TABS)+1))
-TAB_PARENT = {'health': 'status', 'savers': 'options', 'saverstyle': 'options',
+TAB_PARENT = {'health': 'status', 'history': 'status', 'savers': 'options', 'saverstyle': 'options',
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
-              'audio': 'apps'}
+              'audio': 'home', 'apps': 'home'}
+# Home page launcher: (label, key, accent colour).
+HOME_TILES = (('CAMERA', 'camera', '#44d4ad'), ('PHOTOS', 'photos', '#67bfff'),
+              ('GAMES', 'games', '#f2d24b'), ('AUDIO', 'audio', '#b07cf0'),
+              ('ALBUM', 'album', '#f29b42'), ('GIFS', 'gifs', '#f0605a'),
+              ('TOOLS', 'tools', '#5fd36b'), ('QUICK', 'quick', '#4fd8e8'),
+              ('SAVER', 'saver', '#a9bbc9'))
+
+
+def home_rects():
+    """3x3 launcher grid under the clock band, in either orientation."""
+    top = 104 if portrait() else 80
+    bottom, gap = content_bottom(), 6
+    width = (W - 16 - 2*gap) / 3
+    height = (bottom - top - 2*gap) / 3
+    return [(round(8 + c*(width+gap)), round(top + r*(height+gap)),
+             round(8 + c*(width+gap) + width), round(top + r*(height+gap) + height))
+            for r in range(3) for c in range(3)]
 TAB_FONT = font(11)
 
 
@@ -2474,18 +3242,51 @@ def preview_area():
     return (26, min(180, W*3//4)) if portrait() else (25, 132)
 
 
+BOOT_LABEL = ['?']  # 'On' / 'Off' / '?': boot-service state, refreshed by main().
+
+
+def boot_service_enabled(run=subprocess.run):
+    """True/False for the systemd boot service, None if it cannot be checked."""
+    try:
+        result = run(['systemctl', 'is-enabled', 'cyberdeck-panel.service'],
+                     capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() == 'enabled'
+
+
+def set_boot_service(enabled, app_path, data, run=subprocess.run):
+    """Turn start-at-boot on (installing the unit if needed) or off. Never starts or
+    stops the service, so it is safe to call from the copy that is running right now."""
+    if getattr(os, 'geteuid', lambda: 0)() != 0:
+        return 'Needs sudo: run the app with sudo to change this'
+    try:
+        if enabled:
+            import setup_panel_service
+            uid, gid = desktop_user()
+            setup_panel_service.install(Path(app_path).resolve(), uid, gid, data=data,
+                                        run=lambda cmd: run(cmd, check=True))
+            return 'Will start at boot. (Takes effect next boot.)'
+        run(['systemctl', 'disable', 'cyberdeck-panel.service'], check=True,
+            capture_output=True, text=True, timeout=20)
+        return 'Will not start at boot.'
+    except (ImportError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        print('Boot start change failed:', exc, flush=True)
+        return 'Could not change boot start; see terminal'
+
+
 def option_labels(options):
     if portrait():  # Same settings, shorter words for 108 px buttons.
         return [f"{'Bright' if BACKLIGHT_PWM else 'Pixels'}: {options['pixel_level']}%",
-                'Savers...', 'Preview saver',
+                'Savers...', f"Boot: {BOOT_LABEL[0]}",
                 'Test colours', 'Calibrate...', f"Graph: {options['history_seconds']}s",
                 'Photo: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
                 'Alerts: ' + options['alerts'].title(),
                 'Screen: ' + ROTATION_NAMES[options['rotation']],
                 f"Camera: {options['camera_turn']}°"]
     return [f"{'Brightness' if BACKLIGHT_PWM else 'Pixel level'}: {options['pixel_level']}%",
-            'Screensavers...',
-            'Preview saver', 'Test colours', 'Calibrate touch...',
+            'Screensavers...', f"Start at boot: {BOOT_LABEL[0]}",
+            'Test colours', 'Calibrate touch...',
             f"Graph: {options['history_seconds']}s",
             'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
             'Alert banner: ' + options['alerts'].title(),
@@ -2539,6 +3340,94 @@ def draw_camera_live(image, d, frame, box, cam):
         d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
 
 
+AI_COLOUR = '#b07cf0'
+HISTORY_RANGES = ((3600, '1H'), (6*3600, '6H'), (86400, '24H'), (7*86400, '7D'))
+EVENT_COLOURS = {'undervoltage': DANGER, 'throttled': WARN, 'ai': AI_COLOUR,
+                 'search': '#67bfff', 'camera': ACCENT}
+
+
+def trend(d, rect, points, low, high, colour, start, seconds, gap):
+    """Line chart of (time, value) over [start, start+seconds]; gaps longer than `gap`
+    seconds (backend stopped, Pi off) stay gaps."""
+    x0, y0, x1, y1 = rect
+    d.rectangle(rect, fill='#15232f')
+    d.line((x0, (y0+y1)//2, x1, (y0+y1)//2), fill=PANEL)
+    previous = None
+    for t, value in points:
+        if value is None:
+            previous = None
+            continue
+        x = x0 + (x1-x0)*(t-start)/seconds
+        y = y1 - (y1-y0)*max(0., min(1., (value-low)/(high-low)))
+        if previous and t - previous[0] <= gap:
+            d.line((previous[1], previous[2], x, y), fill=colour, width=1)
+        else:
+            d.point((x, y), fill=colour)
+        previous = (t, x, y)
+
+
+def draw_history(d, rows, bottom):
+    """STATUS -> HISTORY: temperature, CPU and events from the backend's telemetry log."""
+    chosen = rows.get('history_range', 3600)
+    for (seconds, label), rect in zip(HISTORY_RANGES, row_rects(4, 28, 50)):
+        button(d, rect, label, active=seconds == chosen, action=f'hist:{seconds}')
+    online, data = rows.get('backend_online'), rows.get('history')
+    middle = (54 + bottom) // 2
+    if 'backend_online' not in rows or online is False:
+        centred(d, middle-20, 'Backend not running', FONT)
+        centred(d, middle+2, 'History is recorded by cyberdeck-core:', SMALL, MUTED)
+        centred(d, middle+20, 'sudo python3 setup_core_service.py --now', TINY, ACCENT)
+        return
+    if not data or data.get('seconds') != chosen:
+        centred(d, middle, 'Loading...', FONT, MUTED)
+        return
+    seconds, start = data['seconds'], data['now'] - data['seconds']
+    samples, events = data['samples'], data['events']
+    gap = 3 * max(10., seconds / 150)
+    tall = (bottom - 54 - 74) // 2
+    temps = [(s[0], s[2]) for s in samples]
+    latest = next((v for _, v in reversed(temps) if v is not None), None)
+    top = 54
+    d.text((8, top), 'TEMP C (max)', font=TINY, fill='#f29b42')
+    d.text((W-10, top), '--' if latest is None else f'{latest:.1f} C', font=TINY, fill=TEXT, anchor='ra')
+    rect = (28, top+12, W-10, top+12+tall)
+    d.text((2, rect[1]-2), '90', font=TINY, fill=MUTED)
+    d.text((2, rect[3]-8), '30', font=TINY, fill=MUTED)
+    warm = rect[3] - (rect[3]-rect[1])*(80-30)/60
+    trend(d, rect, temps, 30, 90, '#f29b42', start, seconds, gap)
+    d.line((rect[0], warm, rect[2], warm), fill='#7a2e2e')  # 80 C: the Pi starts to slow down.
+    top = rect[3] + 6
+    cpu = [(s[0], s[1]) for s in samples]
+    d.text((8, top), 'CPU % (average)', font=TINY, fill=ACCENT)
+    rect = (28, top+12, W-10, top+12+tall)
+    d.text((2, rect[1]-2), '100', font=TINY, fill=MUTED)
+    d.text((14, rect[3]-8), '0', font=TINY, fill=MUTED)
+    trend(d, rect, cpu, 0, 100, ACCENT, start, seconds, gap)
+    # Event strip: one lane, coloured ticks or spans; undervoltage drawn last so it shows.
+    strip = (28, rect[3]+6, W-10, rect[3]+16)
+    d.rectangle(strip, fill='#15232f')
+    order = ('camera', 'search', 'ai', 'throttled', 'undervoltage')
+    for event in sorted(events, key=lambda e: order.index(e['kind']) if e['kind'] in order else -1):
+        colour = EVENT_COLOURS.get(event['kind'], MUTED)
+        a = strip[0] + (strip[2]-strip[0])*max(0., (event['start']-start)/seconds)
+        b = strip[0] + (strip[2]-strip[0])*min(1., (event['end']-start)/seconds)
+        d.rectangle((a, strip[1], max(a+1, b), strip[3]), fill=colour)
+    labels = {3600: '-1h', 6*3600: '-6h', 86400: '-24h', 7*86400: '-7d'}
+    d.text((strip[0], strip[3]+2), labels.get(seconds, ''), font=TINY, fill=MUTED)
+    d.text((strip[2], strip[3]+2), 'now', font=TINY, fill=MUTED, anchor='ra')
+    counts = {kind: sum(e['kind'] == kind for e in events) for kind in EVENT_COLOURS}
+    x = 8
+    for kind, label in (('undervoltage', 'Low V'), ('throttled', 'Throttled'), ('ai', 'AI'),
+                        ('search', 'Search'), ('camera', 'Photo')):
+        text = f'{label} {counts[kind]}'
+        width = d.textlength(text, font=TINY)
+        if x + width + 10 > W:
+            break
+        d.rectangle((x, bottom-11, x+5, bottom-6), fill=EVENT_COLOURS[kind])
+        d.text((x+8, bottom-14), text, font=TINY, fill=WARN if kind == 'undervoltage' and counts[kind] else TEXT)
+        x += width + 16
+
+
 CAMERA_CHROME = {}  # The live camera page's static layer, rebuilt only when its inputs change.
 
 
@@ -2558,7 +3447,7 @@ def render(page, frame, paused, fps, rows, message, history=(), now=None,
     cam = cam or {}
     key = (ROTATION, frame.size, paused, fps, message, options['photo_size'],
            options['snap_timer'], tuple(alerts), wall_time.strftime('%H:%M:%S'),
-           id(cam.get('thumb')), bool(cam.get('countdown')))
+           id(cam.get('thumb')), bool(cam.get('countdown')), tuple(rows.get('busy') or ()))
     if CAMERA_CHROME.get('key') != key:
         chrome = render_page(page, frame, paused, fps, rows, message, history, now, options,
                              wall_time, alerts, cam, photo, service, extra, chrome=True)
@@ -2607,6 +3496,14 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
     else:
         clock = wall_time.strftime('%H:%M:%S')
         room = W-24-d.textlength(clock, font=SMALL)
+        busy = rows.get('busy') or ()
+        if 'ai' in busy or 'search' in busy:  # The backend is answering a question.
+            label = 'AI' if 'ai' in busy else 'SEARCH'
+            pill = d.textlength(label, font=TINY) + 10
+            px = W - 14 - d.textlength(clock, font=SMALL) - pill
+            d.rounded_rectangle((px, 5, px+pill, 19), radius=4, fill=AI_COLOUR)
+            d.text((px+pill/2, 12), label, font=TINY, fill=BG, anchor='mm')
+            room -= pill + 6
         heading = 'PANEL / ' + title
         if d.textlength(heading, font=FONT) > room:
             heading = title
@@ -2737,9 +3634,19 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             d.rectangle((bar, disk_y+5, bar+used_width, disk_y+12), fill='#67bfff')
         d.text((8, disk_y+17), 'Up ' + rows.get('uptime', '--'), font=SMALL, fill=TEXT)
         d.text((W-12, disk_y+18), 'bar = disk used', font=TINY, fill=MUTED, anchor='ra')
-        d.text((8, bottom-28), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
-        button(d, (W-107, bottom-30, W-10, bottom-2), 'DETAILS', action='status:details')
-        d.text((8, bottom-10), f"{options['history_seconds']}s history | 0-100%", font=TINY, fill=MUTED)
+        hint = f"{options['history_seconds']}s history | 0-100%"
+        if portrait():  # Too narrow for the date beside two buttons: one line above them.
+            d.text((8, bottom-46), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
+            d.text((W-10, bottom-44), hint, font=TINY, fill=MUTED, anchor='ra')
+            history_rect, details_rect = row_rects(2, bottom-30, bottom-2, margin=8)
+        else:
+            d.text((8, bottom-28), wall_time.strftime('%Y/%m/%d'), font=SMALL, fill=TEXT)
+            d.text((8, bottom-10), hint, font=TINY, fill=MUTED)
+            history_rect, details_rect = (W-204, bottom-30, W-114, bottom-2), (W-107, bottom-30, W-10, bottom-2)
+        button(d, history_rect, 'HISTORY', action='status:history')
+        button(d, details_rect, 'DETAILS', action='status:details')
+    elif page == 'history':
+        draw_history(d, rows, bottom)
     elif page == 'health':
         details = [('Date', wall_time.strftime('%Y/%m/%d')),
                    ('Timezone', wall_time.strftime('%Z')),
@@ -2786,6 +3693,38 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             button(d, rect, label, on, action=action)
         d.text((8, rects[-1][3]+4), fit_text(d, note, W-16, TINY), font=TINY,
                fill=TEXT if page == 'options' and message else MUTED)
+    elif page == 'home':
+        notes = extra.get('home', {})
+        clock = wall_time.strftime('%H:%M')
+        day = wall_time.strftime('%A')
+        date = wall_time.strftime('%d %B %Y').lstrip('0')
+        if portrait():
+            d.text((W//2, 52), clock, font=BIG_PORTRAIT, fill=ACCENT, anchor='mm')
+            centred(d, 84, f'{day} {date}', SMALL)
+            status_y = 96
+        else:
+            d.text((8, 46), clock, font=HOME_CLOCK, fill=ACCENT, anchor='lm')
+            d.text((W-8, 37), day, font=SMALL, fill=TEXT, anchor='rm')
+            d.text((W-8, 54), date, font=SMALL, fill=MUTED, anchor='rm')
+            status_y = 71
+        status = '  |  '.join(part for part in (
+            rows.get('temp') and f"CPU {rows['temp']}", notes.get('wifi'),
+            rows.get('disk_free') and f"{rows['disk_free']} free") if part)
+        d.text((W//2, status_y), fit_text(d, status or 'Reading status...', W-16, TINY),
+               font=TINY, fill=MUTED, anchor='mm')
+        for rect, (label, key, colour) in zip(home_rects(), HOME_TILES):
+            d.rounded_rectangle(rect, radius=7, fill=PANEL)
+            d.rounded_rectangle((rect[0], rect[1], rect[0]+4, rect[3]), radius=2, fill=colour)
+            mid_x, mid_y = (rect[0]+rect[2])//2 + 2, (rect[1]+rect[3])//2
+            room = rect[2]-rect[0]-12
+            note = notes.get(key, '')
+            label_font = HOME_LABEL if d.textlength(label, font=HOME_LABEL) <= room else HOME_LABEL_SMALL
+            d.text((mid_x, mid_y - (6 if note else 0)), fit_text(d, label, room, label_font),
+                   font=label_font, fill=TEXT, anchor='mm')
+            if note:
+                d.text((mid_x, mid_y+10), fit_text(d, note, room, TINY), font=TINY,
+                       fill=MUTED, anchor='mm')
+            hotspot(rect, 'home:' + key)
     elif page == 'apps':
         notes = extra.get('notes', {})
         for rect, (label, key) in zip(grid_rects(len(APP_TILES), 30, bottom+4, max_pitch=200), APP_TILES):
@@ -2946,6 +3885,8 @@ def main():
     parser.add_argument('--data', help='Data folder (default: ~/cyberdeck-data for the invoking user)')
     parser.add_argument('--rotation', type=int, choices=(0, 90, 180, 270),
                         help='Turn the UI clockwise for this run only (overrides OPTIONS -> Screen)')
+    parser.add_argument('--backend',
+                        help="cyberdeck-core address (default http://127.0.0.1:8765; 'off' disables)")
     args = parser.parse_args()
     # Prevent two copies from competing for the camera and touchscreen.
     import fcntl
@@ -2977,6 +3918,7 @@ def main():
     shutdown_requested = False
     restart_requested = False
     tools_ui = None
+    backend = None
     photo_job = Job()
     photo_pending = False
     lapse_shot = False
@@ -3017,10 +3959,14 @@ def main():
             camera = CameraWorker(start_camera, args.fps)
             if camera is None:
                 message = 'Camera unavailable; see terminal'
-        page = 'camera' if camera else 'status'
+        page = 'camera' if options['start_page'] == 'camera' and camera else 'home'
         frame, paused, fps = None, False, args.fps
         stats, rows, alerts = Stats(), {}, []
         stats.start()
+        if args.backend != 'off':
+            backend = Backend(*([args.backend] if args.backend else []))
+            backend.start()
+        history_range = 3600
         next_stats, next_draw = 0, 0
         frame_sequence = -1
 
@@ -3083,12 +4029,18 @@ def main():
         album_show = Slideshow(options, photos, album_dir, library)
         gif_player, saver_gifs = GifPlayer(gif_dir), GifPlayer(gif_dir)
         players.extend((gif_player, saver_gifs))
-        bunny_frames = load_bunny_frames(data)
+        bunny_frames = custom_bunny_frames(data)  # None: random built-in breeds and coats.
         apps = {'snake': SnakeApp(scores.get('snake_best', 0), score_saver('snake_best')),
                 'tetris': TetrisApp(scores.get('tetris_best', 0), score_saver('tetris_best')),
                 'pong': PongApp(scores.get('pong_wins', 0), score_saver('pong_wins')),
                 'bricks': BrickApp(scores.get('bricks_best', 0), score_saver('bricks_best')),
                 'flappy': FlappyApp(scores.get('flappy_best', 0), score_saver('flappy_best')),
+                'invaders': InvadersApp(scores.get('invaders_best', 0), score_saver('invaders_best')),
+                'mines': MinesApp(scores.get('mines_best_seconds', 0), score_saver('mines_best_seconds')),
+                'solitaire': SolitaireApp(scores.get('solitaire_fewest_moves', 0),
+                                          score_saver('solitaire_fewest_moves')),
+                'sudoku': SudokuApp(scores.get('sudoku_best_seconds', 0),
+                                    score_saver('sudoku_best_seconds')),
                 'album': AlbumApp(album_show, cycle_option),
                 'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
 
@@ -3136,7 +4088,7 @@ def main():
                 gifs = 0
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
-                    'games': 'Snake, Tetris, Pong, Bricks, Flappy',
+                    'games': '9 games: arcade and puzzles',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -3163,7 +4115,21 @@ def main():
                 screen.show(apps[page].render(now, datetime.now().astimezone(), alerts))
                 return apps[page].delay
             extra = None
-            if page == 'apps':
+            if page == 'home':
+                wifi = rows.get('wifi', '')
+                signal = re.search(r'(-?\d+) dBm', wifi)
+                extra = {'home': {
+                    'wifi': f'Wi-Fi {signal[1]} dBm' if signal else 'No Wi-Fi',
+                    'camera': ('Live view' if camera is not None and camera.ready
+                               else 'Connecting...' if camera is not None else 'Off'),
+                    'photos': f'{len(library.items)} saved',
+                    'games': f'{len(GAME_PAGES)} games',
+                    'audio': (f"Vol {audio.state['volume']}%"
+                              if audio.state.get('volume') is not None else 'Music, volume'),
+                    'album': 'Slideshow', 'gifs': 'Animations', 'tools': 'Timers & more',
+                    'quick': 'Shortcuts', 'saver': SAVER_NAMES[options['saver_style']]
+                    if options['saver_style'] != 'off' else 'Radar'}}
+            elif page == 'apps':
                 extra = {'notes': app_notes()}
             elif page == 'audio':
                 extra = {'audio': audio.state, 'capture': capture}
@@ -3186,7 +4152,7 @@ def main():
             light.apply(100 if page == 'colours' else options['pixel_level'])
             screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
                                options, alerts=alerts, cam=cam, photo=photo, extra=extra))
-            return 1/15 if page == 'audio' else 2. if page == 'apps' else .25
+            return 1/15 if page == 'audio' else 1. if page in ('apps', 'home', 'history') else .25
 
         def take_photo(timelapse=False):
             """Schedule one capture/save; publish results on the UI thread."""
@@ -3213,6 +4179,8 @@ def main():
                     return False
             photo_pending, lapse_shot = True, timelapse
             message = 'Capturing in background...'
+            if backend is not None:
+                backend.mark('camera', 'timelapse' if timelapse else 'photo')
             return True
 
         def retry_camera():
@@ -3257,8 +4225,14 @@ def main():
             'tetris': f"Best score: {apps['tetris'].best}",
             'pong': f"Games won: {apps['pong'].wins}",
             'bricks': f"Best score: {apps['bricks'].best}",
-            'flappy': f"Best score: {apps['flappy'].best}"})
+            'flappy': f"Best score: {apps['flappy'].best}",
+            'invaders': f"Best score: {apps['invaders'].best}",
+            'mines': f"Best time: {clock_text(apps['mines'].best) if apps['mines'].best else '--'}",
+            'solitaire': f"Fewest moves: {apps['solitaire'].best or '--'}",
+            'sudoku': f"Best time: {clock_text(apps['sudoku'].best) if apps['sudoku'].best else '--'}"})
 
+        state = boot_service_enabled()
+        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
             now = time.monotonic()
@@ -3310,7 +4284,7 @@ def main():
                     elif result == 'exit':
                         if page == 'gifs':
                             gif_player.close()
-                        page = 'audio' if page == 'visual' else 'games' if page in GAME_PAGES else 'apps'
+                        page = 'audio' if page == 'visual' else 'games' if page in GAME_PAGES else 'home'
                         ignore_touch_until = now + .3
                     else:
                         ignore_touch_until = now + .12
@@ -3347,6 +4321,19 @@ def main():
                 elif kind == 'app':
                     page = open_app(arg, now)
                     ignore_touch_until = now + .3
+                elif kind == 'home':
+                    if arg == 'saver':
+                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
+                    elif arg == 'camera':
+                        page = 'camera'
+                    elif arg == 'photos':
+                        library.refresh()
+                        photo_index = len(library.items)-1
+                        photo_message = ''
+                        page = 'photos'
+                    else:
+                        page = open_app(arg, now)
+                    ignore_touch_until = now + .3
                 elif kind == 'audio':
                     if arg == 'source':
                         cycle_option('vis_source')
@@ -3368,14 +4355,21 @@ def main():
                         page = 'savers'
                         option_message = ''
                     elif index == 2:
-                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
+                        option_message = set_boot_service(BOOT_LABEL[0] != 'On', __file__, data)
+                        state = boot_service_enabled()
+                        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
                     elif index == 3:
                         page = 'colours'
                     elif index == 4:
                         page = 'calconfirm'
                     ignore_touch_until = max(ignore_touch_until, now + .3)
                 elif kind == 'status':
-                    page = 'health'
+                    page = 'history' if arg == 'history' else 'health'
+                elif kind == 'hist':
+                    history_range = int(arg)
+                    if backend is not None:
+                        backend.want_history(history_range)
+                        rows['history_range'] = history_range
                 elif kind == 'exit':
                     if arg == 'cancel':
                         page = exit_return_page
@@ -3498,6 +4492,10 @@ def main():
             tools_ui.tick(now, rows, camera)
             if now >= next_stats:
                 rows = stats.read()
+                if backend is not None:
+                    backend.want_history(history_range if page == 'history' else None)
+                    rows.update(busy=backend.busy, backend_online=backend.online,
+                                history=backend.history, history_range=history_range)
                 alerts = health_alerts(rows, now) if options['alerts'] == 'on' else []
                 next_stats = now + 1
             alerts = [a for a in alerts if a[1] != 'TIMER DONE - tap to dismiss']
@@ -3580,6 +4578,8 @@ def main():
             photo_job.thread.join(timeout=15)
         if stats is not None:
             stats.close()
+        if backend is not None:
+            backend.close()
         for helper in (audio, capture):
             if helper is not None:
                 try:

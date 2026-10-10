@@ -153,7 +153,7 @@ class LayoutTest(unittest.TestCase):
                  'audio': {'backend': 'PipeWire', 'volume': 45, 'muted': True,
                            'player': 'Playing', 'title': 'Artist - Song'}}
         for page in ('camera', 'photos', 'photofull', 'photodelete', 'status', 'health',
-                     'options', 'savers', 'saverstyle', 'apps', 'audio', 'calconfirm',
+                     'options', 'savers', 'saverstyle', 'apps', 'home', 'audio', 'calconfirm',
                      'colours', 'exit', 'shutdown', 'stopped', 'poweroff'):
             for banner in ((), alerts):
                 image = app.render(page, scene(), False, 20, self.rows, 'msg', (), 0,
@@ -183,7 +183,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(app.TAB_EDGES[-1], 320)
         app.render('camera', scene(), False, 20, self.rows, '')
         self.assertEqual([app.hit(x, 222) for x in (10, 100, 136, 180, 240, 300)],
-                         ['tab:camera', 'tab:photos', 'tab:apps', 'tab:status',
+                         ['tab:camera', 'tab:photos', 'tab:home', 'tab:status',
                           'tab:options', 'tab:exit'])
         self.assertEqual([app.hit(x, 190) for x in (40, 120, 200, 280)],
                          ['cam:snap', 'cam:timer', 'cam:pause', 'cam:fps'])
@@ -235,7 +235,7 @@ class RotationTest(unittest.TestCase):
         cam = {'thumb': scene((60, 45)), 'countdown': 3}
         d = ImageDraw.Draw(Image.new('RGB', (1, 1)))
         for page in ('camera', 'photos', 'photodelete', 'status', 'health', 'options', 'savers',
-                     'saverstyle', 'apps', 'audio', 'calconfirm', 'colours', 'exit', 'shutdown',
+                     'saverstyle', 'apps', 'home', 'audio', 'calconfirm', 'colours', 'exit', 'shutdown',
                      'stopped', 'poweroff', 'photofull'):
             image = app.render(page, scene(), False, 20, self.rows, 'A long status message here',
                                photo=photo, cam=cam, extra=extra,
@@ -561,7 +561,7 @@ class MainLoopTest(unittest.TestCase):
         (data / 'photos').mkdir()
         (data / 'touch.json').write_text(json.dumps(
             {'device': ['fake', [0, 320], [0, 240]], 'matrix': [[1, 0], [0, 1], [0, 0]]}))
-        (data / 'options.json').write_text(json.dumps({'rotation': 0, **(options or {})}))
+        (data / 'options.json').write_text(json.dumps({'rotation': 0, 'start_page': 'camera', **(options or {})}))
         FakeTouch.script, FakeScreen.frames, FakeCamera.instances = script, [], []
         poweroff = mock.Mock()
         real_open = builtins.open
@@ -613,7 +613,7 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(len(list((data/'photos').glob('*.jpg'))), 1)
 
     def test_tools_timelapse_runs_after_leaving_its_page(self):
-        data, _ = self.run_app([(.5, 136, 222), (1.1, 80, 164), # APPS > TOOLS
+        data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 185), # HOME > TOOLS
                                (1.7, 240, 68), (2.3, 80, 142), # TIMELAPSE > START
                                (2.9, 240, 222), # return to CAMERA
                                (3.6, 290, 222), (4.3, 160, 150)])
@@ -651,15 +651,15 @@ class MainLoopTest(unittest.TestCase):
         poweroff.assert_not_called()
 
     def test_apps_snake_and_bunny_saver(self):
-        # Coordinates: APPS tab x=136; GAMES tile (240, 70); menu SNAKE (80, 62);
-        # dialog START (100, 170) / QUIT (220, 170); menu BACK (237, 194).
+        # Coordinates: HOME tab x=136; GAMES tile (263, 98); menu SNAKE (55, 53);
+        # dialog START (100, 170) / QUIT (220, 170); menu BACK (55, 212).
         script = [(.5, 136, 222),    # APPS tab
-                  (1.1, 240, 70),    # GAMES
-                  (1.7, 80, 62),     # SNAKE in the Games menu (top left)
+                  (1.1, 263, 98),    # GAMES
+                  (1.7, 55, 53),     # SNAKE in the Games menu (top left)
                   (2.3, 100, 170),   # START
                   (2.9, 280, 12),    # PAUSE (header)
                   (3.5, 220, 170),   # QUIT -> back to the Games menu
-                  (4.1, 237, 194),   # BACK -> Apps (bottom right)
+                  (4.1, 55, 212),    # BACK -> Apps
                   (4.7, 240, 222),   # OPTIONS tab
                   (5.3, 240, 47),    # Screensavers...
                   (5.9, 80, 47),     # Style...
@@ -747,3 +747,135 @@ class ServiceSetupTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BunnyBreedsTest(unittest.TestCase):
+    def test_new_body_is_compact_not_long_and_flat(self):
+        # Body = rows below the head line; a sitting bunny should be nearly as tall as long.
+        body = app.BUNNY_SIT[6:]
+        length = max(r.rstrip('.').__len__() - (len(r) - len(r.lstrip('.'))) for r in body)
+        self.assertGreaterEqual(len(body) / length, .6)
+
+    def test_breeds_coats_and_giants(self):
+        import random
+        rng = random.Random(1)
+        picks = [app.random_breed(rng) for _ in range(400)]
+        breeds = {breed for breed, _ in picks}
+        coats = {look[1] for _, look in picks}
+        self.assertEqual(breeds, set(app.BUNNY_BREEDS))
+        self.assertEqual(coats, set(app.BUNNY_COATS))
+        for breed, (shape, coat, scale) in picks:
+            if breed == 'giant':
+                self.assertEqual(scale, 3)
+                self.assertIn(coat, app.BUNNY_BREEDS['giant'][3])
+        small, giant = app.bunny_look('standard', 'grey', 2), app.bunny_look('standard', 'grey', 3)
+        self.assertGreater(giant[0].width, small[0].width * 1.4)
+        self.assertNotEqual(app.bunny_look('lop')[0].tobytes(), app.bunny_look()[0].tobytes())
+        white, dutch = app.bunny_look(coat='white')[0], app.bunny_look(coat='dutch')[0]
+        self.assertNotEqual(white.tobytes(), dutch.tobytes())  # Dutch patches show.
+        for frames in (app.bunny_look('lop'), giant):
+            self.assertEqual(frames[0].getbbox()[1], 0)  # Empty rows trimmed off the top.
+
+    def test_saver_mixes_breeds_and_taps_use_each_bunny_size(self):
+        options = {**app.DEFAULT_OPTIONS, 'bunny_count': 24}
+        saver = app.BunnySaver(options, lambda n: 'Saved.', seed=4)
+        self.assertGreater(len({b.look for b in saver.bunnies}), 5)
+        giant = next(b for b in saver.bunnies if b.breed == 'giant')
+        small = next(b for b in saver.bunnies if b.breed == 'standard')
+        width = lambda b: saver.bunny_box(b, 0)[2] - saver.bunny_box(b, 0)[0]
+        self.assertGreater(width(giant), width(small))
+        left, top, right, bottom = saver.bunny_box(giant, 0)
+        saver.bunnies = [giant]
+        self.assertTrue(saver.tap(right - 2, top + 4, 0))  # Edge of the big sprite still counts.
+        self.assertEqual(saver.render(.1, datetime.now(), ())[0].size, (320, 240))
+
+    def test_custom_sprite_replaces_all_breeds(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(app.custom_bunny_frames(folder))
+            sprites = Path(folder) / 'sprites'
+            sprites.mkdir()
+            Image.new('RGBA', (18, 12), (255, 0, 0, 255)).save(sprites / 'bunny.png')
+            frames = app.custom_bunny_frames(folder)
+            saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 6}, lambda n: '',
+                                   frames=frames, seed=1)
+            self.assertEqual({b.look for b in saver.bunnies}, {None})
+            self.assertEqual(saver.frames_for(None)[0], frames)
+
+
+class BunnyLifeTest(unittest.TestCase):
+    def test_all_templates_are_rectangular_and_poses_differ(self):
+        for shape, templates in app.BUNNY_SHAPES.items():
+            for rows in templates:
+                self.assertEqual({len(r) for r in rows}, {16}, shape)
+            poses = app.bunny_poses(shape, 'castor')
+            self.assertNotEqual(poses['eat'].tobytes(), poses['sit'].tobytes(), shape)
+            self.assertNotEqual(poses['sleep'].tobytes(), poses['sit'].tobytes(), shape)
+            for groom in ('groom', 'groom2'):  # The paw shows in both grooming frames.
+                self.assertNotEqual(poses[groom].tobytes(), poses['sit'].tobytes(), shape)
+                self.assertEqual(poses[groom].size, poses['sit'].size)
+            self.assertNotEqual(poses['groom'].tobytes(), poses['groom2'].tobytes(), shape)
+            self.assertEqual(poses['eat'].size, poses['sit'].size)
+        for breed in ('lionhead', 'rex'):
+            self.assertIn(breed, app.BUNNY_BREEDS)
+        for coat in ('castor', 'blue', 'lilac', 'sable', 'harlequin', 'opal', 'cinnamon'):
+            self.assertIn(coat, app.BUNNY_COATS)
+        mane = app.bunny_poses('lionhead', 'white')['sit']
+        self.assertNotEqual(mane.tobytes(), app.bunny_poses('standard', 'white')['sit'].tobytes())
+
+    def test_bunnies_eat_sleep_and_poop_over_time(self):
+        options = {**app.DEFAULT_OPTIONS, 'bunny_count': 24}
+        saver = app.BunnySaver(options, lambda n: 'Saved.', seed=8)
+        seen = set()
+        for step in range(900):  # 90 simulated seconds.
+            saver.render(step*.1, datetime.now(), ())
+            for bunny in saver.bunnies:
+                if bunny.activity:
+                    seen.add(bunny.activity)
+                    if bunny.activity == 'eat':
+                        self.assertIn(bunny.food, ('carrot', 'hay'))
+        self.assertEqual(seen, {'eat', 'sleep', 'poop', 'groom', 'binky'})
+        self.assertTrue(saver.pellets)
+        saver.render(200, datetime.now(), ())
+        self.assertFalse(any(200 - born >= 45 for _, _, born in saver.pellets))  # Faded away.
+
+    def test_tap_wakes_a_sleeping_bunny(self):
+        saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 1}, lambda n: '', seed=3)
+        bunny = saver.bunnies[0]
+        bunny.activity, bunny.activity_until, bunny.hop_start = 'sleep', 99, None
+        left, top, right, bottom = saver.bunny_box(bunny, 1)
+        self.assertTrue(saver.tap((left+right)/2, (top+bottom)/2, 1))
+        self.assertIsNone(bunny.activity)
+        self.assertIsNotNone(bunny.hop_start)
+
+    def test_binky_leaps_twists_and_can_be_tapped(self):
+        saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 1}, lambda n: '', seed=3)
+        bunny = saver.bunnies[0]
+        bunny.x, bunny.hop_start = 160, None
+        bunny.activity, bunny.activity_start, bunny.activity_until = 'binky', 10, 10.9
+        self.assertGreater(bunny.lift(10.45), 25)  # Higher than an ordinary hop.
+        self.assertEqual(bunny.lift(10), 0)
+        start = bunny.x
+        frames = [saver.render(10 + k*.1, datetime.now(), ())[0] for k in range(1, 9)]
+        self.assertNotEqual(bunny.x, start)  # Leaps forward.
+        self.assertEqual(len({f.tobytes() for f in frames}), len(frames))
+        left, top, right, bottom = saver.bunny_box(bunny, 10.45)
+        self.assertLess(top, bunny.ground - 40)
+        self.assertTrue(saver.tap((left+right)/2, (top+bottom)/2, 10.45))
+        self.assertIsNone(bunny.activity)
+        saver.render(11.5, datetime.now(), ())
+        self.assertNotEqual(bunny.activity, 'binky')
+
+    def test_food_and_custom_sprite_activities_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sprites = Path(folder) / 'sprites'
+            sprites.mkdir()
+            Image.new('RGBA', (18, 12), (255, 0, 0, 255)).save(sprites / 'bunny.png')
+            frames = app.custom_bunny_frames(folder)
+        for custom in (None, frames):
+            saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 3}, lambda n: '',
+                                   frames=custom, seed=5)
+            for bunny, (activity, food) in zip(saver.bunnies, (('eat', 'carrot'), ('eat', 'hay'),
+                                                               ('groom', None))):
+                bunny.activity, bunny.food, bunny.hop_start = activity, food, None
+                bunny.activity_start, bunny.activity_until = 0, 10
+            self.assertEqual(saver.render(2, datetime.now(), ())[0].size, (320, 240))

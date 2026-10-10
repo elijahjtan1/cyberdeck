@@ -4,11 +4,12 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 
 | Page | What it does |
 | --- | --- |
+| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and screensaver |
 | CAMERA | Live preview, full-resolution SNAP, 3 s/10 s self-timer, pause, FPS, and a last-photo thumbnail |
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
-| APPS | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy), slideshow, GIFs, Quick controls and Tools |
+| APPS (via Home) | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy, Space Invaders, Minesweeper, Solitaire, Sudoku), slideshow, GIFs, Quick controls and Tools |
 | TOOLS | Timelapse, timers, network history, selected-photo sharing, presets, recovery, updates and GNSS placeholder |
-| STATUS | CPU/RAM graphs, temperature, storage, uptime; DETAILS shows power, clock sync, Wi-Fi and network |
+| STATUS | CPU/RAM graphs, temperature, storage, uptime; HISTORY shows up to 7 days of temperature, CPU and undervoltage (needs cyberdeck-core); DETAILS shows power, clock sync, Wi-Fi and network |
 | OPTIONS | Pixel level, screensavers, colour test, touch calibration, graph length, photo size, alert banner |
 | EXIT | Close the app, or shut down the Pi safely |
 
@@ -20,10 +21,12 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 ## Files
 
 - `panel_app.py` and `panel_tools/`: the app. Keep the repository together; run `sudo python3 ~/cyberdeck-repo/panel_app.py`.
-- `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`).
+- `core/` and `setup_core_service.py`: the local backend (telemetry log and API; librarian next). See [CORE.md](docs/CORE.md).
+- `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
 - `setup_backlight.py`: optional PWM backlight (real dimming, Black saver switches the backlight off). See [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md).
 - `cyberdeck.py`: older first version, kept as a fallback.
 - `docs/`: [GAMES.md](docs/GAMES.md) covers the games; [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md) (backlight wiring, power and performance changes); [TOOLS.md](docs/TOOLS.md) covers the tools update, data-folder migration and installation. Rotation notes are in [ROTATION.md](docs/ROTATION.md); apps and savers in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
+- `AGENTS.md`: rules for the coding agents working on this repo; [ROADMAP.md](docs/ROADMAP.md) is the shared task list.
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.

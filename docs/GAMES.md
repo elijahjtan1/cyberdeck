@@ -1,12 +1,16 @@
-# Games: Tetris, Pong, Brick Breaker and Flappy
+# Games
 
 ![Games in landscape](previews/games-landscape-preview.png)
 
 ![Games in portrait](previews/games-portrait-preview.png)
 
+![Puzzles and Invaders in landscape](previews/puzzles-landscape-preview.png)
+
+![Puzzles and Invaders in portrait](previews/puzzles-portrait-preview.png)
+
 *The previews are drawn by the app's own code with sample game states.*
 
-The Apps page's **GAMES** tile opens a two-column menu: **Snake**, **Tetris**, **Pong**, **Bricks** (Brick Breaker) and **Flappy**. Each shows your record. **BACK** returns to Apps. Quitting a game returns to the Games menu.
+The Apps page's **GAMES** tile opens a menu of nine games: **Snake**, **Tetris**, **Pong**, **Bricks** (Brick Breaker), **Flappy**, **Invaders** (Space Invaders), **Mines** (Minesweeper), **Solitaire** and **Sudoku**. It's three columns in landscape and two in portrait. Each tile shows your record. **BACK** returns to Apps. Quitting a game returns to the Games menu.
 
 All three games work in every screen rotation. While a game is running, the screensaver won't start.
 
@@ -61,6 +65,58 @@ Fly between the pipes, scoring a point for each one you pass. Hitting a pipe, th
 - **Flap:** touch anywhere. It flaps the moment your finger touches the screen, not when you lift it, so it reacts immediately. Keeping your finger down doesn't keep flapping; touch again for the next flap.
 - **Gap size:** the gap scales with the screen height, so it's a little roomier in portrait.
 
+## Space Invaders
+
+Five rows of eight aliens march side to side, stepping down each time they reach an edge.
+
+- **Move:** drag a finger to move your cannon along the bottom.
+- **Fire:** keep your finger down to keep firing. As in the original, only one shot can be in the air at a time.
+- **Shields:** the four green bunkers soak up shots from both sides and wear away.
+- **Speed:** the formation speeds up as you thin it out.
+- **Scoring:** the top row is worth 30, the middle rows 20 and the bottom rows 10, multiplied by the wave.
+- **Waves:** clearing one starts the next a little lower and faster.
+- **Ending:** you have 3 lives (▲ in the header). The game ends when they run out, or when the aliens reach your row.
+
+## Minesweeper
+
+| Rotation | Board | Mines | Square size |
+| --- | --- | --- | --- |
+| Landscape | 13×8 | 16 | 22 px |
+| Portrait | 9×10 | 14 | 24 px |
+
+The squares are sized for a fingertip on the 2.8" screen. Your first tap is always safe: the mines are placed afterwards, away from it.
+
+- **Tap** a square to dig it. Open areas spread out by themselves.
+- **Press and hold** a square for about half a second to plant or remove a flag. Lifting your finger afterwards doesn't dig.
+- **MODE: DIG / FLAG** switches taps to flagging, if you prefer that to holding.
+- **Tap a number** whose mines are all flagged to open every other square around it.
+- **NEW BOARD** starts over. The header shows mines left and the time.
+- **Record:** your fastest clear.
+
+Changing the screen rotation starts a fresh board, because the board shape changes.
+
+## Solitaire
+
+Klondike, drawing one card at a time from the stock, with unlimited passes.
+
+- **Tap the stock** (top left) to turn a card. When it's empty, tap it to turn the waste pile back over.
+- **To move:** tap a card to pick it up. It, and the cards on top of it, turn yellow. Then tap where it should go: a tableau pile (anywhere on or below it) or a foundation.
+- **Tap the picked-up card again** to auto-move it: to a foundation if it fits there, otherwise to the first pile that takes it.
+- **Usual rules:** build down in alternating colours. Only a King can go in an empty column. Face-down cards turn over automatically when they're uncovered.
+- **Long piles** squeeze together so they always fit on the screen.
+- **Record:** the fewest moves you've won in. The header shows the move count.
+
+## Sudoku
+
+Every puzzle is freshly generated with exactly one solution and 34 starting numbers. Generating one takes a fraction of a second.
+
+- **Tap a square**, then a number. **ERASE** clears your entry; the starting numbers can't be changed.
+- **Mistakes:** a wrong number turns red and adds to the ✗ count in the header.
+- **Highlighting:** the selected square's row, column and box are highlighted, along with every square holding the same number.
+- **Finished numbers:** a number's button dims once all nine of it are correctly placed.
+- **Layout:** the keypad is a 3×3 grid beside the board in landscape and two rows underneath in portrait.
+- **Record:** your fastest solve.
+
 ## Records
 
 `~/cyberdeck-data/games.json` now holds:
@@ -70,12 +126,16 @@ Fly between the pipes, scoring a point for each one you pass. Hitting a pipe, th
 - `pong_wins`
 - `bricks_best`
 - `flappy_best`
+- `invaders_best`
+- `mines_best_seconds` (lowest wins)
+- `solitaire_fewest_moves` (lowest wins)
+- `sudoku_best_seconds` (lowest wins)
 
 Saving one game's record keeps the others. Your existing Snake best score carries over.
 
 ## Checks
 
-All 91 automated tests pass (`python3 -m unittest discover -s tests -v`), including 24 in `tests/test_games.py`:
+All 109 automated tests pass (`python3 -m unittest discover -s tests -v`), including 42 in `tests/test_games.py`:
 
 - **Tetris rules:**
   - every piece has 4 cells in every rotation
@@ -120,13 +180,41 @@ All 91 automated tests pass (`python3 -m unittest discover -s tests -v`), includ
   - a tap launches the ball
   - Flappy flaps on press, ignores the release, and doesn't flap on PAUSE
   - records are saved
-- **Games menu:** all five buttons and BACK lead to the right place in both orientations.
+- **Space Invaders:**
+  - one shot at a time, and hits score by row
+  - the formation marches, steps down and speeds up
+  - bombs wear down shields and cost lives
+  - clearing a wave starts the next; aliens reaching your row ends the game
+  - dragging moves and fires; the record is saved
+- **Minesweeper:**
+  - the first dig is safe across 20 random boards, and open areas spread
+  - flags block digging
+  - tapping a number with a wrong flag correctly sets off the mine
+  - a cleared board is a win
+  - tap digs and press-and-hold flags, with no extra dig on release
+  - the board and toolbar fit, with squares at least 22 px
+  - the best time is kept
+- **Solitaire:**
+  - the deal is correct
+  - alternating colours, only Kings into empty columns, uncovered cards flip, aces go up
+  - the stock turns back over
+  - double-tapping auto-moves a card
+  - a 19-card pile still fits the screen in both orientations
+  - tap-to-move works in both orientations
+- **Sudoku:**
+  - generated puzzles always have one solution and valid rows, columns and boxes
+  - starting numbers are locked
+  - mistakes are counted, and erasing works
+  - completing the board wins, with the best time kept
+  - the keypad and board fit in both orientations
+- **Games menu:** all nine games and BACK lead to the right place in both orientations.
 - **Real application loop** with a simulated screen, touch and camera:
   1. Apps → Games → Tetris → Start → Drop → Pause → Quit
   2. Pong → Start → Pause → Quit
   3. Bricks → Start → launch → Pause → Quit
   4. Flappy → Start → Pause → Quit
-  5. Back → Exit
+  5. Every game in the menu, including the four new ones: Start → Pause → Quit
+  6. Back → Exit
 - **Updated Snake test:** the end-to-end Snake test now goes through the Games menu.
 
 **Still needs checking on the Pi:**
@@ -135,3 +223,5 @@ All 91 automated tests pass (`python3 -m unittest discover -s tests -v`), includ
 - how smoothly Pong's paddle tracks your finger
 - whether the computer opponent is fun to play against: easy to adjust if it's too easy or too hard
 - whether Flappy's flap and gravity feel right on the 2.8" screen: easy to tune
+- whether Minesweeper's half-second press-and-hold suits you
+- whether Solitaire's cards are readable in portrait, where they're about 29 px wide

@@ -290,9 +290,10 @@ class BlackSaverPowerOffTest(unittest.TestCase):
             original_show = t.FakeScreen.show
             t.FakeScreen.set_blank = lambda self, blank: blanks.append(blank) or True
             try:
-                # Options tab, Preview saver (Black), wait, wake tap, Exit tab, Close app.
-                script = [(.5, 240, 222), (1.1, 80, 75), (2.2, 160, 120),
-                          (2.9, 300, 222), (3.5, 160, 150)]
+                # Options tab, Screensavers..., PREVIEW (Black), wake tap, Exit tab, Close app.
+                # Off means the loop sleeps up to 1 s, so the taps after waking are spaced out.
+                script = [(.5, 240, 222), (1.0, 240, 43), (1.6, 240, 167), (2.6, 160, 120),
+                          (4.2, 300, 222), (4.9, 160, 150)]
                 with mock.patch.object(app, 'load_backlight', load):
                     t.MainLoopTest.run_app(self, script, options={'saver_style': 'black',
                                                                   'pixel_level': 70})
