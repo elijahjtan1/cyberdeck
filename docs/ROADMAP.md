@@ -68,11 +68,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | in progress | Installed-version validation awaits baseline (0.1) |
-| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | in progress | Standard library HTML parser |
+| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | review | [Draft PR #5](https://github.com/elijahjtan1/cyberdeck/pull/5); 3.7.0/14.0.0 verified against upstream; Pi port/book/recordings pending |
+| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | review | [PR #5](https://github.com/elijahjtan1/cyberdeck/pull/5); parser and failure tests |
 | 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | in progress | No vector database |
-| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | in progress | Keeps the model out of the search step |
-| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | in progress | Context size sets the wait on the Pi |
+| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | review | [PR #3](https://github.com/elijahjtan1/cyberdeck/pull/3); no model calls |
+| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | review | [PR #3](https://github.com/elijahjtan1/cyberdeck/pull/3); budget and empty-result tests |
 
 ## Phase 3: AI answers (librarian, part 2)
 
