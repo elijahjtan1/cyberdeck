@@ -40,7 +40,7 @@ def unit_text(app, uid, gid, data=None):
     return f'''{MARK}
 [Unit]
 Description=Cyberdeck TFT panel app (camera, photos, status)
-After=local-fs.target systemd-udev-trigger.service
+After=local-fs.target systemd-udev-trigger.service cyberdeck-backlight.service
 StartLimitIntervalSec=300
 StartLimitBurst=10
 

@@ -34,7 +34,8 @@ class ArticleParser(HTMLParser):
         parent_drop = self.stack and self.stack[-1][1]
         classes = set(attrs.get('class', '').lower().split())
         drop = bool(parent_drop or tag in DROP_TAGS or classes & DROP_CLASSES
-                    or (not self.heading and attrs.get('id', '').lower() in DROP_CLASSES)
+                    or (not self.heading and not re.fullmatch('h[1-6]', tag)
+                        and attrs.get('id', '').lower() in DROP_CLASSES)
                     or attrs.get('role') == 'navigation' or 'hidden' in attrs)
         if tag not in VOID:
             self.stack.append((tag, drop))

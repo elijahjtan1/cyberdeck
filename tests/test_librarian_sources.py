@@ -113,6 +113,7 @@ class SourcesTest(unittest.TestCase):
         self.assertEqual(paragraphs('<p>Water &amp; <b>sound</b>.</p><p>Next<br>line</p>'),
                          ['Water & sound.', 'Next line'])
         self.assertEqual(paragraphs('<h2>Notes</h2><p>omit</p><h2>Operation</h2><p>keep</p>'), ['keep'])
+        self.assertEqual(paragraphs('<p>keep</p><h2 id="references">References</h2><p>omit</p>'), ['keep'])
 
 
 if __name__ == '__main__':
