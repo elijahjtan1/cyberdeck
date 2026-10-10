@@ -144,6 +144,19 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(client.get('/api/health').status_code, 200)
             self.assertEqual(client.get('/api/search').status_code, 400)
 
+    def test_overlapping_search_is_rejected_and_lock_released(self):
+        original = self.retriever.run
+        nested_status = []
+
+        def overlapping(*args, **kwargs):
+            nested_status.append(self.client.get('/api/search?q=sonobuoy').status_code)
+            return original(*args, **kwargs)
+
+        with patch.object(self.retriever, 'run', side_effect=overlapping):
+            self.assertEqual(self.client.get('/api/search?q=sonobuoy').status_code, 200)
+        self.assertEqual(nested_status, [503])
+        self.assertEqual(self.client.get('/api/search?q=sonobuoy').status_code, 200)
+
 
 if __name__ == '__main__':
     unittest.main()

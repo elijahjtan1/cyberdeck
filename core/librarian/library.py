@@ -45,6 +45,8 @@ class LocalLibrary:
     def read_document(self, relative):
         path = self.document_path(relative)
         try:
+            if not path.is_file():
+                raise LibraryError('Document is not a regular file')
             with path.open('rb') as source:
                 data = source.read(self.max_bytes + 1)
             if len(data) > self.max_bytes:
@@ -56,9 +58,9 @@ class LocalLibrary:
     def reindex(self):
         """One transaction; unchanged mtimes/sizes incur no document reads or writes."""
         changed, removed, skipped = 0, 0, []
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(self.db_path, timeout=2)) as db, db:
                 db.executescript(SCHEMA)
                 old = {path: (mtime, size) for path, mtime, size in db.execute('SELECT * FROM files')}
