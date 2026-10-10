@@ -22,7 +22,11 @@ def duty_fraction(percent, gamma=2.0, floor=.02):
 class PwmBacklight:
     available = True
 
-    def __init__(self, chip=0, channel=0, frequency=2000, invert=False, root=PWM_ROOT):
+    def __init__(self, chip=0, channel=0, frequency=2000, invert=False, root=PWM_ROOT,
+                 wait=10., sleep=time.sleep):
+        """wait: seconds to wait for the PWM device. At boot the panel service can start
+        before the kernel has loaded the PWM driver; giving up at once left the backlight
+        dark (the pin idles low) for the whole run."""
         if not 100 <= int(frequency) <= 50000:
             raise ValueError(f'frequency must be 100-50000 Hz, not {frequency}')
         self.chip = Path(root) / f'pwmchip{int(chip)}'
@@ -31,6 +35,10 @@ class PwmBacklight:
         self.invert = bool(invert)
         self.level = None
         self.duty = None
+        for _ in range(max(1, round(wait/.2))):
+            if self.chip.is_dir():
+                break
+            sleep(.2)
         if not self.chip.is_dir():
             raise RuntimeError(f'{self.chip} not found: is dtoverlay=pwm in config.txt and rebooted?')
         if not self.pwm.is_dir():
@@ -38,14 +46,29 @@ class PwmBacklight:
                 (self.chip / 'export').write_text(str(int(channel)))
             except OSError:
                 pass  # Already exported by an earlier run is fine.
-            for _ in range(50):  # udev can take a moment to create the channel files.
-                if (self.pwm / 'period').exists():
-                    break
-                time.sleep(.02)
-        # Order matters: duty must never exceed the period while changing either.
-        self._write('duty_cycle', 0)
+        for _ in range(250):  # udev can take a moment (longer while booting) to add the files.
+            if (self.pwm / 'period').exists():
+                break
+            sleep(.02)
+        # Start fully lit, so the screen is readable from the first moment. Order matters:
+        # the duty may never exceed the period while either changes.
+        try:
+            current = int((self.pwm / 'duty_cycle').read_text())
+        except (OSError, ValueError):
+            current = 0
+        if current > self.period:
+            self._write('duty_cycle', 0)
         self._write('period', self.period)
+        self.duty = self.duty_for(100)
+        self._write('duty_cycle', self.duty)
         self._write('enable', 1)
+        self.level = 100
+
+    def duty_for(self, percent):
+        duty = round(self.period * duty_fraction(percent))
+        if self.invert:  # Active-low driver (e.g. a PNP high-side switch).
+            duty = self.period - duty
+        return duty
 
     def _write(self, name, value):
         (self.pwm / name).write_text(str(int(value)))
@@ -54,9 +77,7 @@ class PwmBacklight:
         """0 = off, 100 = full. Repeated values do not touch sysfs."""
         if percent == self.level:
             return
-        duty = round(self.period * duty_fraction(percent))
-        if self.invert:  # Active-low driver (e.g. a PNP high-side switch).
-            duty = self.period - duty
+        duty = self.duty_for(percent)
         if duty != self.duty:
             self._write('duty_cycle', duty)
             self.duty = duty
@@ -82,7 +103,7 @@ class NoBacklight:
         pass
 
 
-def load_backlight(data, root=PWM_ROOT, log=print):
+def load_backlight(data, root=PWM_ROOT, log=print, wait=10.):
     path = Path(data) / 'backlight.json'
     if not path.is_file():
         return NoBacklight()
@@ -91,7 +112,8 @@ def load_backlight(data, root=PWM_ROOT, log=print):
         if not isinstance(settings, dict):
             raise ValueError('expected a JSON object')
         return PwmBacklight(settings.get('chip', 0), settings.get('channel', 0),
-                            settings.get('frequency', 2000), settings.get('invert', False), root)
+                            settings.get('frequency', 2000), settings.get('invert', False), root,
+                            wait=wait)
     except (OSError, ValueError, TypeError, RuntimeError) as exc:
         log(f'PWM backlight unavailable ({exc}); using pixel dimming instead.')
         return NoBacklight()

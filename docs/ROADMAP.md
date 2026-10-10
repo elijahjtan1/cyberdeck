@@ -55,11 +55,11 @@ Browser UI (Chromium on the Pi, or a PC on the network)      2.8" touch panel (p
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Move status reading and `get_throttled` decoding out of `panel_app.py` into a shared module | Claude | in progress | Panel behaviour unchanged |
-| 1.2 | `core/` package and Flask app on localhost, with a systemd installer like `setup_panel_service.py` | Claude | in progress | `/api/health` endpoint first |
-| 1.3 | Telemetry logger: sample every 5 s, write to SQLite once a minute, keep 7 days | Claude | in progress | Limit SD-card writes |
-| 1.4 | Activity markers: record Kiwix searches, AI answers and camera captures in the log | Claude | in progress | To see whether undervoltage follows inference |
-| 1.5 | Panel: history chart on STATUS -> DETAILS and an "AI busy" indicator, read from the backend | Claude | in progress | Must work without the backend |
+| 1.1 | Move status reading and `get_throttled` decoding out of `panel_app.py` into a shared module | Claude | review | `core/sysinfo.py`, used by the panel |
+| 1.2 | `core/` package and Flask app on localhost, with a systemd installer like `setup_panel_service.py` | Claude | review | `python3 -m core`, `setup_core_service.py`; see [CORE.md](CORE.md) |
+| 1.3 | Telemetry logger: sample every 5 s, write to SQLite once a minute, keep 7 days | Claude | review | `core/telemetry.py`; `~/cyberdeck-data/telemetry.sqlite3` |
+| 1.4 | Activity markers: record Kiwix searches, AI answers and camera captures in the log | Claude | review | Photos marked now; `telemetry.activity()` and `/api/activity/*` ready for Phases 2-3 |
+| 1.5 | Panel: history chart on STATUS -> DETAILS and an "AI busy" indicator, read from the backend | Claude | review | STATUS -> HISTORY page (1H-7D) and AI/SEARCH header badge |
 
 Note: firmware flags say whether undervoltage happened, not the voltage. If the log ties
 undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cable), not code.
