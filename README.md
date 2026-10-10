@@ -6,7 +6,7 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 | --- | --- |
 | CAMERA | Live preview, full-resolution SNAP, 3 s/10 s self-timer, pause, FPS, and a last-photo thumbnail |
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
-| APPS | Audio, Snake, slideshow, GIFs, Quick controls and Tools |
+| APPS | Audio, Games (Snake, Tetris, Pong), slideshow, GIFs, Quick controls and Tools |
 | TOOLS | Timelapse, timers, network history, selected-photo sharing, presets, recovery, updates and GNSS placeholder |
 | STATUS | CPU/RAM graphs, temperature, storage, uptime; DETAILS shows power, clock sync, Wi-Fi and network |
 | OPTIONS | Pixel level, screensavers, colour test, touch calibration, graph length, photo size, alert banner |
@@ -24,6 +24,6 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
 - `setup_backlight.py`: optional PWM backlight (real dimming, Black saver switches the backlight off). See [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md).
 - `cyberdeck.py`: older first version, kept as a fallback.
-- `docs/`: newest is [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md) (backlight wiring, power and performance changes); [TOOLS.md](docs/TOOLS.md) covers the tools update, data-folder migration and installation. Rotation notes are in [ROTATION.md](docs/ROTATION.md); apps and savers in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
+- `docs/`: [GAMES.md](docs/GAMES.md) covers Tetris and Pong; [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md) (backlight wiring, power and performance changes); [TOOLS.md](docs/TOOLS.md) covers the tools update, data-folder migration and installation. Rotation notes are in [ROTATION.md](docs/ROTATION.md); apps and savers in [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md); boot start and shutdown in [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md).
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.

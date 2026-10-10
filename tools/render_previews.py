@@ -50,6 +50,7 @@ def main():
     save_sheet(screens, 'camera-photos-power-preview.png')
     fun_screens(clock, rows)
     portrait_screens(clock, rows)
+    games_screens(clock)
 
 
 def save_sheet(screens, name, cols=2, gap=8, scale=2):
@@ -154,6 +155,48 @@ def portrait_screens(clock, rows):
         save_sheet([app.physical_image(screens[0])], 'portrait-on-panel.png', cols=1)
     finally:
         app.set_rotation(0)
+
+
+def games_screens(clock):
+    """Games menu, Tetris and Pong in landscape (top two rows) and portrait (bottom)."""
+    def tetris_midgame():
+        tetris = app.TetrisApp(best=4200, seed=8)
+        tetris.state = 'running'
+        game = tetris.game
+        rows = ['ZZZZ.SSJJJ', 'TTZ.SSLJJI', 'OTTLLLLOOI', 'OOT.JJJOOI']
+        for i, row in enumerate(rows):
+            game.board[16+i] = [None if c == '.' else c for c in row]
+        game.kind, game.rotation, game.x, game.y = 'T', 1, 2, 6
+        game.score, game.lines = 1840, 12
+        return tetris
+
+    def pong_rally():
+        pong = app.PongApp(wins=3, seed=4)
+        pong.state = 'running'
+        game = pong.game
+        game.player_score, game.cpu_score, game.wait = 4, 2, 0
+        game.player, game.cpu = game.width*.4, game.width*.62
+        game.ball = [game.width*.55, game.length*.62]
+        pong.last = None
+        return pong
+
+    sheets = []
+    for rotation in (0, 90):
+        app.set_rotation(rotation)
+        try:
+            notes = {'snake': 'Best score: 23', 'tetris': 'Best score: 4200', 'pong': 'Games won: 3'}
+            ready = app.TetrisApp(best=4200, seed=1)
+            screens = [app.GamesMenu(lambda: notes).render(0, clock, ()),
+                       tetris_midgame().render(0, clock, ()),
+                       ready.render(0, clock, ()),
+                       pong_rally().render(0, clock, ())]
+            pong_ready = app.PongApp(wins=3)
+            screens.append(pong_ready.render(0, clock, ()))
+            sheets.append(screens)
+        finally:
+            app.set_rotation(0)
+    save_sheet(sheets[0], 'games-landscape-preview.png', cols=3)
+    save_sheet(sheets[1], 'games-portrait-preview.png', cols=5)
 
 
 if __name__ == '__main__':

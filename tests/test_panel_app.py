@@ -651,20 +651,23 @@ class MainLoopTest(unittest.TestCase):
         poweroff.assert_not_called()
 
     def test_apps_snake_and_bunny_saver(self):
-        # Coordinates: APPS tab x=136; SNAKE tile (240, 70); QUIT button (220, 170).
+        # Coordinates: APPS tab x=136; GAMES tile (240, 70); menu SNAKE (160, 57);
+        # dialog START (100, 170) / QUIT (220, 170); menu BACK (160, 218).
         script = [(.5, 136, 222),    # APPS tab
-                  (1.1, 240, 70),    # SNAKE
-                  (1.7, 100, 170),   # START
-                  (2.3, 280, 12),    # PAUSE (header)
-                  (2.9, 220, 170),   # QUIT -> back to Apps
-                  (3.5, 240, 222),   # OPTIONS tab
-                  (4.1, 240, 47),    # Screensavers...
-                  (4.7, 80, 47),     # Style...
-                  (5.3, 80, 87),     # BUNNIES in the style picker
-                  (5.9, 240, 167),   # PREVIEW
-                  (6.5, 300, 226),   # Bunny saver: + (stays in saver)
-                  (7.1, 160, 60),    # Tap sky: wake
-                  (7.7, 290, 222), (8.3, 160, 150)]
+                  (1.1, 240, 70),    # GAMES
+                  (1.7, 160, 57),    # SNAKE in the Games menu
+                  (2.3, 100, 170),   # START
+                  (2.9, 280, 12),    # PAUSE (header)
+                  (3.5, 220, 170),   # QUIT -> back to the Games menu
+                  (4.1, 160, 218),   # BACK -> Apps
+                  (4.7, 240, 222),   # OPTIONS tab
+                  (5.3, 240, 47),    # Screensavers...
+                  (5.9, 80, 47),     # Style...
+                  (6.5, 80, 87),     # BUNNIES in the style picker
+                  (7.1, 240, 167),   # PREVIEW
+                  (7.7, 300, 226),   # Bunny saver: + (stays in saver)
+                  (8.3, 160, 60),    # Tap sky: wake
+                  (8.9, 290, 222), (9.5, 160, 150)]
         data, _ = self.run_app(script)
         saved = json.loads((data / 'options.json').read_text())
         self.assertEqual(saved['saver_style'], 'bunnies')

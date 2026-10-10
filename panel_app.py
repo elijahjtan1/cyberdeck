@@ -14,6 +14,7 @@ import queue
 from panel_tools.runtime import CameraWorker, Job, data_home
 from panel_tools.camera import CameraDriver
 from panel_tools.backlight import load_backlight
+from panel_tools.games import TetrisGame, PongGame, PIECES, PIECE_COLOURS
 from panel_tools.ui import ToolsUI
 import json
 import os
@@ -561,6 +562,10 @@ class Touch:
                     self.samples = []
                     self.released = False
         return taps
+
+    def current(self):
+        """Raw position of a finger that is down right now (for dragging), else None."""
+        return np.array([self.x, self.y], dtype=float) if self.down else None
 
     def wait(self, timeout):
         """Sleep until a touch event arrives or the timeout passes (no busy polling)."""
@@ -1605,6 +1610,364 @@ class SnakeApp:
         return image
 
 
+def draw_game_dialog(d, title, subtitle, left, right, hint=''):
+    """Start / pause / game-over box shared by the games (same geometry as Snake's)."""
+    box, left_rect, right_rect = SnakeApp.dialog_rects()
+    d.rounded_rectangle(box, radius=8, fill=BG, outline=ACCENT, width=2)
+    d.text((W//2, box[1]+28), title, font=BOLD, fill=TEXT, anchor='mm')
+    d.text((W//2, box[1]+59), subtitle, font=SMALL, fill=MUTED, anchor='mm')
+    if hint:
+        d.text((W//2, box[1]+77), fit_text(d, hint, box[2]-box[0]-12, TINY), font=TINY,
+               fill=MUTED, anchor='mm')
+    button(d, left_rect, left, active=True)
+    button(d, right_rect, right)
+
+
+def dialog_choice(x, y):
+    """0 = left button (start/resume/again), 1 = right (quit), None = elsewhere."""
+    return index_at(SnakeApp.dialog_rects()[1:], x, y, slop=4)
+
+
+def game_header(d, title, wall_time, running):
+    d.text((8, 4), title, font=FONT, fill=ACCENT)
+    if running:
+        button(d, (W-76, 2, W-4, 22), 'PAUSE')
+    else:
+        d.text((W-8, 7), wall_time.strftime('%H:%M'), font=SMALL, fill=TEXT, anchor='ra')
+
+
+def pause_tapped(x, y):
+    return y < 24 and x >= W-80
+
+
+def tetris_layout():
+    """Board placement, side panel and control buttons for the current rotation."""
+    if portrait():
+        cell, origin = 11, (8, 28)
+        panel = (8 + 10*cell + 8, 28, W-6, 28 + 20*cell)
+        rows = ((H-66, H-37), (H-33, H-4))
+        labels = (('< LEFT', 'left'), ('ROTATE', 'rotate'), ('RIGHT >', 'right'),
+                  ('DOWN', 'down'), ('DROP', 'drop'), ('PAUSE', 'pause'))
+        rects = row_rects(3, *rows[0]) + row_rects(3, *rows[1])
+    else:
+        cell, origin = 10, (8, 30)
+        panel = (8 + 10*cell + 10, 26, W-6, 104)
+        left, right = panel[0], W-6
+        middle = (left+right)//2
+        rects = []
+        for top in (108, 152, 196):
+            rects += [(left, top, middle-3, top+38), (middle+3, top, right, top+38)]
+        labels = (('< LEFT', 'left'), ('RIGHT >', 'right'), ('ROTATE', 'rotate'),
+                  ('DOWN', 'down'), ('DROP', 'drop'), ('PAUSE', 'pause'))
+    board = (origin[0], origin[1], origin[0]+10*cell, origin[1]+20*cell)
+    return cell, origin, board, panel, [(rect, action, label) for rect, (label, action)
+                                        in zip(rects, labels)]
+
+
+class TetrisApp:
+    """Buttons for move/rotate/drop; tapping the board also rotates. Holding LEFT, RIGHT or
+    DOWN repeats, so a piece can be slid across without many taps."""
+    REPEATABLE = ('left', 'right', 'down')
+
+    def __init__(self, best=0, save_best=lambda best: None, seed=None):
+        self.game = TetrisGame(seed=seed)
+        self.best, self.save_best = best, save_best
+        self.state, self.next_fall, self.delay = 'ready', 0., .25
+        self.held = None
+        self.repeated = False
+        self.next_repeat = 0.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def act(self, action, now):
+        game = self.game
+        if action == 'left':
+            game.move(-1)
+        elif action == 'right':
+            game.move(1)
+        elif action == 'rotate':
+            game.rotate()
+        elif action == 'down':
+            if game.step(soft=True):
+                self.next_fall = now + game.gravity()
+        elif action == 'drop':
+            game.hard_drop()
+            self.next_fall = now + game.gravity()
+        elif action == 'pause':
+            self.state = 'paused'
+        self.check_over()
+
+    def check_over(self):
+        if not self.game.alive and self.state == 'running':
+            self.state = 'over'
+            if self.game.score > self.best:
+                self.best = self.game.score
+                self.save_best(self.best)
+
+    def action_at(self, x, y):
+        _, _, board, _, buttons = tetris_layout()
+        for rect, action, _ in buttons:
+            if index_at([rect], x, y, slop=3) is not None:
+                return action
+        if index_at([board], x, y) is not None:
+            return 'rotate'
+        return None
+
+    def tap(self, x, y, now):
+        if self.state == 'running':
+            if self.repeated:  # The release after an auto-repeat is not another move.
+                self.repeated = False
+                return None
+            action = 'pause' if pause_tapped(x, y) else self.action_at(x, y)
+            if action:
+                self.act(action, now)
+            return None
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                self.game.reset()
+            self.state, self.next_fall = 'running', now + self.game.gravity()
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def hold(self, point, now):
+        """Called every loop pass with the finger position (None when lifted)."""
+        action = self.action_at(*point) if point is not None and self.running else None
+        if action not in self.REPEATABLE:
+            self.held = None
+            return
+        if action != self.held:
+            self.held, self.repeated, self.next_repeat = action, False, now + .28
+        elif now >= self.next_repeat:
+            self.act(action, now)
+            self.repeated, self.next_repeat = True, now + .07
+
+    def update(self, now):
+        if self.state != 'running':
+            return
+        if now - self.next_fall > 1:
+            self.next_fall = now  # Resumed after a long gap: no burst of catch-up moves.
+        while self.state == 'running' and now >= self.next_fall:
+            self.game.step()
+            self.next_fall += self.game.gravity()
+            self.check_over()
+
+    def render(self, now, wall_time, alerts):
+        self.update(now)
+        game = self.game
+        cell, (x0, y0), board, panel, buttons = tetris_layout()
+        image = Image.new('RGB', (W, H), '#0b1218')
+        d = ImageDraw.Draw(image)
+        game_header(d, 'TETRIS', wall_time, False)
+        d.rectangle((board[0]-1, board[1]-1, board[2], board[3]), outline=PANEL, fill='#070d12')
+
+        def block(cx, cy, colour, outline_only=False, ox=x0, oy=y0, size=cell):
+            rect = (ox+cx*size, oy+cy*size, ox+cx*size+size-2, oy+cy*size+size-2)
+            if outline_only:
+                d.rectangle(rect, outline=colour)
+            else:
+                d.rectangle(rect, fill=colour)
+
+        for row, cells in enumerate(game.board):
+            for col, kind in enumerate(cells):
+                if kind:
+                    block(col, row, PIECE_COLOURS[kind])
+        if game.alive and self.state != 'ready':
+            ghost = game.ghost_y()
+            for cx, cy in game.cells(y=ghost):
+                if cy >= 0:
+                    block(cx, cy, '#3a4a58', outline_only=True)
+            for cx, cy in game.cells():
+                if cy >= 0:
+                    block(cx, cy, PIECE_COLOURS[game.kind])
+        # Side panel: next piece and numbers.
+        px, py = panel[0], panel[1]
+        d.text((px, py), 'NEXT', font=TINY, fill=MUTED)
+        preview = 9 if portrait() else 10
+        for cx, cy in PIECES[game.next_kind][0]:
+            block(cx, cy, PIECE_COLOURS[game.next_kind], ox=px+2, oy=py+14, size=preview)
+        stats = (('SCORE', game.score), ('LINES', game.lines), ('LEVEL', game.level),
+                 ('BEST', self.best))
+        if portrait():
+            for i, (label, value) in enumerate(stats):
+                y = py + 58 + i*38
+                d.text((px, y), label, font=TINY, fill=MUTED)
+                d.text((px, y+12), str(value), font=FONT, fill=TEXT)
+        else:
+            sx = px + 56
+            for i, (label, value) in enumerate(stats):
+                d.text((sx, py+2+i*19), label, font=TINY, fill=MUTED)
+                d.text((W-8, py+i*19), str(value), font=SMALL, fill=TEXT, anchor='ra')
+        for rect, action, label in buttons:
+            button(d, rect, label, active=(action == 'drop'))
+        if self.state != 'running':
+            title, left, right = {
+                'ready': ('TETRIS', 'START', 'QUIT'),
+                'paused': ('PAUSED', 'RESUME', 'QUIT'),
+                'over': ('GAME OVER', 'PLAY AGAIN', 'QUIT')}[self.state]
+            draw_game_dialog(d, title, f'Score {game.score}   Best {self.best}', left, right,
+                             'Buttons move; tap the board to rotate.' if self.state == 'ready' else '')
+            self.delay = .25
+        else:
+            self.delay = max(.01, min(self.next_fall-now, .07 if self.held else .25))
+        return image
+
+
+def pong_court():
+    """(rect, width, length): `width` runs across the court, `length` between paddles.
+    Landscape: your paddle on the left. Portrait: your paddle at the bottom."""
+    top = 26
+    rect = (0, top, W-1, H-1)
+    if portrait():
+        return rect, W, H-top
+    return rect, H-top, W
+
+
+def pong_to_screen(across, along):
+    (x0, y0, x1, y1), _, _ = pong_court()
+    if portrait():
+        return x0+across, y1-along
+    return x0+along, y0+across
+
+
+class PongApp:
+    """Drag a finger anywhere on the court to move your paddle. First to 7 wins."""
+    def __init__(self, wins=0, save_wins=lambda wins: None, seed=None):
+        _, width, length = pong_court()
+        self.game = PongGame(width, length, seed=seed)
+        self.wins, self.save_wins = wins, save_wins
+        self.state, self.delay, self.last = 'ready', .25, None
+        self.flash, self.flash_until = '', 0.
+
+    @property
+    def running(self):
+        return self.state == 'running'
+
+    def tap(self, x, y, now):
+        if self.state == 'running':
+            if pause_tapped(x, y):
+                self.state = 'paused'
+            return None
+        choice = dialog_choice(x, y)
+        if choice == 0:
+            if self.state != 'paused':
+                _, width, length = pong_court()
+                self.game = PongGame(width, length)
+            self.state, self.last = 'running', now
+        elif choice == 1:
+            if self.state == 'paused':
+                self.state = 'ready'
+            return 'exit'
+        return None
+
+    def hold(self, point, now):
+        if point is None or not self.running or point[1] < 26:
+            return
+        (x0, y0, _, _), _, _ = pong_court()
+        self.game.aim(point[0]-x0 if portrait() else point[1]-y0)
+
+    def update(self, now):
+        _, width, length = pong_court()
+        self.game.resize(width, length)  # Rotation changed: re-serve on the new court.
+        if self.state != 'running':
+            self.last = None
+            return
+        dt = 0 if self.last is None else now - self.last
+        self.last = now
+        point = self.game.update(dt)
+        if point:
+            self.flash, self.flash_until = ('POINT!' if point == 'player' else 'CPU SCORES'), now + 1
+        if self.game.over:
+            self.state = 'over'
+            if self.game.player_score > self.game.cpu_score:
+                self.wins += 1
+                self.save_wins(self.wins)
+
+    def render(self, now, wall_time, alerts):
+        self.update(now)
+        game = self.game
+        rect, width, length = pong_court()
+        image = Image.new('RGB', (W, H), 'black')
+        d = ImageDraw.Draw(image)
+        game_header(d, f'PONG  {game.player_score} : {game.cpu_score}', wall_time, self.running)
+        d.line((0, rect[1]-1, W-1, rect[1]-1), fill=PANEL)
+        for i in range(0, int(width), 12):  # Dashed centre line across the court.
+            a = pong_to_screen(i, length/2)
+            b = pong_to_screen(min(width, i+6), length/2)
+            d.line((a, b), fill='#2a3a46', width=2)
+        for score, along in ((game.player_score, length*.25), (game.cpu_score, length*.75)):
+            d.text(pong_to_screen(width/2, along), str(score), font=BIG_PORTRAIT, fill='#16242e',
+                   anchor='mm')
+        for centre, along, colour in ((game.player, 0, ACCENT), (game.cpu, length-game.THICK, TEXT)):
+            a = pong_to_screen(centre-game.PADDLE/2, along)
+            b = pong_to_screen(centre+game.PADDLE/2, along+game.THICK)
+            d.rectangle((min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])),
+                        fill=colour)
+        bx, by = pong_to_screen(*game.ball)
+        r = game.BALL/2
+        d.rectangle((bx-r, by-r, bx+r, by+r), fill='white')
+        if now < self.flash_until and self.running:
+            centred(d, (rect[1]+rect[3])//2, self.flash, FONT, WARN)
+        if self.state != 'running':
+            won = game.player_score > game.cpu_score
+            title, left, right = {
+                'ready': ('PONG', 'START', 'QUIT'),
+                'paused': ('PAUSED', 'RESUME', 'QUIT'),
+                'over': ('YOU WIN!' if won else 'CPU WINS', 'PLAY AGAIN', 'QUIT')}[self.state]
+            where = 'bottom' if portrait() else 'left'
+            draw_game_dialog(d, title, f'You {game.player_score} : {game.cpu_score} CPU   Wins {self.wins}',
+                             left, right,
+                             f'Drag: your paddle is {where}. First to {game.TARGET}.'
+                             if self.state == 'ready' else '')
+        self.delay = 1/30 if self.running else .25
+        return image
+
+
+class GamesMenu:
+    GAMES = (('SNAKE', 'snake'), ('TETRIS', 'tetris'), ('PONG', 'pong'))
+
+    def __init__(self, notes):
+        self.notes, self.delay = notes, 1.
+
+    def rects(self):
+        bottom = H-44
+        pitch = (bottom-34)//len(self.GAMES)
+        return ([(10, 34+i*pitch, W-11, 34+i*pitch+pitch-8) for i in range(len(self.GAMES))],
+                (10, H-38, W-11, H-6))
+
+    def tap(self, x, y, now):
+        games, back = self.rects()
+        choice = index_at(games, x, y, slop=3)
+        if choice is not None:
+            return self.GAMES[choice][1]
+        if index_at([back], x, y, slop=3) is not None:
+            return 'exit'
+        return None
+
+    def render(self, now, wall_time, alerts):
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        if alerts:
+            draw_banner(d, alerts, wall_time.strftime('%H:%M'))
+        else:
+            d.text((8, 4), 'PANEL / GAMES', font=FONT, fill=ACCENT)
+            d.text((W-8, 6), wall_time.strftime('%H:%M:%S'), font=SMALL, fill=TEXT, anchor='ra')
+        games, back = self.rects()
+        notes = self.notes()
+        for rect, (label, key) in zip(games, self.GAMES):
+            d.rounded_rectangle(rect, radius=8, fill=PANEL)
+            middle = (rect[1]+rect[3])//2
+            d.text((W//2, middle-8), label, font=BOLD, fill=TEXT, anchor='mm')
+            d.text((W//2, middle+13), notes.get(key, ''), font=TINY, fill=MUTED, anchor='mm')
+        button(d, back, 'BACK')
+        return image
+
+
 def desktop_user():
     uid = int(os.environ.get('SUDO_UID', getattr(os, 'getuid', lambda: 0)()))
     gid = int(os.environ.get('SUDO_GID', getattr(os, 'getgid', lambda: 0)()))
@@ -1898,7 +2261,8 @@ class VisualApp:
         return image
 
 
-APP_TILES = (('AUDIO', 'audio'), ('SNAKE', 'snake'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
+GAME_PAGES = ('snake', 'tetris', 'pong')
+APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
@@ -2512,26 +2876,34 @@ def main():
             values = OPTION_VALUES[key]
             return set_option(key, values[(values.index(options[key])+1) % len(values)])
 
-        def save_best(best):
-            try:
-                temporary = games_file.with_suffix('.tmp')
-                temporary.write_text(json.dumps({'snake_best': best}))
-                user_owns(temporary)
-                temporary.replace(games_file)
-            except OSError as exc:
-                print('Could not save high score:', exc, flush=True)
-
         try:
-            best = int(json.loads(games_file.read_text()).get('snake_best', 0))
+            scores = json.loads(games_file.read_text())
+            scores = {k: v for k, v in scores.items() if type(v) is int and v >= 0}
         except (OSError, ValueError, TypeError, AttributeError):
-            best = 0
+            scores = {}
+
+        def score_saver(key):
+            """All games share games.json; each save keeps the other games' records."""
+            def save(value):
+                scores[key] = value
+                try:
+                    temporary = games_file.with_suffix('.tmp')
+                    temporary.write_text(json.dumps(scores))
+                    user_owns(temporary)
+                    temporary.replace(games_file)
+                except OSError as exc:
+                    print('Could not save high score:', exc, flush=True)
+            return save
         audio, capture = AudioControl(), AudioCapture()
         audio.start()
         album_show = Slideshow(options, photos, album_dir, library)
         gif_player, saver_gifs = GifPlayer(gif_dir), GifPlayer(gif_dir)
         players.extend((gif_player, saver_gifs))
         bunny_frames = load_bunny_frames(data)
-        apps = {'snake': SnakeApp(best, save_best), 'album': AlbumApp(album_show, cycle_option),
+        apps = {'snake': SnakeApp(scores.get('snake_best', 0), score_saver('snake_best')),
+                'tetris': TetrisApp(scores.get('tetris_best', 0), score_saver('tetris_best')),
+                'pong': PongApp(scores.get('pong_wins', 0), score_saver('pong_wins')),
+                'album': AlbumApp(album_show, cycle_option),
                 'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
 
         def make_saver(style, now):
@@ -2578,7 +2950,7 @@ def main():
                 gifs = 0
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
-                    'snake': f"Best score: {apps['snake'].best}",
+                    'games': 'Snake, Tetris, Pong',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -2694,6 +3066,10 @@ def main():
                            {'snap': take_photo, 'busy': lambda: photo_pending,
                             'fps': lambda: fps, 'preset': apply_preset, 'retry': retry_camera})
         apps['tools'] = tools_ui
+        apps['games'] = GamesMenu(lambda: {
+            'snake': f"Best score: {apps['snake'].best}",
+            'tetris': f"Best score: {apps['tetris'].best}",
+            'pong': f"Games won: {apps['pong'].wins}"})
 
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
@@ -2740,10 +3116,14 @@ def main():
                         active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
                     elif result in ('camera', 'photos'):
                         page = result
+                    elif result in GAME_PAGES:  # Chosen in the Games menu.
+                        page = result
+                        ignore_touch_until = now + .3
                     elif result == 'exit':
                         if page == 'gifs':
                             gif_player.close()
-                        page = 'audio' if page == 'visual' else 'apps'
+                        page = {'visual': 'audio', 'snake': 'games', 'tetris': 'games',
+                                'pong': 'games'}.get(page, 'apps')
                         ignore_touch_until = now + .3
                     else:
                         ignore_touch_until = now + .12
@@ -2899,6 +3279,11 @@ def main():
             if not running:
                 break
             now = time.monotonic()
+            if page in apps and hasattr(apps[page], 'hold') and active_saver is None:
+                # Games follow a finger while it is down (Pong paddle, Tetris auto-repeat).
+                raw = getattr(touch, 'current', lambda: None)()
+                apps[page].hold(None if raw is None else
+                                to_logical(*(np.array([*raw, 1.0]) @ matrix)), now)
             completed = photo_job.consume()
             if camera:
                 try:
@@ -2958,7 +3343,7 @@ def main():
             if (active_saver is None and countdown_end is None
                     and not photo_pending and not tools_ui.clocks.alarm
                     and not (page == 'tools' and tools_ui.confirm)
-                    and not (page == 'snake' and apps['snake'].running)
+                    and not (page in GAME_PAGES and apps[page].running)
                     and saver_due(options, now-last_touch, page)):
                 active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
             if active_saver is not None:
