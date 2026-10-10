@@ -68,11 +68,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | todo | Match the installed kiwix-serve version (0.1) |
-| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | todo | Standard library HTML parser |
-| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | todo | No vector database |
-| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | todo | Keeps the model out of the search step |
-| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | todo | Context size sets the wait on the Pi |
+| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | in progress | Installed-version validation awaits baseline (0.1) |
+| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | in progress | Standard library HTML parser |
+| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | in progress | No vector database |
+| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | in progress | Keeps the model out of the search step |
+| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | in progress | Context size sets the wait on the Pi |
 
 ## Phase 3: AI answers (librarian, part 2)
 
