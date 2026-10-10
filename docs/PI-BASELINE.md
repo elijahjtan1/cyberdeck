@@ -16,8 +16,21 @@ libzstd 1.5.6
 liblzma 5.6.4
 ```
 
-Kiwix listening port and ZIM/book names: **pending**. No default value in tests is
-a measurement of this Pi. Capture `ps -ww -C kiwix-serve -o args=` and
-`ss -ltnp | grep -i kiwix`. A real XML search and article recording are also pending.
+Eli reports that `ps -ww -C kiwix-serve -o args=` and `ss -ltnp | grep -i kiwix`
+returned no output: no running kiwix-serve process was found at capture time.
+
+ZIM path reported by Eli:
+
+```
+/home/eli/kiwix/zims/restarters_en_all_maxi_2026-04.zim
+```
+
+This is the Restarters archive; no Wikipedia archive has been reported yet. The
+sonobuoy Wikipedia acceptance check needs an appropriate Wikipedia ZIM.
+
+Kiwix listening port and confirmed book key: **pending**. A foreground test on
+`127.0.0.1:8080` with `books.name=restarters_en_all_maxi_2026-04` has been suggested;
+it is not yet a verified running configuration. A real XML search and article recording
+are also pending. No default value in synthetic tests is a measurement of this Pi.
 
 The remaining Phase 0 system measurements and Ollama details have not been recorded.
