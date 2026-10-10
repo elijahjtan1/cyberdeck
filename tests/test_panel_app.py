@@ -7,6 +7,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from collections import deque
+from datetime import datetime
+
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -144,12 +147,17 @@ class LayoutTest(unittest.TestCase):
         cam = {'thumb': scene((60, 45)), 'countdown': 3, 'flash': False,
                'capturing': None, 'saved': '3280x2464'}
         alerts = [('critical', 'LOW VOLTAGE'), ('warning', 'WARM 77 C')]
+        capture = app.AudioCapture(which=lambda name: None)
+        extra = {'notes': {'snake': 'Best score: 4'}, 'capture': capture,
+                 'audio': {'backend': 'PipeWire', 'volume': 45, 'muted': True,
+                           'player': 'Playing', 'title': 'Artist - Song'}}
         for page in ('camera', 'photos', 'photofull', 'photodelete', 'status', 'health',
-                     'options', 'savers', 'calconfirm', 'colours', 'exit', 'shutdown',
-                     'stopped', 'poweroff'):
+                     'options', 'savers', 'saverstyle', 'apps', 'audio', 'calconfirm',
+                     'colours', 'exit', 'shutdown', 'stopped', 'poweroff'):
             for banner in ((), alerts):
                 image = app.render(page, scene(), False, 20, self.rows, 'msg', (), 0,
-                                   alerts=banner, cam=cam, photo=photo, service=True)
+                                   alerts=banner, cam=cam, photo=photo, service=True,
+                                   extra=extra)
                 self.assertEqual(image.size, (320, 240), page)
         empty = app.render('photos', None, False, 20, {}, '', photo={'count': 0})
         self.assertEqual(empty.size, (320, 240))
@@ -165,17 +173,229 @@ class LayoutTest(unittest.TestCase):
 
     def test_labels_fit_their_buttons(self):
         d = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-        for label in app.TABS:
-            self.assertLess(d.textlength(label, font=app.SMALL), 58, label)
+        for label, width in zip(app.TABS, app.TAB_WIDTHS):
+            self.assertLess(d.textlength(label, font=app.TAB_FONT), width-8, label)
         for label in ('TIMER 10s', 'TIMER OFF', 'RESUME', '20 FPS', '< OLDER', 'NEWER >'):
             self.assertLess(d.textlength(label, font=app.SMALL), 72, label)
 
     def test_hit_helpers(self):
-        self.assertEqual([app.tab_at(x) for x in (0, 63, 64, 200, 319)], [0, 0, 1, 3, 4])
+        self.assertEqual(app.TAB_EDGES[-1], 320)
+        self.assertEqual([app.tab_at(x) for x in (0, 57, 58, 120, 180, 230, 319)],
+                         [0, 0, 1, 2, 3, 4, 5])
         self.assertEqual([app.row_button(x) for x in (0, 79, 80, 319)], [0, 0, 1, 3])
         self.assertEqual(app.grid_at(20, 160), 6)
         self.assertEqual(app.grid_at(300, 170), 7)
         self.assertIsNone(app.grid_at(160, 100))
+
+
+class SnakeTest(unittest.TestCase):
+    def test_moves_eats_grows_and_dies_on_wall(self):
+        game = app.SnakeGame(cols=8, rows=4, seed=1)
+        head = game.body[0]
+        game.food = (head[0]+1, head[1])
+        game.step()
+        self.assertEqual((game.score, len(game.body)), (1, 4))
+        self.assertFalse(game.turn((-1, 0)))  # No reversing into yourself.
+        self.assertTrue(game.turn((0, -1)))
+        for _ in range(5):
+            game.step()
+        self.assertFalse(game.alive)
+
+    def test_self_collision_and_tail_follow(self):
+        game = app.SnakeGame(cols=10, rows=10, seed=2)
+        game.body = deque([(5, 5), (4, 5), (4, 6), (5, 6)])  # Head next to tail.
+        game.direction, game.food = (1, 0), (0, 0)
+        game.turn((0, 1))
+        game.step()  # Moving into the cell the tail leaves is allowed.
+        self.assertTrue(game.alive)
+        game.body = deque([(5, 5), (4, 5), (4, 6), (5, 6), (6, 6)])
+        game.direction, game.pending = (1, 0), []
+        game.turn((0, 1))
+        game.step()
+        self.assertFalse(game.alive)
+
+    def test_app_taps_steer_toward_finger_and_record_best(self):
+        saved = []
+        snake = app.SnakeApp(best=0, save_best=saved.append, seed=3)
+        self.assertEqual(snake.tap(100, 170, 0), None)  # START
+        self.assertTrue(snake.running)
+        hx, hy = app.cell_rect(snake.game.body[0])[:2]
+        snake.tap(hx, hy-60, 0.1)  # Well above the head: turn up.
+        self.assertEqual(snake.game.pending, [(0, -1)])
+        snake.game.food = None
+        snake.game.score = 7
+        snake.update(100)  # Long enough to hit a wall.
+        self.assertEqual(snake.state, 'over')
+        self.assertEqual(saved, [7])
+        self.assertEqual(snake.tap(220, 170, 101), 'exit')
+        self.assertEqual(snake.render(101, datetime.now(), ()).size, (320, 240))
+
+
+class SaverTest(unittest.TestCase):
+    def options(self, **changes):
+        return {**app.DEFAULT_OPTIONS, **changes}
+
+    def test_bunnies_hop_on_tap_and_count_controls(self):
+        options = self.options(bunny_count=3)
+        def set_count(n):
+            options['bunny_count'] = n
+            return 'Saved.'
+        saver = app.BunnySaver(options, set_count, seed=4)
+        image, delay = saver.render(10, datetime.now(), ())
+        self.assertEqual(image.size, (320, 240))
+        bunny = saver.bunnies[0]
+        left, top, right, bottom = saver.bunny_box(bunny, 10)
+        self.assertTrue(saver.tap((left+right)/2, (top+bottom)/2, 10))
+        self.assertEqual(bunny.hop_height, 34)
+        self.assertTrue(saver.tap(300, 226, 10))   # +
+        self.assertEqual(options['bunny_count'], 6)
+        saver.render(10.1, datetime.now(), ())
+        self.assertEqual(len(saver.bunnies), 6)
+        self.assertTrue(saver.tap(20, 226, 11))    # -
+        self.assertEqual(options['bunny_count'], 3)
+        self.assertFalse(saver.tap(160, 60, 12))   # Sky: wakes the panel.
+        for t in range(50):  # Bunnies keep wandering and stay near the screen.
+            saver.render(12 + t*.1, datetime.now(), ())
+        self.assertTrue(all(-40 <= b.x <= 360 for b in saver.bunnies))
+
+    def test_custom_sprite_sheet(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sprites = Path(folder) / 'sprites'
+            sprites.mkdir()
+            Image.new('RGBA', (18, 60), (255, 255, 255, 255)).save(sprites / 'bunny.png')
+            (sprites / 'bunny.json').write_text(json.dumps({'frames': 5, 'scale': 2}))
+            frames = app.load_bunny_frames(folder)
+            self.assertEqual([f.size for f in frames], [(36, 24)]*5)
+            (sprites / 'bunny.json').write_text('{"frames": 0}')
+            self.assertEqual(len(app.load_bunny_frames(folder)), 2)  # Falls back.
+
+    def test_clock_formats(self):
+        wall = datetime(2026, 10, 9, 21, 5, 30)
+        image, delay = app.ClockSaver(self.options(clock_format='12h')).render(0, wall, ())
+        self.assertEqual(image.size, (320, 240))
+        self.assertLessEqual(delay, 1.02)
+
+    def test_slideshow_advances_and_fades(self):
+        with tempfile.TemporaryDirectory() as folder:
+            photos, album = Path(folder) / 'photos', Path(folder) / 'album'
+            photos.mkdir()
+            album.mkdir()
+            scene().save(photos / 'photo-20261009-100000-000000.jpg')
+            Image.new('RGB', (200, 100), 'red').save(album / 'a.png')
+            options = self.options(slide_seconds=5)
+            show = app.Slideshow(options, photos, album, app.PhotoLibrary(photos))
+            self.assertEqual(len(show.items), 2)
+            show.frame(0)
+            self.assertEqual(show.index, 0)
+            image, delay = show.frame(5.1)
+            self.assertEqual(show.index, 1)
+            self.assertLess(delay, .2)  # Crossfading.
+            options['album_source'] = 'album'
+            self.assertEqual(len(show.refresh()), 1)
+            options['album_source'] = 'camera'
+            self.assertEqual(len(show.refresh()), 1)
+
+    def test_empty_album_and_gifs_show_help(self):
+        with tempfile.TemporaryDirectory() as folder:
+            empty = Path(folder)
+            show = app.Slideshow(self.options(), empty, empty, app.PhotoLibrary(empty))
+            self.assertEqual(show.frame(0)[0].size, (320, 240))
+            self.assertEqual(app.GifPlayer(empty).frame(0)[0].size, (320, 240))
+
+    def test_gif_player_timing_loops_and_skips_bad_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            frames = [Image.new('RGB', (64, 48), c) for c in ('red', 'lime', 'blue')]
+            frames[0].save(folder / 'b.gif', save_all=True, append_images=frames[1:],
+                           duration=100, loop=0)
+            (folder / 'a.gif').write_bytes(b'broken')
+            player = app.GifPlayer(folder)
+            image, delay = player.frame(0)
+            self.assertEqual(player.files[player.index].name, 'b.gif')
+            self.assertAlmostEqual(delay, .1, places=2)
+            self.assertEqual(image.getpixel((160, 120)), (255, 0, 0))
+            player.frame(.11)
+            self.assertEqual(player.current.getpixel((160, 120))[1], 255)
+            for t in (.22, .33):
+                player.frame(t)
+            self.assertEqual(player.loops, 1)
+            saver = app.GifSaver(player)
+            self.assertEqual(saver.render(.5, datetime.now(), [('warning', 'HOT')])[0].size, (320, 240))
+            saver.close()
+
+
+class AudioTest(unittest.TestCase):
+    def test_parsers(self):
+        self.assertEqual(app.parse_wpctl('Volume: 0.45'), (45, False))
+        self.assertEqual(app.parse_wpctl('Volume: 0.30 [MUTED]'), (30, True))
+        self.assertEqual(app.parse_wpctl(None), (None, False))
+        out = "Simple mixer control 'Master',0\n  Front Left: Playback 40 [62%] [off]\n"
+        self.assertEqual(app.parse_amixer(out), (62, True))
+        self.assertEqual(app.parse_amixer('nothing'), (None, False))
+
+    def test_control_backends_and_actions(self):
+        calls = []
+        def run(args):
+            calls.append(args)
+            if args[:2] == ['wpctl', 'get-volume']:
+                return 'Volume: 0.50'
+            if args[:2] == ['playerctl', 'status']:
+                return 'Playing'
+            if args[:2] == ['playerctl', 'metadata']:
+                return 'Band - Tune'
+            return ''
+        control = app.AudioControl(run=run, which=lambda name: '/usr/bin/' + name)
+        control.backend = control.detect()
+        self.assertEqual(control.backend, ('wpctl', None))
+        control.act('up')
+        control.act('next')
+        control.refresh()
+        self.assertIn(['wpctl', 'set-volume', '-l', '1.0', '@DEFAULT_AUDIO_SINK@', '5%+'], calls)
+        self.assertIn(['playerctl', 'next'], calls)
+        self.assertEqual(control.state['volume'], 50)
+        self.assertEqual(control.state['title'], 'Band - Tune')
+
+        amixer = app.AudioControl(run=lambda a: "Simple mixer control 'PCM',0" if a[1:] == ['scontrols'] else '',
+                                  which=lambda name: '/usr/bin/amixer' if name == 'amixer' else None)
+        self.assertEqual(amixer.detect(), ('amixer', 'PCM'))
+        nothing = app.AudioControl(run=lambda a: None, which=lambda name: None)
+        nothing.backend = nothing.detect()
+        nothing.refresh()
+        self.assertEqual(nothing.state['backend'], 'No volume control found')
+
+    def test_spectrum_peaks_at_tone(self):
+        capture = app.AudioCapture(which=lambda name: None)
+        t = np.arange(app.VIS_CHUNK) / app.VIS_RATE
+        capture.feed((np.sin(2*np.pi*1000*t) * 16000).astype(np.int16))
+        band = int(np.searchsorted(app.VIS_EDGES, 1000)) - 1
+        self.assertEqual(int(np.argmax(capture.bands)), band)
+        self.assertGreater(capture.bands[band], .8)
+        capture.feed(np.zeros(app.VIS_CHUNK))
+        self.assertLess(capture.bands[band], capture.bands[band]/.8 + 1e-9)  # Decays.
+
+    def test_capture_reports_missing_tools(self):
+        capture = app.AudioCapture(which=lambda name: None)
+        capture.start('output')
+        capture.thread.join(2)
+        self.assertIn('parec', capture.status)
+        capture.stop()
+
+    def test_capture_reads_pcm_stream(self):
+        import io
+        tone = (np.sin(np.arange(app.VIS_CHUNK*4)*.3) * 12000).astype('<i2').tobytes()
+        class FakeProcess:
+            def __init__(self, *args, **kwargs):
+                self.stdout = io.BytesIO(tone)
+            def kill(self):
+                pass
+            def wait(self, timeout=None):
+                return 0
+        capture = app.AudioCapture(which=lambda name: '/usr/bin/' + name, popen=FakeProcess)
+        capture.start('mic')
+        capture.thread.join(2)
+        self.assertEqual(capture.status, 'arecord stopped')
+        self.assertGreater(capture.level, .1)
+        capture.stop()
 
 
 # ---- End-to-end: the real main() loop with fake hardware ----------------------
@@ -292,6 +512,28 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(FakeCamera.instances[0].full_captures, 0)
         self.assertEqual(json.loads((data / 'options.json').read_text())['snap_timer'], 3)
         poweroff.assert_not_called()
+
+    def test_apps_snake_and_bunny_saver(self):
+        # Coordinates: APPS tab x=136; SNAKE tile (240, 70); QUIT button (220, 170).
+        script = [(.5, 136, 222),    # APPS tab
+                  (1.1, 240, 70),    # SNAKE
+                  (1.7, 100, 170),   # START
+                  (2.3, 280, 12),    # PAUSE (header)
+                  (2.9, 220, 170),   # QUIT -> back to Apps
+                  (3.5, 240, 222),   # OPTIONS tab
+                  (4.1, 240, 47),    # Screensavers...
+                  (4.7, 80, 47),     # Style...
+                  (5.3, 80, 87),     # BUNNIES in the style picker
+                  (5.9, 240, 167),   # PREVIEW
+                  (6.5, 300, 226),   # Bunny saver: + (stays in saver)
+                  (7.1, 160, 60),    # Tap sky: wake
+                  (7.7, 290, 222), (8.3, 160, 150)]
+        data, _ = self.run_app(script)
+        saved = json.loads((data / 'options.json').read_text())
+        self.assertEqual(saved['saver_style'], 'bunnies')
+        self.assertEqual(saved['bunny_count'], 12)
+        for folder in ('album', 'gifs', 'sprites'):
+            self.assertTrue((data / folder).is_dir())
 
     def test_leaving_camera_cancels_timer(self):
         script = [(.5, 120, 190), (.9, 120, 190),   # TIMER 3 s -> 10 s

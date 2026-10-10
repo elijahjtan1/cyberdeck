@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,15 +47,66 @@ def main():
         app.render('options', None, False, 20, rows, '', **common),
         app.render('poweroff', None, False, 20, rows, '', **common),
     ]
-    cols, gap, scale = 2, 8, 2
+    save_sheet(screens, 'camera-photos-power-preview.png')
+    fun_screens(clock, rows)
+
+
+def save_sheet(screens, name, cols=2, gap=8, scale=2):
     rows_n = (len(screens)+cols-1)//cols
     sheet = Image.new('RGB', (cols*(640+gap)-gap, rows_n*(480+gap)-gap), '#05080b')
     for i, screen in enumerate(screens):
         big = screen.resize((320*scale, 240*scale), Image.NEAREST)
         sheet.paste(big, ((i % cols)*(640+gap), (i//cols)*(480+gap)))
-    out = ROOT / 'docs/previews/camera-photos-power-preview.png'
+    out = ROOT / 'docs/previews' / name
     sheet.save(out, optimize=True)
     print(out)
+
+
+def fun_screens(clock, rows):
+    import tempfile
+    options = {**app.DEFAULT_OPTIONS, 'saver_style': 'bunnies', 'bunny_count': 6}
+    capture = app.AudioCapture(which=lambda name: None)
+    capture.source, capture.status = 'output', 'Listening via parec'
+    t = np.arange(app.VIS_CHUNK) / app.VIS_RATE
+    capture.feed((sum(np.sin(2*np.pi*f*t)*a for f, a in ((110, 9000), (440, 5000), (2500, 1500)))
+                  + np.random.default_rng(1).normal(0, 600, len(t))).astype(np.int16))
+    audio_state = {'backend': 'PipeWire', 'volume': 55, 'muted': False, 'player': 'Playing',
+                   'title': 'Sample Artist - Sample Track'}
+    common = dict(options=options, wall_time=clock)
+    notes = {'audio': 'Volume, media, visualizer', 'snake': 'Best score: 12',
+             'album': '7 pictures | slideshow', 'gifs': '3 GIFs | tap to play'}
+    snake = app.SnakeApp(best=12, seed=5)
+    snake.start(0)
+    snake.game.body = app.deque([(12, 7), (11, 7), (10, 7), (10, 6), (9, 6), (8, 6), (8, 5)])
+    snake.game.food, snake.game.score = (17, 4), 9
+    bunnies = app.BunnySaver(options, lambda n: 'Saved.', seed=7)
+    for step in range(40):
+        bunnies.render(step*.1, clock, ())
+    with tempfile.TemporaryDirectory() as folder:
+        folder = Path(folder)
+        scene((640, 480)).save(folder / 'photo-20261009-191233-000000.jpg')
+        show = app.Slideshow(options, folder, folder / 'none', app.PhotoLibrary(folder))
+        album = app.AlbumApp(show, lambda key: 'Saved.')
+        album.overlay_until = 99
+        album_image = album.render(1, clock, ())
+    screens = [
+        app.render('apps', None, False, 20, rows, '', extra={'notes': notes}, **common),
+        app.render('audio', None, False, 20, rows, '',
+                   extra={'audio': audio_state, 'capture': capture}, **common),
+        snake.render(0, clock, ()),
+        bunnies.render(4.1, clock, ())[0],
+        app.ClockSaver(options).render(0, clock, ())[0],
+        album_image,
+        app.render('savers', None, False, 20, rows, '', **common),
+        app.render('saverstyle', None, False, 20, rows, '', **common),
+    ]
+    save_sheet(screens, 'apps-savers-preview.png')
+    frames = []
+    saver = app.BunnySaver({**options, 'bunny_count': 6}, lambda n: 'Saved.', seed=11)
+    for step in range(60):
+        frames.append(saver.render(step*.1, clock, ())[0].quantize(64))
+    frames[0].save(ROOT / 'docs/previews/bunnies.gif', save_all=True, append_images=frames[1:],
+                   duration=100, loop=0, optimize=True)
 
 
 if __name__ == '__main__':
