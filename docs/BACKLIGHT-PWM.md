@@ -81,11 +81,20 @@ sudo python3 setup_backlight.py --invert
 3. Check the wiring: `sudo python3 setup_backlight.py --test`. The backlight steps through 100 → 70 → 40 → 15 → 5 → 0 → 100%.
 4. Start the app: `sudo systemctl start cyberdeck-panel`, or `sudo python3 panel_app.py`.
 
-The script does three things:
+The script does four things:
 
 - adds one marked line, `dtoverlay=pwm,pin=18,func=2`, to `/boot/firmware/config.txt`, after first saving `config.txt.before-backlight`;
 - writes `~/cyberdeck-data/backlight.json`;
-- with `--undo`, removes only its own line and that file.
+- installs `cyberdeck-backlight.service`, which turns the backlight on early in every boot (see **During boot** below);
+- with `--undo`, removes only its own line, that file and that service.
+
+**Already set up before the boot service existed?** Add just the service, keeping your current settings:
+
+```bash
+cd ~/cyberdeck-repo && git pull
+sudo python3 setup_backlight.py --boot
+sudo reboot
+```
 
 Without `backlight.json`, the app behaves exactly as before: pixel dimming, with the backlight assumed to be on 3.3 V.
 
@@ -99,7 +108,13 @@ Without `backlight.json`, the app behaves exactly as before: pixel dimming, with
 | Test colours, calibration | Full intensity | Full brightness. |
 | App closed or crashed | Backlight on | The app sets 100% on exit, so the "not running" screen is readable. |
 
-**During boot:** with Option A, the backlight is dark from power-on until the app starts. With Option B, the 10 kΩ resistor keeps it dark during that time. To light it without the app, run `sudo python3 setup_backlight.py --on`. After a shutdown, the backlight may stay in its last state, so go by the green LED before unplugging, as before.
+**During boot:** the PWM pin rests at "off" until something sets it, so on its own the panel would stay dark until the app started, or for good if the app started before Linux had loaded the PWM driver. Three things now keep it lit:
+
+- **Boot service:** `cyberdeck-backlight.service` sets 100% as soon as the PWM driver is ready, a few seconds into boot, before the panel app starts. The panel is still dark for those first few seconds after power-on (with Option B, the 10 kΩ resistor holds it off).
+- **App start:** the app waits up to 10 seconds for the PWM driver instead of giving up at once, and starts at 100%, so there is no dark flash when it takes over.
+- **Manual:** to light the panel without the app or the service, run `sudo python3 setup_backlight.py --on`.
+
+To check the service after a reboot: `systemctl status cyberdeck-backlight` should say `status=0/SUCCESS`. After a shutdown, the backlight may stay in its last state, so go by the green LED before unplugging, as before.
 
 **Panel blanking** uses the framebuffer's `blank` control. Not every fbtft driver supports it; if yours doesn't, the backlight still goes off and nothing else changes.
 
