@@ -28,9 +28,13 @@ ZIM path reported by Eli:
 This is the Restarters archive; no Wikipedia archive has been reported yet. The
 sonobuoy Wikipedia acceptance check needs an appropriate Wikipedia ZIM.
 
-Kiwix listening port and confirmed book key: **pending**. A foreground test on
-`127.0.0.1:8080` with `books.name=restarters_en_all_maxi_2026-04` has been suggested;
-it is not yet a verified running configuration. A real XML search and article recording
-are also pending. No default value in synthetic tests is a measurement of this Pi.
+Eli then started a foreground test at `127.0.0.1:8080` and supplied the XML search
+response. Confirmed test settings: port **8080**, book key
+**restarters_en_all_maxi_2026-04**, parameter **books.name**. Query `repair` returned
+129 total hits; the first URL is
+`/content/restarters_en_all_maxi_2026-04/Glossary%3ARepair_Caf%C3%A9`.
+The response is recorded in `tests/fixtures/kiwix-3.7.0-restarters.xml`.
+Real article HTML and the Wikipedia acceptance check remain pending. This was a
+foreground test; persistence across reboot is not established.
 
 The remaining Phase 0 system measurements and Ollama details have not been recorded.
