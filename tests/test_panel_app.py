@@ -153,7 +153,7 @@ class LayoutTest(unittest.TestCase):
                  'audio': {'backend': 'PipeWire', 'volume': 45, 'muted': True,
                            'player': 'Playing', 'title': 'Artist - Song'}}
         for page in ('camera', 'photos', 'photofull', 'photodelete', 'status', 'health',
-                     'options', 'savers', 'saverstyle', 'apps', 'audio', 'calconfirm',
+                     'options', 'savers', 'saverstyle', 'apps', 'home', 'audio', 'calconfirm',
                      'colours', 'exit', 'shutdown', 'stopped', 'poweroff'):
             for banner in ((), alerts):
                 image = app.render(page, scene(), False, 20, self.rows, 'msg', (), 0,
@@ -183,7 +183,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(app.TAB_EDGES[-1], 320)
         app.render('camera', scene(), False, 20, self.rows, '')
         self.assertEqual([app.hit(x, 222) for x in (10, 100, 136, 180, 240, 300)],
-                         ['tab:camera', 'tab:photos', 'tab:apps', 'tab:status',
+                         ['tab:camera', 'tab:photos', 'tab:home', 'tab:status',
                           'tab:options', 'tab:exit'])
         self.assertEqual([app.hit(x, 190) for x in (40, 120, 200, 280)],
                          ['cam:snap', 'cam:timer', 'cam:pause', 'cam:fps'])
@@ -235,7 +235,7 @@ class RotationTest(unittest.TestCase):
         cam = {'thumb': scene((60, 45)), 'countdown': 3}
         d = ImageDraw.Draw(Image.new('RGB', (1, 1)))
         for page in ('camera', 'photos', 'photodelete', 'status', 'health', 'options', 'savers',
-                     'saverstyle', 'apps', 'audio', 'calconfirm', 'colours', 'exit', 'shutdown',
+                     'saverstyle', 'apps', 'home', 'audio', 'calconfirm', 'colours', 'exit', 'shutdown',
                      'stopped', 'poweroff', 'photofull'):
             image = app.render(page, scene(), False, 20, self.rows, 'A long status message here',
                                photo=photo, cam=cam, extra=extra,
@@ -561,7 +561,7 @@ class MainLoopTest(unittest.TestCase):
         (data / 'photos').mkdir()
         (data / 'touch.json').write_text(json.dumps(
             {'device': ['fake', [0, 320], [0, 240]], 'matrix': [[1, 0], [0, 1], [0, 0]]}))
-        (data / 'options.json').write_text(json.dumps({'rotation': 0, **(options or {})}))
+        (data / 'options.json').write_text(json.dumps({'rotation': 0, 'start_page': 'camera', **(options or {})}))
         FakeTouch.script, FakeScreen.frames, FakeCamera.instances = script, [], []
         poweroff = mock.Mock()
         real_open = builtins.open
@@ -613,7 +613,7 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(len(list((data/'photos').glob('*.jpg'))), 1)
 
     def test_tools_timelapse_runs_after_leaving_its_page(self):
-        data, _ = self.run_app([(.5, 136, 222), (1.1, 80, 164), # APPS > TOOLS
+        data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 185), # HOME > TOOLS
                                (1.7, 240, 68), (2.3, 80, 142), # TIMELAPSE > START
                                (2.9, 240, 222), # return to CAMERA
                                (3.6, 290, 222), (4.3, 160, 150)])
@@ -651,10 +651,10 @@ class MainLoopTest(unittest.TestCase):
         poweroff.assert_not_called()
 
     def test_apps_snake_and_bunny_saver(self):
-        # Coordinates: APPS tab x=136; GAMES tile (240, 70); menu SNAKE (55, 53);
+        # Coordinates: HOME tab x=136; GAMES tile (263, 98); menu SNAKE (55, 53);
         # dialog START (100, 170) / QUIT (220, 170); menu BACK (55, 212).
         script = [(.5, 136, 222),    # APPS tab
-                  (1.1, 240, 70),    # GAMES
+                  (1.1, 263, 98),    # GAMES
                   (1.7, 55, 53),     # SNAKE in the Games menu (top left)
                   (2.3, 100, 170),   # START
                   (2.9, 280, 12),    # PAUSE (header)

@@ -49,6 +49,7 @@ DEFAULT_OPTIONS = {'pixel_level': 100, 'history_seconds': 60,
                    'photo_size': 'full', 'snap_timer': 0, 'alerts': 'on',
                    'bunny_count': 6, 'clock_format': '24h', 'slide_seconds': 10,
                    'album_source': 'both', 'album_order': 'order', 'vis_source': 'output',
+                   'start_page': 'home',
                    'rotation': 90, 'camera_turn': 0}
 OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'saver_style': SAVER_STYLES,
@@ -58,6 +59,7 @@ OPTION_VALUES = {'pixel_level': (100, 70, 40), 'history_seconds': (30, 60, 120),
                  'bunny_count': (1, 3, 6, 12, 24), 'clock_format': ('24h', '12h'),
                  'slide_seconds': (5, 10, 30, 60), 'album_source': ('both', 'camera', 'album'),
                  'album_order': ('order', 'shuffle'), 'vis_source': ('output', 'mic', 'off'),
+                 'start_page': ('home', 'camera'),
                  'rotation': (90, 0, 270, 180), 'camera_turn': (0, 90, 180, 270)}
 PHOTO_TYPES = ('.jpg', '.jpeg', '.png')
 MIN_FREE_BYTES = 200 * 2**20  # Refuse new photos rather than filling the SD card.
@@ -880,6 +882,7 @@ def screensaver_frame(style, elapsed, speed='normal', wall_time=None, alerts=())
 # ---- Fun: screensavers with state, photo album, GIFs, snake and audio ---------------
 
 BIG, BOLD, BIG_PORTRAIT = font(60, bold=True), font(20, bold=True), font(50, bold=True)
+HOME_CLOCK, HOME_LABEL, HOME_LABEL_SMALL = font(34, bold=True), font(14, bold=True), font(12, bold=True)
 
 # Original pixel art in the spirit of the Terraria bunny (not Re-Logic's sprite).
 # Drop your own sheet in cyberdeck-data/sprites/bunny.png to replace it.
@@ -3023,12 +3026,29 @@ def saver_due(options, idle_seconds, page):
                              'photodelete','album','gifs','visual'))
 
 
-TABS = ('CAMERA', 'PHOTOS', 'APPS', 'STATUS', 'OPTIONS', 'EXIT')
+TABS = ('CAMERA', 'PHOTOS', 'HOME', 'STATUS', 'OPTIONS', 'EXIT')
 TAB_WIDTHS = (58, 56, 44, 52, 62, 48)  # Sized to their labels; sums to 320.
 TAB_EDGES = tuple(sum(TAB_WIDTHS[:i]) for i in range(len(TABS)+1))
 TAB_PARENT = {'health': 'status', 'savers': 'options', 'saverstyle': 'options',
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
-              'audio': 'apps'}
+              'audio': 'home', 'apps': 'home'}
+# Home page launcher: (label, key, accent colour).
+HOME_TILES = (('CAMERA', 'camera', '#44d4ad'), ('PHOTOS', 'photos', '#67bfff'),
+              ('GAMES', 'games', '#f2d24b'), ('AUDIO', 'audio', '#b07cf0'),
+              ('ALBUM', 'album', '#f29b42'), ('GIFS', 'gifs', '#f0605a'),
+              ('TOOLS', 'tools', '#5fd36b'), ('QUICK', 'quick', '#4fd8e8'),
+              ('SAVER', 'saver', '#a9bbc9'))
+
+
+def home_rects():
+    """3x3 launcher grid under the clock band, in either orientation."""
+    top = 104 if portrait() else 80
+    bottom, gap = content_bottom(), 6
+    width = (W - 16 - 2*gap) / 3
+    height = (bottom - top - 2*gap) / 3
+    return [(round(8 + c*(width+gap)), round(top + r*(height+gap)),
+             round(8 + c*(width+gap) + width), round(top + r*(height+gap) + height))
+            for r in range(3) for c in range(3)]
 TAB_FONT = font(11)
 
 
@@ -3041,18 +3061,51 @@ def preview_area():
     return (26, min(180, W*3//4)) if portrait() else (25, 132)
 
 
+BOOT_LABEL = ['?']  # 'On' / 'Off' / '?': boot-service state, refreshed by main().
+
+
+def boot_service_enabled(run=subprocess.run):
+    """True/False for the systemd boot service, None if it cannot be checked."""
+    try:
+        result = run(['systemctl', 'is-enabled', 'cyberdeck-panel.service'],
+                     capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() == 'enabled'
+
+
+def set_boot_service(enabled, app_path, data, run=subprocess.run):
+    """Turn start-at-boot on (installing the unit if needed) or off. Never starts or
+    stops the service, so it is safe to call from the copy that is running right now."""
+    if getattr(os, 'geteuid', lambda: 0)() != 0:
+        return 'Needs sudo: run the app with sudo to change this'
+    try:
+        if enabled:
+            import setup_panel_service
+            uid, gid = desktop_user()
+            setup_panel_service.install(Path(app_path).resolve(), uid, gid, data=data,
+                                        run=lambda cmd: run(cmd, check=True))
+            return 'Will start at boot. (Takes effect next boot.)'
+        run(['systemctl', 'disable', 'cyberdeck-panel.service'], check=True,
+            capture_output=True, text=True, timeout=20)
+        return 'Will not start at boot.'
+    except (ImportError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        print('Boot start change failed:', exc, flush=True)
+        return 'Could not change boot start; see terminal'
+
+
 def option_labels(options):
     if portrait():  # Same settings, shorter words for 108 px buttons.
         return [f"{'Bright' if BACKLIGHT_PWM else 'Pixels'}: {options['pixel_level']}%",
-                'Savers...', 'Preview saver',
+                'Savers...', f"Boot: {BOOT_LABEL[0]}",
                 'Test colours', 'Calibrate...', f"Graph: {options['history_seconds']}s",
                 'Photo: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
                 'Alerts: ' + options['alerts'].title(),
                 'Screen: ' + ROTATION_NAMES[options['rotation']],
                 f"Camera: {options['camera_turn']}°"]
     return [f"{'Brightness' if BACKLIGHT_PWM else 'Pixel level'}: {options['pixel_level']}%",
-            'Screensavers...',
-            'Preview saver', 'Test colours', 'Calibrate touch...',
+            'Screensavers...', f"Start at boot: {BOOT_LABEL[0]}",
+            'Test colours', 'Calibrate touch...',
             f"Graph: {options['history_seconds']}s",
             'Photo size: ' + ('Full' if options['photo_size'] == 'full' else '320x240'),
             'Alert banner: ' + options['alerts'].title(),
@@ -3353,6 +3406,38 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             button(d, rect, label, on, action=action)
         d.text((8, rects[-1][3]+4), fit_text(d, note, W-16, TINY), font=TINY,
                fill=TEXT if page == 'options' and message else MUTED)
+    elif page == 'home':
+        notes = extra.get('home', {})
+        clock = wall_time.strftime('%H:%M')
+        day = wall_time.strftime('%A')
+        date = wall_time.strftime('%d %B %Y').lstrip('0')
+        if portrait():
+            d.text((W//2, 52), clock, font=BIG_PORTRAIT, fill=ACCENT, anchor='mm')
+            centred(d, 84, f'{day} {date}', SMALL)
+            status_y = 96
+        else:
+            d.text((8, 46), clock, font=HOME_CLOCK, fill=ACCENT, anchor='lm')
+            d.text((W-8, 37), day, font=SMALL, fill=TEXT, anchor='rm')
+            d.text((W-8, 54), date, font=SMALL, fill=MUTED, anchor='rm')
+            status_y = 71
+        status = '  |  '.join(part for part in (
+            rows.get('temp') and f"CPU {rows['temp']}", notes.get('wifi'),
+            rows.get('disk_free') and f"{rows['disk_free']} free") if part)
+        d.text((W//2, status_y), fit_text(d, status or 'Reading status...', W-16, TINY),
+               font=TINY, fill=MUTED, anchor='mm')
+        for rect, (label, key, colour) in zip(home_rects(), HOME_TILES):
+            d.rounded_rectangle(rect, radius=7, fill=PANEL)
+            d.rounded_rectangle((rect[0], rect[1], rect[0]+4, rect[3]), radius=2, fill=colour)
+            mid_x, mid_y = (rect[0]+rect[2])//2 + 2, (rect[1]+rect[3])//2
+            room = rect[2]-rect[0]-12
+            note = notes.get(key, '')
+            label_font = HOME_LABEL if d.textlength(label, font=HOME_LABEL) <= room else HOME_LABEL_SMALL
+            d.text((mid_x, mid_y - (6 if note else 0)), fit_text(d, label, room, label_font),
+                   font=label_font, fill=TEXT, anchor='mm')
+            if note:
+                d.text((mid_x, mid_y+10), fit_text(d, note, room, TINY), font=TINY,
+                       fill=MUTED, anchor='mm')
+            hotspot(rect, 'home:' + key)
     elif page == 'apps':
         notes = extra.get('notes', {})
         for rect, (label, key) in zip(grid_rects(len(APP_TILES), 30, bottom+4, max_pitch=200), APP_TILES):
@@ -3584,7 +3669,7 @@ def main():
             camera = CameraWorker(start_camera, args.fps)
             if camera is None:
                 message = 'Camera unavailable; see terminal'
-        page = 'camera' if camera else 'status'
+        page = 'camera' if options['start_page'] == 'camera' and camera else 'home'
         frame, paused, fps = None, False, args.fps
         stats, rows, alerts = Stats(), {}, []
         stats.start()
@@ -3736,7 +3821,21 @@ def main():
                 screen.show(apps[page].render(now, datetime.now().astimezone(), alerts))
                 return apps[page].delay
             extra = None
-            if page == 'apps':
+            if page == 'home':
+                wifi = rows.get('wifi', '')
+                signal = re.search(r'(-?\d+) dBm', wifi)
+                extra = {'home': {
+                    'wifi': f'Wi-Fi {signal[1]} dBm' if signal else 'No Wi-Fi',
+                    'camera': ('Live view' if camera is not None and camera.ready
+                               else 'Connecting...' if camera is not None else 'Off'),
+                    'photos': f'{len(library.items)} saved',
+                    'games': f'{len(GAME_PAGES)} games',
+                    'audio': (f"Vol {audio.state['volume']}%"
+                              if audio.state.get('volume') is not None else 'Music, volume'),
+                    'album': 'Slideshow', 'gifs': 'Animations', 'tools': 'Timers & more',
+                    'quick': 'Shortcuts', 'saver': SAVER_NAMES[options['saver_style']]
+                    if options['saver_style'] != 'off' else 'Radar'}}
+            elif page == 'apps':
                 extra = {'notes': app_notes()}
             elif page == 'audio':
                 extra = {'audio': audio.state, 'capture': capture}
@@ -3759,7 +3858,7 @@ def main():
             light.apply(100 if page == 'colours' else options['pixel_level'])
             screen.show(render(page, frame, paused, fps, rows, text, stats.history, now,
                                options, alerts=alerts, cam=cam, photo=photo, extra=extra))
-            return 1/15 if page == 'audio' else 2. if page == 'apps' else .25
+            return 1/15 if page == 'audio' else 1. if page in ('apps', 'home') else .25
 
         def take_photo(timelapse=False):
             """Schedule one capture/save; publish results on the UI thread."""
@@ -3836,6 +3935,8 @@ def main():
             'solitaire': f"Fewest moves: {apps['solitaire'].best or '--'}",
             'sudoku': f"Best time: {clock_text(apps['sudoku'].best) if apps['sudoku'].best else '--'}"})
 
+        state = boot_service_enabled()
+        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
             now = time.monotonic()
@@ -3887,7 +3988,7 @@ def main():
                     elif result == 'exit':
                         if page == 'gifs':
                             gif_player.close()
-                        page = 'audio' if page == 'visual' else 'games' if page in GAME_PAGES else 'apps'
+                        page = 'audio' if page == 'visual' else 'games' if page in GAME_PAGES else 'home'
                         ignore_touch_until = now + .3
                     else:
                         ignore_touch_until = now + .12
@@ -3924,6 +4025,19 @@ def main():
                 elif kind == 'app':
                     page = open_app(arg, now)
                     ignore_touch_until = now + .3
+                elif kind == 'home':
+                    if arg == 'saver':
+                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
+                    elif arg == 'camera':
+                        page = 'camera'
+                    elif arg == 'photos':
+                        library.refresh()
+                        photo_index = len(library.items)-1
+                        photo_message = ''
+                        page = 'photos'
+                    else:
+                        page = open_app(arg, now)
+                    ignore_touch_until = now + .3
                 elif kind == 'audio':
                     if arg == 'source':
                         cycle_option('vis_source')
@@ -3945,7 +4059,9 @@ def main():
                         page = 'savers'
                         option_message = ''
                     elif index == 2:
-                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
+                        option_message = set_boot_service(BOOT_LABEL[0] != 'On', __file__, data)
+                        state = boot_service_enabled()
+                        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
                     elif index == 3:
                         page = 'colours'
                     elif index == 4:

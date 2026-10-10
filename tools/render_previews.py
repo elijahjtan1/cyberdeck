@@ -219,6 +219,26 @@ def games_screens(clock):
     save_sheet(sheets[0], 'games-landscape-preview.png', cols=3)
     save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
     puzzle_screens(clock)
+    home_screens(clock)
+
+
+def home_screens(clock):
+    rows = {'temp': '48.2 C', 'disk_free': '18.4 GiB'}
+    notes = {'wifi': 'Wi-Fi -58 dBm', 'camera': 'Live view', 'photos': '23 saved',
+             'games': '9 games', 'audio': 'Vol 55%', 'album': 'Slideshow', 'gifs': 'Animations',
+             'tools': 'Timers & more', 'quick': 'Shortcuts', 'saver': 'Bunnies'}
+    landscape = app.render('home', None, False, 20, rows, '', wall_time=clock, extra={'home': notes})
+    app.set_rotation(90)
+    try:
+        portrait = app.render('home', None, False, 20, rows, '', wall_time=clock, extra={'home': notes})
+    finally:
+        app.set_rotation(0)
+    sheet = Image.new('RGB', (640+8+480, 640), '#05080b')
+    sheet.paste(landscape.resize((640, 480), Image.NEAREST), (0, 80))
+    sheet.paste(portrait.resize((480, 640), Image.NEAREST), (648, 0))
+    out = ROOT / 'docs/previews/home-preview.png'
+    sheet.save(out, optimize=True)
+    print(out)
 
 
 def puzzle_screens(clock):

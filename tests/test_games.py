@@ -630,7 +630,7 @@ class GamesLoopTest(unittest.TestCase):
         import test_panel_app as t
         games, back = app.GamesMenu(lambda: {}).rects()
         start, quit_ = (centre(r) for r in app.SnakeApp.dialog_rects()[1:])
-        script, t0 = [(.5, 136, 222), (1.1, 240, 70)], 1.1
+        script, t0 = [(.5, 136, 222), (1.1, 263, 98)], 1.1  # HOME tab, GAMES tile
         for rect in games:
             for point in (centre(rect), start, (300, 12), quit_):
                 t0 += .6
