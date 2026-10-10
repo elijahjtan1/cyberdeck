@@ -105,8 +105,10 @@ def fun_screens(clock, rows):
     ]
     save_sheet(screens, 'apps-savers-preview.png')
     frames = []
-    saver = app.BunnySaver({**options, 'bunny_count': 6}, lambda n: 'Saved.', seed=11)
-    for step in range(60):
+    saver = app.BunnySaver({**options, 'bunny_count': 8}, lambda n: 'Saved.', seed=11)
+    for step in range(150):  # Let some bunnies settle into snacks and naps first.
+        saver.render(step*.1, clock, ())
+    for step in range(150, 230):
         frames.append(saver.render(step*.1, clock, ())[0].quantize(64))
     frames[0].save(ROOT / 'docs/previews/bunnies.gif', save_all=True, append_images=frames[1:],
                    duration=100, loop=0, optimize=True)
@@ -283,6 +285,8 @@ def bunny_breeds():
     coats = list(app.BUNNY_COATS)
     cell, scale, label = 48, 2, 16
     rows = [('Standard', 'standard', coats, 2), ('Lop', 'lop', coats, 2),
+            ('Lionhead', 'lionhead', coats, 2),
+            ('Rex', 'rex', list(app.BUNNY_BREEDS['rex'][3]), 2),
             ('Flemish giant', 'standard', list(app.BUNNY_BREEDS['giant'][3]), 3)]
     height = cell*scale + label
     sheet = Image.new('RGB', (len(coats)*cell*scale, len(rows)*height), (118, 176, 236))
@@ -299,6 +303,33 @@ def bunny_breeds():
                    fill='#123', anchor='mm', font=app.TINY)
     out = ROOT / 'docs/previews/bunny-breeds.png'
     sheet.save(out, optimize=True)
+    print(out)
+    bunny_life()
+
+
+def bunny_life():
+    """A staged moment: snacking on carrots and hay, napping, and the aftermath."""
+    from datetime import datetime
+    saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 8}, lambda n: '', seed=2)
+    cast = [(('standard', 'white', 2), 'eat', 'carrot', 1, 30, 176),
+            (('lop', 'harlequin', 2), 'sleep', None, -1, 95, 186),
+            (('lionhead', 'castor', 2), 'eat', 'hay', 1, 120, 200),
+            (('rex', 'blue', 2), None, None, -1, 205, 178),
+            (('standard', 'sable', 3), 'sleep', None, 1, 170, 204),
+            (('lionhead', 'white', 2), 'eat', 'carrot', -1, 290, 194),
+            (('rex', 'lilac', 2), 'sleep', None, -1, 255, 172),
+            (('lop', 'cinnamon', 2), None, None, 1, 60, 206)]
+    for bunny, (look, activity, food, facing, x, ground) in zip(saver.bunnies, cast):
+        bunny.look, bunny.breed = look, 'giant' if look[2] == 3 else look[0]
+        bunny.half = saver.poses_for(look)[0]['sit'].width // 2
+        bunny.x, bunny.ground, bunny.direction, bunny.hop_start = x, ground, facing, None
+        bunny.activity, bunny.food = activity, food
+        bunny.activity_start, bunny.activity_until, bunny.rest_until = 0, 12, 99
+    saver.pellets = [[225, 181, 3], [228, 182, 3], [222, 183, 3]]
+    saver.last = 3.9
+    image = saver.render(4.1, datetime(2026, 10, 10, 15, 30), ())[0]
+    out = ROOT / 'docs/previews/bunny-life.png'
+    image.resize((640, 480), Image.NEAREST).save(out, optimize=True)
     print(out)
 
 if __name__ == '__main__':

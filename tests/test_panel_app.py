@@ -762,12 +762,12 @@ class BunnyBreedsTest(unittest.TestCase):
         picks = [app.random_breed(rng) for _ in range(400)]
         breeds = {breed for breed, _ in picks}
         coats = {look[1] for _, look in picks}
-        self.assertEqual(breeds, {'standard', 'lop', 'giant'})
+        self.assertEqual(breeds, set(app.BUNNY_BREEDS))
         self.assertEqual(coats, set(app.BUNNY_COATS))
         for breed, (shape, coat, scale) in picks:
             if breed == 'giant':
                 self.assertEqual(scale, 3)
-                self.assertIn(coat, ('grey', 'chestnut', 'black', 'fawn', 'white'))
+                self.assertIn(coat, app.BUNNY_BREEDS['giant'][3])
         small, giant = app.bunny_look('standard', 'grey', 2), app.bunny_look('standard', 'grey', 3)
         self.assertGreater(giant[0].width, small[0].width * 1.4)
         self.assertNotEqual(app.bunny_look('lop')[0].tobytes(), app.bunny_look()[0].tobytes())
@@ -800,3 +800,60 @@ class BunnyBreedsTest(unittest.TestCase):
                                    frames=frames, seed=1)
             self.assertEqual({b.look for b in saver.bunnies}, {None})
             self.assertEqual(saver.frames_for(None)[0], frames)
+
+
+class BunnyLifeTest(unittest.TestCase):
+    def test_all_templates_are_rectangular_and_poses_differ(self):
+        for shape, templates in app.BUNNY_SHAPES.items():
+            for rows in templates:
+                self.assertEqual({len(r) for r in rows}, {16}, shape)
+            poses = app.bunny_poses(shape, 'castor')
+            self.assertNotEqual(poses['eat'].tobytes(), poses['sit'].tobytes(), shape)
+            self.assertNotEqual(poses['sleep'].tobytes(), poses['sit'].tobytes(), shape)
+            self.assertEqual(poses['eat'].size, poses['sit'].size)
+        for breed in ('lionhead', 'rex'):
+            self.assertIn(breed, app.BUNNY_BREEDS)
+        for coat in ('castor', 'blue', 'lilac', 'sable', 'harlequin', 'opal', 'cinnamon'):
+            self.assertIn(coat, app.BUNNY_COATS)
+        mane = app.bunny_poses('lionhead', 'white')['sit']
+        self.assertNotEqual(mane.tobytes(), app.bunny_poses('standard', 'white')['sit'].tobytes())
+
+    def test_bunnies_eat_sleep_and_poop_over_time(self):
+        options = {**app.DEFAULT_OPTIONS, 'bunny_count': 24}
+        saver = app.BunnySaver(options, lambda n: 'Saved.', seed=8)
+        seen = set()
+        for step in range(900):  # 90 simulated seconds.
+            saver.render(step*.1, datetime.now(), ())
+            for bunny in saver.bunnies:
+                if bunny.activity:
+                    seen.add(bunny.activity)
+                    if bunny.activity == 'eat':
+                        self.assertIn(bunny.food, ('carrot', 'hay'))
+        self.assertEqual(seen, {'eat', 'sleep', 'poop'})
+        self.assertTrue(saver.pellets)
+        saver.render(200, datetime.now(), ())
+        self.assertFalse(any(200 - born >= 45 for _, _, born in saver.pellets))  # Faded away.
+
+    def test_tap_wakes_a_sleeping_bunny(self):
+        saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 1}, lambda n: '', seed=3)
+        bunny = saver.bunnies[0]
+        bunny.activity, bunny.activity_until, bunny.hop_start = 'sleep', 99, None
+        left, top, right, bottom = saver.bunny_box(bunny, 1)
+        self.assertTrue(saver.tap((left+right)/2, (top+bottom)/2, 1))
+        self.assertIsNone(bunny.activity)
+        self.assertIsNotNone(bunny.hop_start)
+
+    def test_food_and_custom_sprite_activities_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sprites = Path(folder) / 'sprites'
+            sprites.mkdir()
+            Image.new('RGBA', (18, 12), (255, 0, 0, 255)).save(sprites / 'bunny.png')
+            frames = app.custom_bunny_frames(folder)
+        for custom in (None, frames):
+            saver = app.BunnySaver({**app.DEFAULT_OPTIONS, 'bunny_count': 3}, lambda n: '',
+                                   frames=custom, seed=5)
+            for bunny, (activity, food) in zip(saver.bunnies, (('eat', 'carrot'), ('eat', 'hay'),
+                                                               ('sleep', None))):
+                bunny.activity, bunny.food, bunny.hop_start = activity, food, None
+                bunny.activity_start, bunny.activity_until = 0, 10
+            self.assertEqual(saver.render(2, datetime.now(), ())[0].size, (320, 240))

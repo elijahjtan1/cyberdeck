@@ -900,6 +900,13 @@ BUNNY_COATS = {
     'orange': {'w': (232, 152, 74), 'g': (190, 112, 48)},
     'dutch': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (58, 54, 64)},
     'spotted': {'w': (240, 240, 244), 'g': (178, 178, 192), 'm': (166, 112, 70)},
+    'castor': {'w': (150, 92, 58), 'g': (98, 60, 38)},
+    'blue': {'w': (120, 128, 150), 'g': (86, 92, 112)},
+    'lilac': {'w': (196, 176, 186), 'g': (156, 136, 148)},
+    'sable': {'w': (110, 82, 64), 'g': (70, 50, 40)},
+    'harlequin': {'w': (232, 152, 74), 'g': (190, 112, 48), 'm': (40, 36, 44)},
+    'opal': {'w': (176, 168, 150), 'g': (128, 130, 140)},
+    'cinnamon': {'w': (184, 120, 82), 'g': (136, 92, 70)},
 }
 # Compact, rounded sitting pose (a shorter, taller body than the first version) + hop pose.
 BUNNY_SIT = ["...........o.o..", "..........owowo.", "..........opopo.", "..........opopo.",
@@ -919,13 +926,50 @@ LOP_HOP = ["................", "................", "................", "........
            ".........ooo....", ".......ooowwwo..", "....oooogggowwwo", "...owmmogggowewo",
            "..owmmmogggowwwn", ".owgmmwwoggowwo.", "..oggwwwwoooo...", "...ogo...ogo....",
            "...oo....oo.....", "................"]
-BUNNY_SHAPES = {'standard': (BUNNY_SIT, BUNNY_HOP), 'lop': (LOP_SIT, LOP_HOP)}
+# Lionhead: a shaggy mane ('f', a lighter shade of the coat) around the neck and head.
+LION_SIT = ["................", "...........o.o..", "..........owowo.", "......o.o.opopo.",
+            ".....ofoffowwwo.", "....offgffwwwwwo", "...ofgfffwwwwewo", "...offgffwwwwwno",
+            "..owffffgfwwwwo.", "..owmfgffffwwo..", ".owmmmwwfwwwwo..", ".owgmmwwwwwwwo..",
+            "..oggwwwwwgwo...", "...ooooooooo...."]
+LION_HOP = ["................", "..........o.o...", ".........owowo..", ".....o.o.opopo..",
+            "....ofoffowwwo..", "...offgffwwwwwo.", "..ofgfffwwwwewo.", ".owffgffwwwwwno.",
+            "owgmffffwwwwo...", ".oggwfwwwwwgo...", "..ogo....ogo....", "..oo.....oo.....",
+            "................", "................"]
+# Rex: shorter, broader ears over the same compact plush body.
+REX_SIT = ["................", "................", "...........oo.o.", "..........owwowo",
+           "..........opwopo", "..........owwowo", ".........owwwwo.", "......oooowwwewo",
+           ".....owwwwwwwwno", "....owmwwwwwwwo.", "...owmmwwwwwwo..", "..owgmmwwwwwwo..",
+           "...oggwwwwgwo...", "....ooooooooo..."]
+REX_HOP = ["................", ".........oo.o...", "........owwowo..", "........opwopo..",
+           "........owwowo..", "........owwwwo.."] + BUNNY_HOP[6:]
+BUNNY_SHAPES = {'standard': (BUNNY_SIT, BUNNY_HOP), 'lop': (LOP_SIT, LOP_HOP),
+                'lionhead': (LION_SIT, LION_HOP), 'rex': (REX_SIT, REX_HOP)}
+
+
+def eating_pose(rows):
+    """Head lowered one row to nibble: the head columns shift down, the feet stay put."""
+    out = [list(r) for r in rows]
+    last = len(rows) - 3
+    for r in range(last, 0, -1):
+        for c in range(9, len(rows[0])):
+            out[r][c] = rows[r-1][c]
+    for c in range(9, len(rows[0])):
+        out[0][c] = '.'
+    return [''.join(r) for r in out]
+
+
+def sleeping_pose(rows):
+    """Eyes closed (a dark line)."""
+    return [r.replace('e', 'o') for r in rows]
 # Breeds: (shape, scale, weight, coats). Flemish giants are drawn 1.5x and come in the
 # solid colours the breed is known for.
 BUNNY_BREEDS = {
-    'standard': ('standard', 2, 55, tuple(BUNNY_COATS)),
-    'lop': ('lop', 2, 30, tuple(BUNNY_COATS)),
-    'giant': ('standard', 3, 15, ('grey', 'chestnut', 'black', 'fawn', 'white')),
+    'standard': ('standard', 2, 34, tuple(BUNNY_COATS)),
+    'lop': ('lop', 2, 22, tuple(BUNNY_COATS)),
+    'lionhead': ('lionhead', 2, 16, tuple(BUNNY_COATS)),
+    'rex': ('rex', 2, 14, ('castor', 'black', 'blue', 'lilac', 'sable', 'opal', 'white',
+                           'chestnut', 'cinnamon')),
+    'giant': ('standard', 3, 14, ('grey', 'chestnut', 'black', 'fawn', 'white', 'blue', 'sable')),
 }
 BUNNY_PALETTE = {**BUNNY_BASE, **BUNNY_COATS['white']}  # The classic white bunny.
 
@@ -933,6 +977,7 @@ BUNNY_PALETTE = {**BUNNY_BASE, **BUNNY_COATS['white']}  # The classic white bunn
 def pixel_sprite(rows, scale=2, coat='white'):
     colours = {**BUNNY_BASE, **BUNNY_COATS[coat]}
     colours.setdefault('m', colours['w'])
+    colours.setdefault('f', tuple(round(v + (255-v)*.35) for v in colours['w']))  # Mane.
     image = Image.new('RGBA', (len(rows[0]), len(rows)), (0, 0, 0, 0))
     for y, row in enumerate(rows):
         for x, key in enumerate(row):
@@ -942,11 +987,26 @@ def pixel_sprite(rows, scale=2, coat='white'):
 
 
 def bunny_look(shape='standard', coat='white', scale=2):
-    """[sit, hop] frames for one breed/coat, trimmed of shared empty rows on top so the
-    tap target hugs the visible bunny."""
-    frames = [pixel_sprite(rows, scale, coat) for rows in BUNNY_SHAPES[shape]]
-    top = min(f.getbbox()[1] for f in frames)
-    return [f.crop((0, top, f.width, f.height)) for f in frames]
+    """[sit, hop] frames for one breed/coat."""
+    poses = bunny_poses(shape, coat, scale)
+    return [poses['sit'], poses['hop'][0]]
+
+
+def bunny_poses(shape='standard', coat='white', scale=2):
+    """{'sit', 'hop' (list), 'eat', 'sleep'} frames for one breed/coat, trimmed of shared
+    empty rows on top so the tap target hugs the visible bunny."""
+    sit, hop = BUNNY_SHAPES[shape]
+    templates = {'sit': sit, 'hop': hop, 'eat': eating_pose(sit), 'sleep': sleeping_pose(sit)}
+    frames = {name: pixel_sprite(rows, scale, coat) for name, rows in templates.items()}
+    top = min(f.getbbox()[1] for f in frames.values())
+    frames = {name: f.crop((0, top, f.width, f.height)) for name, f in frames.items()}
+    frames['hop'] = [frames['hop']]
+    return frames
+
+
+def mirrored_poses(poses):
+    return {name: [ImageOps.mirror(f) for f in value] if isinstance(value, list)
+            else ImageOps.mirror(value) for name, value in poses.items()}
 
 
 def random_breed(rng):
@@ -1066,8 +1126,14 @@ class Bunny:
         self.hop_start, self.hop_length, self.hop_height = None, .45, 10
         self.rest_until = 0
         self.heart_until = 0
+        self.activity, self.activity_start, self.activity_until = None, 0., 0.
+        self.food = None  # 'carrot' or 'hay' while eating.
+
+    ACTIVITIES = (  # (name, chance each time a rest ends, duration range in seconds)
+        ('eat', .10, (4., 8.)), ('sleep', .05, (7., 15.)), ('poop', .04, (.8, .8)))
 
     def jump(self, now, big=False):
+        self.activity = self.food = None  # A tap wakes a sleeper / interrupts a snack.
         self.hop_start = now
         heavy = self.breed == 'giant'  # Giants: slower, bigger hops.
         self.hop_length = .8 if big else self.rng.uniform(.38, .5) * (1.35 if heavy else 1)
@@ -1075,7 +1141,25 @@ class Bunny:
         if big:
             self.heart_until = now + 1.2
 
+    def start_activity(self, now):
+        """Maybe begin eating, sleeping or a quick poop instead of the next hop."""
+        roll = self.rng.random()
+        for name, chance, (shortest, longest) in self.ACTIVITIES:
+            if roll < chance:
+                self.activity, self.activity_start = name, now
+                self.activity_until = now + self.rng.uniform(shortest, longest)
+                self.food = self.rng.choice(('carrot', 'hay')) if name == 'eat' else None
+                return name
+            roll -= chance
+        return None
+
     def update(self, now, dt, speed):
+        """Move/animate; returns 'poop' once when droppings should appear."""
+        if self.activity is not None:
+            if now >= self.activity_until:
+                self.activity = self.food = None
+                self.rest_until = now + self.rng.uniform(.3, 1.)
+            return None
         if self.hop_start is not None:
             self.x += self.direction*speed*dt*(.75 if self.breed == 'giant' else 1)
             if now-self.hop_start >= self.hop_length:
@@ -1084,12 +1168,16 @@ class Bunny:
                 if self.rng.random() < .08:
                     self.direction *= -1
         elif now >= self.rest_until:
+            started = self.start_activity(now)
+            if started:
+                return 'poop' if started == 'poop' else None
             self.jump(now)
         # Wrap just past the edge so nearly every bunny is visible at any moment.
         if self.x < -self.half-2:
             self.x, self.ground = W+self.half, bunny_lane(self.rng)
         elif self.x > W+self.half+2:
             self.x, self.ground = -self.half, bunny_lane(self.rng)
+        return None
 
     def lift(self, now):
         if self.hop_start is None:
@@ -1130,21 +1218,34 @@ class BunnySaver(Saver):
         self.options, self.set_count = options, set_count
         self.rng = random.Random(seed)
         self.custom = frames
-        self.looks = {}  # (shape, coat, scale) -> (right-facing, left-facing) frames.
+        self.looks = {}  # (shape, coat, scale) -> (right-facing, left-facing) pose dicts.
+        self.pellets = []  # [x, y, born]: droppings fade away after a while.
         self.background = bunny_background()
         self.bunnies = [self.new_bunny() for _ in range(options['bunny_count'])]
         self.last = None
         self.message, self.message_until = '', 0
 
-    def frames_for(self, look):
+    def poses_for(self, look):
         if look not in self.looks:
-            right = self.custom if look is None else bunny_look(*look)
-            self.looks[look] = (right, [ImageOps.mirror(f) for f in right])
+            if look is None:  # Custom sprite: frame 0 rests (and eats/sleeps), the rest hop.
+                frames = self.custom
+                right = {'sit': frames[0], 'hop': frames[1:] or frames[:1],
+                         'eat': frames[0], 'sleep': frames[0]}
+            else:
+                right = bunny_poses(*look)
+            self.looks[look] = (right, mirrored_poses(right))
         return self.looks[look]
+
+    def frames_for(self, look):
+        """Plain right-facing frames: the custom sprite as given, else [sit, hop]."""
+        if look is None:
+            return list(self.custom), None
+        right = self.poses_for(look)[0]
+        return [right['sit'], *right['hop']], None
 
     def new_bunny(self, entering=None):
         breed, look = (None, None) if self.custom else random_breed(self.rng)
-        half = self.frames_for(look)[0][0].width // 2
+        half = self.poses_for(look)[0]['sit'].width // 2
         return Bunny(self.rng, entering, breed, look, half)
 
     def sync_count(self):
@@ -1154,7 +1255,7 @@ class BunnySaver(Saver):
         del self.bunnies[target:]
 
     def bunny_box(self, bunny, now):
-        frame = self.frames_for(bunny.look)[0][0]
+        frame = self.poses_for(bunny.look)[0]['sit']
         top = bunny.ground - frame.height - bunny.lift(now)
         return (bunny.x-frame.width/2, top, bunny.x+frame.width/2, bunny.ground)
 
@@ -1178,6 +1279,37 @@ class BunnySaver(Saver):
             return True
         return False
 
+    def draw_food(self, d, bunny, now):
+        """A carrot or hay tuft in front of the nose, in the bunnies' chunky pixel scale,
+        shrinking as it is eaten."""
+        px = bunny.look[2] if bunny.look else 2  # Screen pixels per sprite pixel.
+        span = max(.1, bunny.activity_until - bunny.activity_start)
+        left = 1 - min(1, (now - bunny.activity_start) / span)
+        facing = bunny.direction
+        near = bunny.x + facing*(bunny.half + px)  # Just in front of the nose.
+        base = bunny.ground - px
+
+        def block(col, row, colour):  # One sprite pixel, `col` counted away from the bunny.
+            x = near + facing*col*px
+            x0, x1 = sorted((x, x + facing*px))
+            d.rectangle((x0, base - (row+1)*px, x1 - 1, base - row*px - 1), fill=colour)
+
+        if bunny.food == 'carrot':
+            length = max(1, round(6*left))  # Eaten from the tip, which faces the mouth.
+            for col in range(length):
+                block(col, 0, '#e8781e')
+                if col >= 1:
+                    block(col, 1, '#f39a3c')
+            for row, colour in ((1, '#3fa34d'), (2, '#5fc35a'), (0, '#3fa34d')):
+                block(length, row, colour)  # Leafy top on the far end.
+            block(length+1, 2, '#3fa34d')
+        else:
+            blades = max(1, round(5*left))
+            for col in range(blades):
+                height = 2 + (col % 2)
+                for row in range(height):
+                    block(col, row, '#e3cf74' if (row+col) % 2 else '#c9ad4f')
+
     def render(self, now, wall_time, alerts):
         dt = 0 if self.last is None else min(.25, now-self.last)
         self.last = now
@@ -1185,20 +1317,40 @@ class BunnySaver(Saver):
         speed = {'slow': .6, 'normal': 1., 'fast': 1.7}[self.options['saver_speed']] * 40
         image = self.background.copy()
         d = ImageDraw.Draw(image)
+        self.pellets = [p for p in self.pellets if now - p[2] < 45][-40:]
+        for x, y, born in self.pellets:  # Under the bunnies; fade into the grass.
+            age = (now - born) / 45
+            colour = tuple(round(a + (b-a)*age) for a, b in ((70, 79), (46, 154), (30, 62)))
+            d.ellipse((x-2, y-2, x+1, y+1), fill=colour)
         for bunny in sorted(self.bunnies, key=lambda b: b.ground):
-            bunny.update(now, dt, speed)
-            right, left = self.frames_for(bunny.look)
-            frames = right if bunny.direction > 0 else left
-            if bunny.hop_start is None or len(frames) == 1:
-                frame = frames[0]
-            elif len(frames) == 2:
-                frame = frames[1]
+            if bunny.update(now, dt, speed) == 'poop':
+                behind = bunny.x - bunny.direction*(bunny.half-3)
+                for _ in range(self.rng.randint(1, 3)):
+                    self.pellets.append([behind + self.rng.uniform(-3, 3),
+                                         bunny.ground - self.rng.uniform(0, 2), now])
+            right, left = self.poses_for(bunny.look)
+            poses = right if bunny.direction > 0 else left
+            if bunny.hop_start is not None:
+                hops = poses['hop']
+                frame = hops[int((now-bunny.hop_start)*10) % len(hops)]
+            elif bunny.activity == 'eat':
+                frame = poses['eat'] if int(now*4) % 2 else poses['sit']  # Nibbling.
+            elif bunny.activity == 'sleep':
+                frame = poses['sleep']
             else:
-                frame = frames[1 + int((now-bunny.hop_start)*10) % (len(frames)-1)]
+                frame = poses['sit']
             lift = bunny.lift(now)
             shadow = max(4, frame.width//2 - lift/3)
             d.ellipse((bunny.x-shadow, bunny.ground-2, bunny.x+shadow, bunny.ground+2), fill='#3d7a30')
             image.paste(frame, (round(bunny.x-frame.width/2), round(bunny.ground-frame.height-lift)), frame)
+            if bunny.activity == 'eat' and bunny.food:
+                self.draw_food(d, bunny, now)
+            elif bunny.activity == 'sleep':
+                for k in range(3):  # Little z's drifting up from the head.
+                    phase = (now*.5 + k/3) % 1
+                    zx = bunny.x + bunny.direction*(bunny.half*.4 + phase*8)
+                    zy = bunny.ground - frame.height - 4 - phase*16
+                    d.text((zx, zy), 'z', font=TINY if phase < .5 else SMALL, fill='#eef6ff', anchor='mm')
             if now < bunny.heart_until:
                 hx, hy = bunny.x, bunny.ground-frame.height-lift-8-(1.2-(bunny.heart_until-now))*12
                 d.text((hx, hy), '♥', font=FONT, fill='#ff5a7a', anchor='mm')

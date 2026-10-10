@@ -58,13 +58,26 @@ Pixel bunnies hop across a grassy field under drifting clouds. Each bunny rests,
 
 | Breed | How often | Look | Coats |
 | --- | --- | --- | --- |
-| Standard | About 55% | Upright ears | All 8 coats |
-| Lop | About 30% | Ears hang down beside the head | All 8 coats |
-| Flemish Giant | About 15% | Drawn 1.5× larger. Moves a little slower and hops higher. | Grey, chestnut, black, fawn, white |
+| Standard | About 34% | Upright ears | All 15 coats |
+| Lop | About 22% | Ears hang down beside the head | All 15 coats |
+| Lionhead | About 16% | A shaggy, lighter mane around the head and neck | All 15 coats |
+| Rex | About 14% | Shorter, broader ears on a plush body | Castor, black, blue, lilac, sable, opal, white, chestnut, cinnamon |
+| Flemish Giant | About 14% | Drawn 1.5× larger. Moves a little slower and hops higher. | Grey, chestnut, black, fawn, white, blue, sable |
 
-- **Coats:** white, grey, chestnut, black, fawn, orange, Dutch (black patches) and spotted (brown patches).
+- **Coats:** white, grey, chestnut, black, fawn, orange, castor, blue, lilac, sable, opal and cinnamon, plus three marked coats: Dutch (black patches), spotted (brown patches) and harlequin (orange with black patches).
 - **Bigger bunnies:** a giant's tap area matches its bigger size.
 - **New bunnies:** ones added with **+** get their own random look.
+
+![A moment in the bunny field](previews/bunny-life.png)
+
+**Bunnies have a life of their own.** Each time a bunny finishes resting, it usually hops on. Sometimes it does something else instead:
+
+- **Snacking:** it lowers its head and nibbles a **carrot** or a tuft of **hay** for 4–8 seconds. The carrot is eaten from the tip; the hay gets smaller as it goes.
+- **Napping:** it closes its eyes for 7–15 seconds while little **z**'s drift up.
+- **Pooping:** it leaves one to three droppings behind. They sink into the grass and disappear after about 45 seconds, with at most 40 on screen.
+
+Tapping a bunny still makes it jump with a heart, and that wakes a sleeper or interrupts a snack.
+
 - **Shape:** the sitting pose is rounder and more compact than the first version, which had a long, flat torso.
 
 - **Tap a bunny:** it does a big jump and a heart pops up. The saver stays on.
