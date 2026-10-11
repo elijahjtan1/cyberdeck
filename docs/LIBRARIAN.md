@@ -31,6 +31,9 @@ find nothing. It also reads `OR` as an ordinary word, so an any-word search isn'
 When the all-words search returns fewer than five articles, the librarian searches again with
 adjacent word pairs (`table lamp`, `lamp flickers`, ...) and then single words, stopping once
 it has five; passage ranking then drops articles that don't cover enough of the question.
+The pair searches all run and take their results in turns (each pair's best article, then
+each one's second, ...), so a broad first pair such as `test fuse` can't fill all five slots
+before `fuse plug` is tried.
 Translated copies of a wiki page (`Table lamps/fr`) are skipped so they don't use up the
 five slots; `/en` copies count as the page itself.
 
