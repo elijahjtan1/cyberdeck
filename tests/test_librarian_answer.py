@@ -1,7 +1,7 @@
 import unittest
 
 from core.librarian.answer import (NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
-                                   passage_budget)
+                                   check_citations, passage_budget)
 from core.librarian.ollama import OllamaError, Reply
 from core.librarian.rank import Passage
 from core.librarian.service import RetrievalError
@@ -87,6 +87,27 @@ class AnswerTest(unittest.TestCase):
             answer('q', FakeRetriever(error=RetrievalError('Kiwix is unavailable')), FakeClient())
         with self.assertRaises(OllamaError):
             answer('q', FakeRetriever([NOTES]), FakeClient(error=OllamaError('Ollama is down')))
+
+    def test_citations_to_missing_sources_are_dropped(self):
+        client = FakeClient('It uses a hydrophone [1]. It also flies [4]. Charge it [2, 9].')
+        result = answer('q', FakeRetriever([SONOBUOY, NOTES]), client)
+        self.assertEqual(result.text, 'It uses a hydrophone [1]. It also flies. Charge it [2].')
+        self.assertEqual((result.cited, result.dropped), ([1, 2], [4, 9]))
+        self.assertFalse(result.uncited)
+
+    def test_answer_without_citations_is_flagged(self):
+        result = answer('q', FakeRetriever([SONOBUOY]), FakeClient('It floats [3].'))
+        self.assertTrue(result.found)
+        self.assertTrue(result.uncited)
+        self.assertEqual((result.text, result.cited, result.dropped), ('It floats.', [], [3]))
+        # Not-found answers are not "uncited"; there is nothing to verify.
+        self.assertFalse(answer('q', FakeRetriever(), FakeClient()).uncited)
+
+    def test_check_citations_edge_cases(self):
+        self.assertEqual(check_citations('See [note], [0] and [2].', 2),
+                         ('See [note], and [2].', [2], [0]))
+        self.assertEqual(check_citations('A [2,1, 2]. B [1].', 2), ('A [2, 1]. B [1].', [2, 1], []))
+        self.assertEqual(check_citations('plain', 3), ('plain', [], []))
 
     def test_messages_shape(self):
         messages = build_messages('  Why?  ', [NOTES])

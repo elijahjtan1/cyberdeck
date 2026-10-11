@@ -1,10 +1,14 @@
 """Grounded answers: retrieve passages, then ask the model to answer only from them.
 
 When retrieval finds nothing, the answer is NOT_FOUND and the model is never called.
+Citations to sources that weren't given are removed; an answer citing nothing is flagged.
 """
 from dataclasses import dataclass, field
+import re
 
 NOT_FOUND = 'Not found in the offline sources.'
+# [1] or [1, 3]; anything else in brackets is left alone.
+CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 # Room for the instructions, titles and question around the passages (estimated tokens).
 PROMPT_OVERHEAD = 250
 
@@ -24,6 +28,13 @@ class Answer:
     sources: list = field(default_factory=list)  # Passages; source [n] is sources[n - 1].
     warnings: list = field(default_factory=list)
     reply: object = None  # The model's Reply, or None when the model was not called.
+    cited: list = field(default_factory=list)  # Valid source numbers, in order of first use.
+    dropped: list = field(default_factory=list)  # Cited numbers with no matching source.
+
+    @property
+    def uncited(self):
+        """A found answer that names no source can't be traced back; show it as unverified."""
+        return self.found and not self.cited
 
 
 def passage_budget(client, budget_tokens=1400):
@@ -57,7 +68,33 @@ def answer(question, retriever, client, *, budget_tokens=1400, on_text=None):
     reply = client.chat(build_messages(question, passages), on_text=on_text, detail=question)
     if not reply.text or said_not_found(reply.text):
         return Answer(question, NOT_FOUND, False, passages, warnings, reply)
-    return Answer(question, reply.text, True, passages, warnings, reply)
+    text, cited, dropped = check_citations(reply.text, len(passages))
+    return Answer(question, text, True, passages, warnings, reply, cited, dropped)
+
+
+def check_citations(text, count):
+    """Keep [n] citations for sources 1..count; remove the rest.
+
+    Returns (text, cited, dropped): cited and dropped list numbers in order of first use.
+    """
+    cited, dropped = [], []
+
+    def keep(match):
+        good = []
+        for number in (int(n) for n in match.group(1).split(',')):
+            if 1 <= number <= count:
+                good.append(number)
+                if number not in cited:
+                    cited.append(number)
+            elif number not in dropped:
+                dropped.append(number)
+        if not good:
+            return ''
+        space = match.group(0)[:len(match.group(0)) - len(match.group(0).lstrip())]
+        return space + '[' + ', '.join(str(n) for n in dict.fromkeys(good)) + ']'
+
+    text = CITATION.sub(keep, text)
+    return re.sub(r'[ \t]+([.,;:!?])', r'\1', text).strip(), cited, dropped
 
 
 def main(argv=None):
@@ -76,10 +113,16 @@ def main(argv=None):
         return 1
     # The model's words were already streamed; only a skipped or empty reply needs the message.
     print(NOT_FOUND if result.reply is None or not result.reply.text else '')
+    if result.dropped:
+        print('Removed citations to sources that were not given: '
+              + ', '.join(f'[{n}]' for n in result.dropped))
+    if result.uncited:
+        print('UNVERIFIED: the answer cites no source.')
     if result.sources:
-        print('Sources:' if result.found else 'Searched:')
+        print('Sources:' if result.cited else 'Searched:')
     for n, passage in enumerate(result.sources, 1):
-        print(f'[{n}] {passage.title} ({passage.source}) {passage.url}')
+        if n in result.cited or not result.cited:
+            print(f'[{n}] {passage.title} ({passage.source}) {passage.url}')
     for warning in result.warnings:
         print(f'warning: {warning}', file=sys.stderr)
     return 0
