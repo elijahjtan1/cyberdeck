@@ -42,10 +42,49 @@ See [LIBRARIAN-RANKING.md](LIBRARIAN-RANKING.md) for keyword rules, BM25 scoring
 the configurable relevance gate.
 
 Recorded XML and article HTML verify the installed search format and extraction; other
-compatibility fixtures are synthetic. With a Wikipedia ZIM installed, search
-for `passive sonobuoy`, verify that the
-result URL opens offline, then check that fetched paragraphs describe hydrophones and
-radio transmission. Stop kiwix-serve and confirm a clear error instead of a hang.
+compatibility fixtures are synthetic.
+
+## Acceptance check
+
+**For now (Restarters archive):** the Pi has no room for a Wikipedia archive yet, so the
+acceptance check uses the Restarters Wiki archive that is installed.
+`tests/test_librarian_restarters.py` replays real kiwix-serve 3.7.0 recordings from the Pi:
+
+- "What is a Repair Café?" must return passages from `Glossary:Repair Café`, with the
+  offline link `/content/restarters_en_all_maxi_2026-04/Glossary%3ARepair_Caf%C3%A9`.
+- "How does a passive sonobuoy work?" must return **no** passages: the archive has no
+  answer, and unrelated repair text must not be passed on as evidence.
+
+To repeat it live on the Pi, start kiwix-serve with the Restarters archive and point the
+backend at it. If the backend runs as the `cyberdeck-core` service, give the service the
+settings from **Backend configuration** below:
+
+```bash
+sudo systemctl edit cyberdeck-core
+# In the editor, add these three lines, save and close:
+#   [Service]
+#   Environment=CYBERDECK_KIWIX_URL=http://127.0.0.1:8080
+#   Environment=CYBERDECK_KIWIX_BOOK=restarters_en_all_maxi_2026-04
+sudo systemctl restart cyberdeck-core
+```
+
+Then:
+
+```bash
+curl -s 'http://127.0.0.1:8765/api/retrieve?q=What%20is%20a%20Repair%20Caf%C3%A9%3F' | head -c 600
+curl -s 'http://127.0.0.1:8765/api/retrieve?q=How%20does%20a%20passive%20sonobuoy%20work%3F'
+```
+
+The first should list Repair Café passages; open its `url` in a browser on the Pi to check
+the link works offline. The second should return an empty list. Stop kiwix-serve and
+repeat: both should give a clear "unavailable" error, not hang.
+
+**Later (Wikipedia), roadmap item 2.6:** when there is storage for a Wikipedia archive,
+re-run the original check. Search for `passive sonobuoy`, verify that the result URL opens
+offline, and check that the paragraphs describe hydrophones and radio transmission. Kiwix
+also publishes smaller Wikipedia editions (without pictures, or topic selections) that may
+fit sooner. Then add a recorded Wikipedia search and article to `tests/fixtures/` and a
+matching test beside the Restarters one.
 
 Unusual HTML may need additional cleanup rules. Table-only facts and reference sections
 are intentionally excluded. UTF-8 articles are assumed. A socket timeout bounds stalled

@@ -68,11 +68,12 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | review | [PR #5](https://github.com/elijahjtan1/cyberdeck/pull/5); recorded Pi 3.7.0/14.0.0 XML + HTML pass; Wikipedia archive needed for sonobuoy check |
-| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | review | [PR #5](https://github.com/elijahjtan1/cyberdeck/pull/5); parser and failure tests |
-| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | in progress | No vector database |
-| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | review | [PR #3](https://github.com/elijahjtan1/cyberdeck/pull/3); no model calls |
-| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | review | [PR #3](https://github.com/elijahjtan1/cyberdeck/pull/3); budget and empty-result tests |
+| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | done | Recorded Pi kiwix-serve 3.7.0 search XML and article HTML pass. Merged in #7 |
+| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | done | Parser and failure tests. Merged in #7 |
+| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | done | `python3 -m core.librarian.library` reindexes; `/api/search`, `/api/retrieve`. Merged in #7 |
+| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | done | No model calls. Merged in #7 |
+| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | done | Budget and empty-result tests. Merged in #7 |
+| 2.6 | **Re-run the Wikipedia acceptance check:** "How does a passive sonobuoy work?" returns the right Wikipedia passages with working offline links | Eli | blocked | No room for a Wikipedia archive yet. Stand-in for now: `tests/test_librarian_restarters.py` (real Restarters recordings: "What is a Repair Café?" answers, sonobuoy returns nothing). Re-test when a Wikipedia ZIM fits; see [LIBRARIAN.md](LIBRARIAN.md#acceptance-check) |
 
 ## Phase 3: AI answers (librarian, part 2)
 
