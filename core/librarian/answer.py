@@ -14,7 +14,7 @@ CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 PROMPT_OVERHEAD = 250
 # Passage tokens the model reads before answering. On the Pi most of the wait before the
 # first word is spent reading them, so this trades detail for speed.
-DEFAULT_BUDGET = 1400
+DEFAULT_BUDGET = 700  # Measured on the Pi: first word 45 s median vs 69 s at 1,400.
 
 SYSTEM_PROMPT = (
     'You are an offline librarian. Answer the question using only the numbered sources. '
@@ -147,28 +147,29 @@ def passage_json(n, passage):
             'score': round(passage.score, 3), 'text': passage.text}
 
 
+def keep_citation(match, count, cited, dropped):
+    """Rewrite one CITATION match to the numbers 1..count, or '' if none are; records both."""
+    good = []
+    for number in (int(n) for n in match.group(1).split(',')):
+        if 1 <= number <= count:
+            good.append(number)
+            if number not in cited:
+                cited.append(number)
+        elif number not in dropped:
+            dropped.append(number)
+    if not good:
+        return ''
+    space = match.group(0)[:len(match.group(0)) - len(match.group(0).lstrip())]
+    return space + '[' + ', '.join(str(n) for n in dict.fromkeys(good)) + ']'
+
+
 def check_citations(text, count):
     """Keep [n] citations for sources 1..count; remove the rest.
 
     Returns (text, cited, dropped): cited and dropped list numbers in order of first use.
     """
     cited, dropped = [], []
-
-    def keep(match):
-        good = []
-        for number in (int(n) for n in match.group(1).split(',')):
-            if 1 <= number <= count:
-                good.append(number)
-                if number not in cited:
-                    cited.append(number)
-            elif number not in dropped:
-                dropped.append(number)
-        if not good:
-            return ''
-        space = match.group(0)[:len(match.group(0)) - len(match.group(0).lstrip())]
-        return space + '[' + ', '.join(str(n) for n in dict.fromkeys(good)) + ']'
-
-    text = CITATION.sub(keep, text)
+    text = CITATION.sub(lambda match: keep_citation(match, count, cited, dropped), text)
     return re.sub(r'[ \t]+([.,;:!?])', r'\1', text).strip(), cited, dropped
 
 
