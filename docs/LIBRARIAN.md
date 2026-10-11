@@ -415,7 +415,7 @@ or bold or adds a citation like `[1]`. Text after the sentence makes it an answe
 that text cites a source. A reply that only says in its own words that the sources lack the
 answer ("The part number is not provided in the sources.", "The sources do not provide
 information about ...") is not found as well, but only when every sentence is about the
-sources lacking the answer and has no second clause (a comma, `;`, `so`, `if`, `but`, `and`,
+sources lacking the answer and has no second clause (a comma, `;`, brackets, a dash, `so`, `if`, `but`, `and`,
 `which`, `usually`, `use`, `check` ...). A leading "Therefore," or "Unfortunately," doesn't count. Anything that might carry advice keeps the reply an answer, since hiding a real answer
 is worse than showing an honest one as unverified.
 

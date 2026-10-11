@@ -121,7 +121,9 @@ class AnswerTest(unittest.TestCase):
                      'The sources do not specify a torque, which is usually 0.1 Nm for these screws [1].',
                      'The sources do not mention gloves, and the capacitor can hold a lethal charge [2].',
                      'The sources do not cover it, which means the heating element must be replaced '
-                     'as a unit [1].'):
+                     'as a unit [1].',
+                     'The sources do not mention the voltage (it is 230 V) [1].',
+                     'The sources do not mention the voltage - it is 230 V [1].'):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertTrue(result.found, text)
 

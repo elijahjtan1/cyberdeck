@@ -123,8 +123,8 @@ SOURCES_LACK = re.compile(
     r'(?:offline )?sources?\b'
     r'|\bno (?:information|mention|details?)\b.*\bin the (?:offline )?sources?\b', re.IGNORECASE)
 # A second clause may carry the answer: "..., so check the label", "If ..., use a 3 A fuse",
-# "..., which is usually 0.1 Nm", "... and the capacitor can hold a lethal charge".
-CLAUSE = re.compile(r'[,;:]|^if\b|\b(?:so|but|however|although|though|instead|use|check|try|test|'
+# "..., which is usually 0.1 Nm", "... and the capacitor can hold a lethal charge", "(it is 230 V)".
+CLAUSE = re.compile(r'[,;:()–—]|\s-\s|^if\b|\b(?:so|but|however|although|though|instead|use|check|try|test|'
                     r'replace|unplug|and|which|because|while|usually|typically|should|must|can)\b',
                     re.IGNORECASE)
 # A linking word that opens a sentence adds nothing: "Therefore, the answer is not found...".
