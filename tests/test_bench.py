@@ -90,14 +90,15 @@ class BenchTest(unittest.TestCase):
             proc = Path(tmp)
             (proc / 'meminfo').write_text('MemTotal: 3900000 kB\nMemAvailable: 2048000 kB\n')
             for pid, comm, rss in (('10', 'ollama\n', 400 * 1024), ('11', 'bash\n', 9 * 1024),
-                                   ('12', 'ollama_llama_se\n', 100 * 1024)):
+                                   ('12', 'ollama_llama_se\n', 100 * 1024),
+                                   ('13', 'llama-server\n', 800 * 1024)):
                 (proc / pid).mkdir()
                 (proc / pid / 'comm').write_text(comm)
                 (proc / pid / 'status').write_text(f'Name: x\nVmRSS: {rss} kB\n')
             (proc / 'self').mkdir()
             watch = bench.MemoryWatch(proc=proc)
             watch.sample()
-            self.assertEqual((watch.min_available_mib, watch.max_ollama_mib), (2000, 500))
+            self.assertEqual((watch.min_available_mib, watch.max_ollama_mib), (2000, 1300))
             missing = bench.MemoryWatch(proc=proc / 'nope')
             with missing:
                 pass

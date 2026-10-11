@@ -259,8 +259,8 @@ it got instead. The summary gives the **top-3 hit rate** (in-scope questions who
 article was among the first three distinct passage titles), how many in-scope questions were
 answered and how many of those cited nothing, the **honest "not found" rate** for
 out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
-the lowest `MemAvailable` and Ollama's peak resident memory, sampled every half second from
-`/proc` (the model runs in Ollama's process). The full run takes a while (about a minute per
+the lowest `MemAvailable` and the peak resident memory of Ollama and its `llama-server`
+model runner, sampled every half second from `/proc`. The full run takes a while (about a minute per
 answered question on the Pi); run it with nothing else busy, and Ctrl+C stops it.
 
 Questions live in `core/librarian/benchmarks/restarters.json` as
@@ -288,8 +288,10 @@ First full run on the Pi 4 (4 GB) with the Restarters ZIM, `qwen3:0.6b`, the def
 
 Retrieval and honesty are good; speed is the problem. Most of the wait is the model reading
 the passages before its first word, and one question hit the 120-second Ollama timeout
-before any text arrived. Ollama's peak memory read 35 MiB, which is too low to be the model
-runner, so that figure isn't trusted yet. Remaining misses: hair dryer and cracked phone
+before any text arrived. Ollama's peak memory read 35 MiB because the model runs in a
+separate `llama-server` process the benchmark didn't count (fixed since); `ps` showed that
+process at about 800 MiB. Chromium was also open on the Kiwix page during the run, using
+roughly 800 MiB more, which explains most of the low available memory. Remaining misses: hair dryer and cracked phone
 screen (no matching article found in the ZIM), fuse (Glossary:Fuse not reached) and
 multimeter (expected article ranked 4th).
 

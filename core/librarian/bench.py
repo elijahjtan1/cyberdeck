@@ -16,6 +16,7 @@ from .answer import ask_events
 from .query import fold
 
 DEFAULT_QUESTIONS = Path(__file__).with_name('benchmarks') / 'restarters.json'
+MODEL_PROCESSES = ('ollama', 'llama-server')  # Process names (comm) that hold the model.
 
 
 @dataclass
@@ -67,7 +68,8 @@ def first_match(titles, expect):
 class MemoryWatch:
     """Samples MemAvailable and Ollama's resident memory while the benchmark runs.
 
-    The model runs in Ollama's own process, so this process's memory says little.
+    The model runs in Ollama's own processes (newer versions start a `llama-server`
+    runner), so this process's memory says little.
     """
 
     def __init__(self, interval=0.5, proc=Path('/proc')):
@@ -91,7 +93,7 @@ class MemoryWatch:
             if not entry.name.isdigit():
                 continue
             try:
-                if not (entry / 'comm').read_text().startswith('ollama'):
+                if not (entry / 'comm').read_text().startswith(MODEL_PROCESSES):
                     continue
                 for line in (entry / 'status').read_text().splitlines():
                     if line.startswith('VmRSS:'):
