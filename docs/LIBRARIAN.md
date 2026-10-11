@@ -414,8 +414,10 @@ does so, the result is reported as not found too, even when it wraps the sentenc
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
 that text cites a source. A reply that only says in its own words that the sources lack the
 answer ("The part number is not provided in the sources.", "The sources do not provide
-information about ...") is not found as well. A sentence with "but" or "however", or one
-that gives a fact first, keeps the reply an answer.
+information about ...") is not found as well, but only when every sentence is about the
+sources lacking the answer and has no second clause (`so`, `;`, `if`, `but`, `use`, `check`
+...). Anything that might carry advice keeps the reply an answer, since hiding a real answer
+is worse than showing an honest one as unverified.
 
 ```python
 from core.librarian.answer import answer

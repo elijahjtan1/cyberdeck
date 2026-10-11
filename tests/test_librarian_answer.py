@@ -102,7 +102,20 @@ class AnswerTest(unittest.TestCase):
         for text in ('The sources do not give a part number, but the element is a nichrome coil [1].',
                      'Charge the deck before use [1]. The sources do not mention the voltage.',
                      'Do not use the deck in rain [1].',
-                     'The fuse is not provided with the kit.'):
+                     'The fuse is not provided with the kit.',
+                     # Found in review: each gives an instruction or fact besides the gap.
+                     'The manual does not provide a part number, so check the label on the base for '
+                     'that information [1].',
+                     'This information is not listed on the plug; test the fuse with a multimeter set '
+                     'to continuity [1].',
+                     'Kettles do not contain user-serviceable heating elements, according to the sources [1].',
+                     'If the fuse rating is not given in the sources, use a 3 A fuse for appliances '
+                     'under 700 W [1].',
+                     'The element is not available separately, so the sources suggest replacing the '
+                     'whole toaster [1].',
+                     'Do not open the microwave: the capacitor holds a charge and no information on '
+                     'safe discharge is given [2].',
+                     'The sources do not mention a reset button. Unplug it for ten minutes and try again [1].'):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertTrue(result.found, text)
 
