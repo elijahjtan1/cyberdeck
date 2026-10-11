@@ -1,6 +1,7 @@
 """Recall fixes found with `deck bench` on the Pi's Restarters archive."""
 import unittest
 
+from core.librarian.extract import join_short, paragraphs
 from core.librarian.kiwix import KiwixError, SearchResult
 from core.librarian.query import keywords, match_key
 from core.librarian.rank import Passage, rank_passages
@@ -82,3 +83,47 @@ class RecallTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PiTraceTest(unittest.TestCase):
+    """Shapes from the Pi trace of the bench misses (Restarters archive, 400-token budget)."""
+
+    def test_title_match_beats_a_passing_mention(self):
+        # "How to use a multimeter" was Kiwix's third result but ranked behind Toasters.
+        toaster = Passage('Unplug it and check the timer board. Check the switch contacts with a '
+                          'multimeter on its continuity range; use the lowest range if it has no beeper.',
+                          'Toasters', 't', 'kiwix')
+        howto = Passage('A continuity range is very useful. It beeps when the probes find a low '
+                        'resistance path, so you can check a cable without looking at the display.',
+                        'How to use a multimeter', 'h', 'kiwix')
+        filler = [Passage(f'Paragraph {n} about kettles, lids and descaling.', f'Filler {n}', f'f{n}', 'kiwix')
+                  for n in range(8)]
+        rows = rank_passages('How do I use a multimeter to check continuity?', [toaster, howto] + filler, 400)
+        self.assertEqual([r.title for r in rows], ['How to use a multimeter', 'Toasters'])
+
+    def test_short_paragraphs_join_the_next(self):
+        # Coffee makers: seven one-liners (20-66 characters) took all the model's sources.
+        rows = ['Coffee makers can often be fixed.', 'Coffee makers come in 3 separate types:',
+                'Filter coffee makers', 'Those using capsules or pods',
+                'Espresso machines, similar to those in cafes.', 'L' * 300, 'Last short line.']
+        joined = join_short(rows)
+        self.assertEqual(len(joined), 1)
+        self.assertTrue(joined[0].startswith('Coffee makers can often be fixed. Coffee makers come'))
+        self.assertIn('cafes. ' + 'L' * 300, joined[0])  # A run of short ones joins the next long one.
+        self.assertTrue(joined[0].endswith('L' * 300 + ' Last short line.'))  # A short tail joins the last.
+        self.assertEqual(join_short(['A' * 250, 'B' * 250]), ['A' * 250, 'B' * 250])
+        self.assertEqual(join_short(['A' * 250, 'tail']), ['A' * 250 + ' tail'])
+        self.assertEqual(join_short([]), [])
+
+    def test_link_lists_are_dropped(self):
+        html = ('<ul><li><a href="Spare_parts">Spare parts</a></li>'
+                '<li><a href="Case_Studies">Case Studies</a> - our favourite famous fixes</li></ul>'
+                '<p>Check the <a href="Fuse">fuse</a> in the plug first.</p>')
+        self.assertEqual(paragraphs(html), ['Case Studies - our favourite famous fixes',
+                                            'Check the fuse in the plug first.'])
+
+    def test_main_page_takes_no_slot(self):
+        kiwix = FakeKiwix([('Main Page/nl', 'coffee maker'), ('Main Page', 'coffee maker'),
+                           ('Main Page/en', 'coffee maker'), ('Coffee makers', 'coffee maker')])
+        found = Retriever(kiwix=kiwix).kiwix_search('coffee maker')
+        self.assertEqual([r.title for r in found], ['Coffee makers'])

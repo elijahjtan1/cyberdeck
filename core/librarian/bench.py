@@ -13,11 +13,12 @@ import statistics
 import threading
 import time
 
-from .answer import ask_events, budget_from_environment, passage_budget
+from .answer import ask_events, budget_from_environment, copied_share, passage_budget
 from .query import fold
 
 DEFAULT_QUESTIONS = Path(__file__).with_name('benchmarks') / 'restarters.json'
 MODEL_PROCESSES = ('ollama', 'llama-server')  # Process names (comm) that hold the model.
+COPIED = .6  # Share of an answer's words pasted from the sources that counts as copied.
 
 
 @dataclass
@@ -31,6 +32,8 @@ class Result:
     total_s: float = 0.0
     found: bool = False
     uncited: bool = False
+    copied: bool = False  # Most of the answer is source text pasted back, not an answer.
+    answer: str = ''  # The checked answer, so a wrong one can be read back from the JSON.
     prompt_tokens: int = 0  # As counted by the model; over num_ctx means the prompt was cut.
     error: str = ''
     model: bool = True  # False for retrieval-only runs; found then means "had passages".
@@ -145,6 +148,8 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                     result.first_word_s = clock() - start
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
+                    result.answer = value.text
+                    result.copied = value.found and copied_share(value.text, value.sources) >= COPIED
                     result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.
         result.error = str(exc) or type(exc).__name__
@@ -174,6 +179,7 @@ def summarize(results, memory=None):
         'top3_hit_rate': rate(sum(r.top3 for r in answerable), answerable),
         'answered_rate': rate(len(answered), answerable, True),
         'uncited_rate': rate(sum(r.uncited for r in answered), answered, True),
+        'copied_rate': rate(sum(r.copied for r in answered), answered, True),
         'honest_not_found_rate': rate(sum(r.honest for r in unanswerable), unanswerable, True),
         'retrieval_s': spread([r.retrieval_s for r in results if not r.error]),
         'first_word_s': spread(firsts),
@@ -193,6 +199,8 @@ def show_result(n, r, out):
             verdict += ', UNVERIFIED'
         elif r.model and not r.found:
             verdict += ', said not found'
+        if r.model and r.copied:
+            verdict += ', COPIED'
     elif not r.model:
         verdict = 'no passages' if not r.found else 'passages found (model would decide)'
     else:
@@ -201,6 +209,10 @@ def show_result(n, r, out):
     print(f'{n:2}. {verdict} | first word {first}, total {r.total_s:.1f}s | {r.question}', file=out)
     if r.answerable and not r.top3 and r.titles:
         print(f'    got: {", ".join(r.titles[:3])}', file=out)
+    if r.answer and r.found and (r.copied or not r.answerable):
+        # The answers worth reading: out-of-scope ones that should have been "not found".
+        answer = ' '.join(r.answer.split())
+        print(f'    said: {answer[:240]}{"..." if len(answer) > 240 else ""}', file=out)
 
 
 def show_summary(s, out):
@@ -212,7 +224,8 @@ def show_summary(s, out):
 
     print('', file=out)
     print(f"Top-3 hit rate:        {pct(s['top3_hit_rate'])}", file=out)
-    print(f"Answered (in scope):   {pct(s['answered_rate'])}, of which uncited {pct(s['uncited_rate'])}", file=out)
+    print(f"Answered (in scope):   {pct(s['answered_rate'])}, of which uncited "
+          f"{pct(s['uncited_rate'])}, copied {pct(s.get('copied_rate'))}", file=out)
     print(f"Honest 'not found':    {pct(s['honest_not_found_rate'])}", file=out)
     print(f"Retrieval:             {secs(s['retrieval_s'])}", file=out)
     print(f"Time to first word:    {secs(s['first_word_s'])}", file=out)

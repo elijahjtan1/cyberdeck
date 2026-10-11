@@ -4,7 +4,8 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 
 | Page | What it does |
 | --- | --- |
-| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and screensaver |
+| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and Ask |
+| ASK (via Home) | Type a question on an on-screen keyboard and read the offline librarian's answer with its sources (needs cyberdeck-core) |
 | CAMERA | Live preview, full-resolution SNAP, 3 s/10 s self-timer, pause, FPS, and a last-photo thumbnail |
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
 | APPS (via Home) | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy, Space Invaders, Minesweeper, Solitaire, Sudoku), slideshow, GIFs, SOS beacon and torch, Quick controls and Tools |
@@ -34,3 +35,4 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.
+- `tools/content.py`: plans, downloads and verifies the offline library ZIMs by tier. See [CONTENT.md](docs/CONTENT.md).

@@ -76,6 +76,7 @@ class FakeBackend:
 
     def __init__(self, *args):
         self.args, self.online, self.history, self.busy = args, True, None, []
+        self.base = 'http://127.0.0.1:8765'
         self.wanted, self.marks, self.closed = [], [], False
         FakeBackend.instances.append(self)
 
