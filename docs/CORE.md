@@ -88,6 +88,12 @@ cd ~/cyberdeck-repo && python3 -m core --port 8766 --gps replay:/home/eli/track.
 curl http://127.0.0.1:8766/api/gps
 ```
 
+**Baud rate:** many receivers use 9600, but u-blox M10 modules (such as the BZ-251) often
+ship at 38400 or 115200. If `/api/gps` says `no valid NMEA (wrong baud rate?)`, try
+`serial:/dev/serial0:38400`, then `:115200`. On the Pi's GPIO UART (GPIO 14/15,
+`/dev/serial0`) the serial console must be off and Bluetooth moved off that UART first;
+a USB serial adapter such as a CP2102 shows up as `/dev/ttyUSB0` instead.
+
 Only GGA and RMC sentences are used; lines with a bad checksum are dropped. A position older
 than 10 seconds is no longer reported (the receiver sends one every second), and after an
 error (unplugged receiver, gpsd stopped) the backend retries every 5 seconds. A bad

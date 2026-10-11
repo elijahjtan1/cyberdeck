@@ -222,6 +222,20 @@ class GpsServiceTest(unittest.TestCase):
         self.assertEqual((r['configured'], r['fix'], r['simulated'], r['label']),
                          (True, True, True, 'SIMULATED'))
 
+    def test_garbage_suggests_the_baud_rate(self):
+        with tempfile.NamedTemporaryFile('wb', delete=False) as port:
+            port.write(b'\x8f\xe3$\x11G\n' * 30)  # What a receiver looks like at the wrong rate.
+        self.addCleanup(Path(port.name).unlink)
+        source = gps.SerialSource('/dev/null')
+        source.device = port.name
+        service = gps.Gps(source, retry_s=60).start()
+        self.addCleanup(service.stop)
+        for _ in range(200):
+            if service.snapshot()['error']:
+                break
+            threading.Event().wait(0.01)
+        self.assertIn('wrong baud rate', service.snapshot()['error'])
+
     def test_errors_are_reported_and_retried(self):
         service = gps.Gps(gps.SerialSource('/dev/no-such-gps'), retry_s=0.01).start()
         self.addCleanup(service.stop)

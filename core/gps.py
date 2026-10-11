@@ -19,6 +19,7 @@ import time
 KNOT_KMH = 1.852
 STALE_S = 10  # Receivers send every second; after this long the last fix is not reported.
 RETRY_S = 5  # Wait between reconnects, so an unplugged receiver doesn't spin the CPU.
+GARBLED_LINES = 20  # Lines in a row with no valid checksum before blaming the baud rate.
 
 
 def checksum_ok(sentence):
@@ -297,12 +298,17 @@ class Gps:
 
     def _run(self):
         while not self._stop.is_set():
+            garbled = 0
             try:
                 for line in self.source.lines(self._stop):
+                    garbled = 0 if checksum_ok(line.strip()) else garbled + 1
                     with self._lock:
                         if self.tracker.feed(line):
                             self.error = ''
-                if not self._stop.is_set():
+                        elif garbled >= GARBLED_LINES:
+                            # Bytes arrive but never a valid sentence: almost always the baud rate.
+                            self.error = f'{self.source.name}: no valid NMEA (wrong baud rate?)'
+                if not self._stop.is_set() and garbled < GARBLED_LINES:
                     self.error = f'{self.source.name}: stream ended'
             except (OSError, ValueError) as exc:
                 self.error = f'{self.source.name}: {exc}'
