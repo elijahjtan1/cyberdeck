@@ -39,4 +39,26 @@ Eli also fetched that article URL successfully; its HTML is recorded in
 tests without network access. The Wikipedia acceptance check still needs a Wikipedia
 archive. This was a foreground test; persistence across reboot is not established.
 
-The remaining Phase 0 system measurements and Ollama details have not been recorded.
+## Memory and Ollama
+
+Reported by Eli on 2026-10-11:
+
+```
+$ free -h
+               total        used        free      shared  buff/cache   available
+Mem:           3.7Gi       661Mi       1.8Gi        68Mi       1.4Gi       3.1Gi
+Swap:          2.0Gi          0B       2.0Gi
+$ ollama --version
+ollama version is 0.34.4
+$ ollama list
+NAME          ID              SIZE      MODIFIED
+qwen3:0.6b    7df6b6e09427    522 MB    13 days ago
+```
+
+`qwen3:0.6b` is the only model and matches the librarian default. This Ollama version
+accepts `think: false`. With 3.1 GiB available, the 522 MB model and a 2,048-token context
+fit without swapping. The first `python3 -m core.librarian.ollama` reply took about
+17.6 s to its first word (probably including the model load).
+
+Still not recorded: `uname -m`, `df -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`
+and `lsblk`.

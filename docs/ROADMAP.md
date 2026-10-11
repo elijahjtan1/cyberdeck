@@ -47,7 +47,7 @@ Browser UI (Chromium on the Pi, or a PC on the network)      2.8" touch panel (p
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 0.1 | Record system facts: `uname -m`, `free -h`, `df -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`, `lsblk`, `kiwix-serve --version`, ZIM file names and port, `ollama --version`, `ollama list` | Eli | todo | Paste into `docs/PI-BASELINE.md`. Needed before 2.1 |
+| 0.1 | Record system facts: `uname -m`, `free -h`, `df -h`, `vcgencmd measure_temp`, `vcgencmd get_throttled`, `lsblk`, `kiwix-serve --version`, ZIM file names and port, `ollama --version`, `ollama list` | Eli | in progress | Kiwix, memory and Ollama recorded in `docs/PI-BASELINE.md`; `uname -m`, `df -h`, `vcgencmd`, `lsblk` still to paste |
 | 0.2 | Photo or video of the camera tearing artifact on the TFT | Eli | todo | Needed before 4.3 |
 | 0.3 | Decide on `sudo apt install python3-flask` | Eli | done | Approved |
 
@@ -79,8 +79,8 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 3.1 | Ollama client for `/api/chat`: streaming, thinking off, model and context size configurable | Claude | review | `core/librarian/ollama.py`; default `qwen3:0.6b` |
-| 3.2 | Grounded prompt with numbered passages; "not found in offline sources" without calling the model when nothing scores well | - | todo | |
+| 3.1 | Ollama client for `/api/chat`: streaming, thinking off, model and context size configurable | Claude | done | `core/librarian/ollama.py`; merged in [#9](https://github.com/elijahjtan1/cyberdeck/pull/9). First word in about 17.6 s on the Pi |
+| 3.2 | Grounded prompt with numbered passages; "not found in offline sources" without calling the model when nothing scores well | Claude | review | `core/librarian/answer.py` |
 | 3.3 | Citation check: drop citations that match no passage; flag answers with none | - | todo | |
 | 3.4 | `deck ask "..."` command and `/api/ask` endpoint | - | todo | |
 | 3.5 | Benchmark: ~20 questions with expected articles; measure top-3 hit rate, time to first word, total time, peak memory | - | todo | Judge by retrieval and honesty, not prose |
