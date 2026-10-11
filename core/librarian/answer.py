@@ -113,12 +113,34 @@ def copied_share(text, passages, run=8):
 DECORATION = ' \t\n.*_"\'`'
 
 
+# How a small model words "not found" when it doesn't use the exact sentence, as on the Pi:
+# "The part number ... is not provided in the sources." or "The sources do not provide ...".
+MISSING = re.compile(r'\b(?:not (?:found|provided|mentioned|given|included|stated|specified|'
+                     r'listed|covered|available)|(?:do|does) not (?:provide|contain|mention|'
+                     r'include|give|state|specify|list|say|cover)|no (?:information|mention|details))\b',
+                     re.IGNORECASE)
+CONTRAST = re.compile(r'\b(?:but|however|although|though|instead)\b', re.IGNORECASE)
+
+
+def only_says_missing(text):
+    """Every sentence says the sources lack the answer, and the reply mentions the sources.
+    A sentence with "but" or "however" may go on to give a fact, so it doesn't count."""
+    if not re.search(r'\b(?:sources?|information|offline)\b', text, re.IGNORECASE):
+        return False
+    sentences = [CITATION.sub('', s).strip(DECORATION) for s in re.split(r'(?<=[.!?])\s+', text)]
+    sentences = [s for s in sentences if s]
+    return bool(sentences) and all(MISSING.search(s) and not CONTRAST.search(s) for s in sentences)
+
+
 def said_not_found(text):
-    """The not-found sentence, even with the [1], quotes or bold a small model adds.
+    """The not-found sentence, even with the [1], quotes or bold a small model adds, or a
+    reply that only says, in its own words, that the sources don't have the answer.
 
     Text after it counts as an answer only if it cites a source; uncited remarks such as
     "The sources only discuss lamps." don't turn "not found" into a found answer.
     """
+    if only_says_missing(text):
+        return True
     phrase = NOT_FOUND.rstrip('.').casefold()
     start = text.casefold().find(phrase)
     if start < 0 or text[:start].strip(DECORATION):

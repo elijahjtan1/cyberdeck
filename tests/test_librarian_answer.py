@@ -88,6 +88,24 @@ class AnswerTest(unittest.TestCase):
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
 
+    def test_not_found_in_the_models_own_words_is_not_found(self):
+        # Both from the Pi, for questions the Restarters wiki can't answer.
+        for text in ('The sources do not provide information about the torque required for pentalobe '
+                     'screwdrivers on an iPhone 12. Therefore, the answer is not found in the offline sources.',
+                     'The part number of a toaster heating element is not provided in the sources. [1]',
+                     'No information about this is given in the sources [1].'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertFalse(result.found, text)
+            self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
+
+    def test_answers_that_mention_missing_details_are_still_answers(self):
+        for text in ('The sources do not give a part number, but the element is a nichrome coil [1].',
+                     'Charge the deck before use [1]. The sources do not mention the voltage.',
+                     'Do not use the deck in rain [1].',
+                     'The fuse is not provided with the kit.'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertTrue(result.found, text)
+
     def test_cited_facts_after_not_found_are_an_answer(self):
         for text in ('Not found in the offline sources. But charge the deck first [1].',
                      'The deck is not found in the offline sources list, but charge it [1].'):

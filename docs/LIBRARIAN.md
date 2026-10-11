@@ -412,7 +412,10 @@ their titles, under instructions to answer only from them, cite source numbers, 
 with that exact not-found sentence when the sources don't contain the answer. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
-that text cites a source.
+that text cites a source. A reply that only says in its own words that the sources lack the
+answer ("The part number is not provided in the sources.", "The sources do not provide
+information about ...") is not found as well. A sentence with "but" or "however", or one
+that gives a fact first, keeps the reply an answer.
 
 ```python
 from core.librarian.answer import answer
