@@ -125,16 +125,17 @@ class LocalLibrary:
         try:
             uri = self.db_path.resolve().as_uri() + '?mode=ro'
             with closing(sqlite3.connect(uri, uri=True, timeout=2)) as db:
-                rows = db.execute('SELECT text,title,path FROM passages WHERE passages MATCH ? '
+                rows = db.execute('SELECT text,title,path,rowid FROM passages WHERE passages MATCH ? '
                                   'ORDER BY bm25(passages),rowid LIMIT ?', (match, min(limit, 200))).fetchall()
             result = []
-            for text, title, relative in rows:
+            for text, title, relative, rowid in rows:
                 try:
                     if not self.document_path(relative).is_file():
                         continue
                 except LibraryError:
                     continue
-                result.append(Passage(text, title, '/api/library/' + quote(relative, safe='/'), 'local'))
+                result.append(Passage(text, title, '/api/library/' + quote(relative, safe='/'), 'local',
+                                      order=rowid))  # A file's chunks are indexed in order.
             return result
         except sqlite3.Error as exc:
             raise LibraryError('Library index is unavailable; run the reindex command') from exc

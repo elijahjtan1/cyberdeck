@@ -109,7 +109,7 @@ def show(events, explain=False, out=None, err=None):
                 citations = CitationFilter(len(passages))
                 if explain:
                     print(f"keywords: {' '.join(event.get('keywords', [])) or '(none)'}", file=err)
-                    print(f'passages: {len(passages)} passed the relevance gate', file=err)
+                    print(f'sources: {len(passages)} article(s) passed the relevance gate', file=err)
                     for p in passages:
                         print(f"  [{p['n']}] score {p['score']:.2f} {p['title']}", file=err)
                 if passages:

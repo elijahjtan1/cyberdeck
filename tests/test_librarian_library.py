@@ -18,6 +18,14 @@ class LibraryTest(unittest.TestCase):
     def tearDown(self):
         self.folder.cleanup()
 
+    def test_chunks_carry_their_order_in_the_file(self):
+        (self.root / 'kettle.txt').write_text(
+            'Kettle first step.\n\nKettle second step.\n\nKettle third step.', encoding='utf-8')
+        self.library.reindex()
+        rows = {r.text.split()[1]: r.order for r in self.library.search('kettle')}
+        self.assertLess(rows['first'], rows['second'])
+        self.assertLess(rows['second'], rows['third'])
+
     def test_formats_reindex_update_and_delete(self):
         a = self.root / 'Passive sonar.txt'
         a.write_text('A passive sonobuoy uses a hydrophone.\n\nIt transmits audio by radio.', encoding='utf-8')
