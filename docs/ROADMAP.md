@@ -84,7 +84,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 3.3 | Citation check: drop citations that match no passage; flag answers with none | Claude | done | `check_citations` in `core/librarian/answer.py`; merged in [#11](https://github.com/elijahjtan1/cyberdeck/pull/11), checked on the Pi with Restarters |
 | 3.4 | `deck ask "..."` command and `/api/ask` endpoint | Claude | done | `deck`, `core/cli.py`, `/api/ask` (JSON or streamed); merged in [#12](https://github.com/elijahjtan1/cyberdeck/pull/12), checked on the Pi |
 | 3.5 | Benchmark: ~20 questions with expected articles; measure top-3 hit rate, time to first word, total time, peak memory | Claude | done | `deck bench` merged in [#13](https://github.com/elijahjtan1/cyberdeck/pull/13); recall fixes in [#14](https://github.com/elijahjtan1/cyberdeck/pull/14)-[#16](https://github.com/elijahjtan1/cyberdeck/pull/16) (6/16 to 12/16 top-3). Baseline on the Pi with Restarters and `qwen3:0.6b`, see [Benchmark baseline](LIBRARIAN.md#baseline) |
-| 3.6 | Faster first word: make the passage budget configurable (CYBERDECK_LIBRARIAN_BUDGET, deck bench --budget), measure on the Pi, then pick the default | Claude | in progress | [#18](https://github.com/elijahjtan1/cyberdeck/pull/18); baseline first word 69 s median with 1,400 tokens |
+| 3.6 | Faster first word: make the passage budget configurable (CYBERDECK_LIBRARIAN_BUDGET, deck bench --budget), measure on the Pi, then pick the default | Claude | done | Setting in [#18](https://github.com/elijahjtan1/cyberdeck/pull/18); default 700 in [#23](https://github.com/elijahjtan1/cyberdeck/pull/23). On the Pi, first word 45 s median vs 69 s at 1,400, with the same hits and answers |
 
 ## Phase 4: interfaces and camera
 
