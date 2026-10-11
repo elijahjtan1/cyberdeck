@@ -20,6 +20,7 @@ from panel_tools.backlight import load_backlight
 from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
                                Klondike, SudokuGame, PIECES, PIECE_COLOURS, SUITS, rank_name)
 from panel_tools.ui import ToolsUI
+from panel_tools import beacon
 import json
 import os
 from pathlib import Path
@@ -3199,16 +3200,67 @@ class VisualApp:
         return image
 
 
+class SignalApp:
+    """SOS light beacon and a steady torch. The whole screen flashes; with a PWM backlight
+    the LEDs switch too, so the dark parts are really dark. Any tap stops the light."""
+    LABELS = ('SOS BEACON', 'TORCH', 'EXIT')
+
+    def __init__(self, text='SOS'):
+        self.steps = beacon.schedule(text)
+        self.mode, self.started, self.delay, self.level = None, 0., 1., None
+
+    @staticmethod
+    def rects():
+        top, bottom, gap = (120, H-12, 10) if portrait() else (86, H-8, 8)
+        height = (bottom - top - 2*gap) / 3
+        return [(12, round(top + i*(height+gap)), W-12, round(top + i*(height+gap) + height))
+                for i in range(3)]
+
+    def tap(self, x, y, now):
+        if self.mode is not None:
+            self.mode, self.level = None, None
+            return None
+        choice = index_at(self.rects(), x, y, slop=4)
+        if choice == 2:
+            return 'exit'
+        if choice is not None:
+            self.mode, self.started = ('sos', 'torch')[choice], now
+        return None
+
+    def render(self, now, wall_time, alerts):
+        if self.mode == 'torch':
+            self.level, self.delay = 100, 1.
+            return Image.new('RGB', (W, H), 'white')
+        if self.mode == 'sos':
+            lit, left = beacon.state_at(self.steps, now - self.started)
+            self.level, self.delay = (100 if lit else 0), max(.02, left)
+            return Image.new('RGB', (W, H), 'white' if lit else 'black')
+        self.level, self.delay = None, 1.
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        game_header(d, 'SOS & LIGHT', wall_time, False)
+        light = 'screen and backlight' if BACKLIGHT_PWM else 'whole screen'
+        lines = ('Beacon flashes Morse SOS  ... --- ...', f'Uses the {light}.',
+                 'Under 2 flashes/s. Tap to stop.')
+        for i, line in enumerate(lines):
+            d.text((10, 30 + i*16), fit_text(d, line, W-20, SMALL), font=SMALL,
+                   fill=TEXT if i == 0 else MUTED)
+        for rect, label in zip(self.rects(), self.LABELS):
+            button(d, rect, label, active=label == 'SOS BEACON')
+        return image
+
+
 GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
               'sudoku')
-APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
+APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'),
+             ('SOS & LIGHT', 'sos'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
 def saver_due(options, idle_seconds, page):
     return (options['saver_style'] != 'off' and idle_seconds >= options['saver_delay']
             and page not in ('exit','shutdown','calconfirm','savers','saverstyle','colours',
-                             'photodelete','album','gifs','visual'))
+                             'photodelete','album','gifs','visual','sos'))
 
 
 TABS = ('CAMERA', 'PHOTOS', 'HOME', 'STATUS', 'OPTIONS', 'EXIT')
@@ -4050,7 +4102,8 @@ def main():
                 'sudoku': SudokuApp(scores.get('sudoku_best_seconds', 0),
                                     score_saver('sudoku_best_seconds')),
                 'album': AlbumApp(album_show, cycle_option),
-                'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
+                'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio),
+                'sos': SignalApp()}
 
         def make_saver(style, now):
             style = style if style != 'off' else 'radar'  # Preview with Off shows Radar.
@@ -4084,6 +4137,8 @@ def main():
             elif name == 'gifs':
                 gif_player.refresh()
                 gif_player.paused = False
+            elif name == 'sos':
+                apps['sos'].mode = None  # Always open on the menu, never straight into a flash.
             if name in apps and hasattr(apps[name], 'overlay_until'):
                 apps[name].overlay_until = now + 4  # Show the controls once on entry.
             return name
@@ -4097,6 +4152,7 @@ def main():
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
                     'games': '9 games: arcade and puzzles',
+                    'sos': 'SOS beacon and torch',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -4119,8 +4175,10 @@ def main():
         def draw(now, capturing=None):
             """Draw the current page; returns seconds until it next needs drawing."""
             if page in apps:
-                light.apply(options['pixel_level'])
-                screen.show(apps[page].render(now, datetime.now().astimezone(), alerts))
+                image = apps[page].render(now, datetime.now().astimezone(), alerts)
+                level = getattr(apps[page], 'level', None)  # Set by apps that drive the light.
+                light.apply(options['pixel_level'] if level is None else level)
+                screen.show(image)
                 return apps[page].delay
             extra = None
             if page == 'home':
