@@ -103,6 +103,12 @@ class OllamaTest(unittest.TestCase):
             client(FakeOpener(error=URLError('refused')), telemetry=telemetry).chat([])
         self.assertEqual(telemetry.events[-1][0], 'end')  # Busy indicator cleared.
 
+    def test_slow_start_is_not_reported_as_down(self):
+        # A timeout while waiting for the first byte means the model is still reading.
+        for error in (TimeoutError('timed out'), URLError(TimeoutError('timed out'))):
+            with self.assertRaisesRegex(OllamaError, 'did not start answering within 120 s'):
+                client(FakeOpener(error=error)).chat([])
+
     def test_missing_model_names_the_fix(self):
         error = HTTPError('http://127.0.0.1:11434/api/chat', 404, 'Not Found', {},
                           io.BytesIO(b'{"error":"model \'qwen3:0.6b\' not found"}'))
