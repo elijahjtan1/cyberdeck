@@ -279,7 +279,8 @@ answered question on the Pi); run it with nothing else busy, and Ctrl+C stops it
 
 Questions live in `core/librarian/benchmarks/restarters.json` as
 `{"q": "...", "expect": ["title text"]}`; a passage title matches when it contains an
-`expect` entry, ignoring case and accents. An empty `expect` marks a question the sources
+`expect` entry as whole words (a plural `s` or `es` is allowed), ignoring case and accents,
+so `Lamp` matches `Table lamps` but not `Clamp meter`. An empty `expect` marks a question the sources
 shouldn't answer. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first

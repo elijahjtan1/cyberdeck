@@ -14,7 +14,7 @@
  {"q": "My printer will not feed paper. How do I fix it?", "expect": ["Printer"]},
  {"q": "How do I test a fuse in a plug?", "expect": ["Fuse"]},
  {"q": "How do I use a multimeter to check continuity?", "expect": ["Multimeter", "Continuity"]},
- {"q": "How do I fix a cracked phone screen?", "expect": ["Screen", "Phone", "Smartphone"]},
+ {"q": "How do I fix a cracked phone screen?", "expect": ["Screen", "Touchscreen", "Phone", "Smartphone", "iPhone"]},
  {"q": "Who won the 1998 FIFA World Cup?", "expect": []},
  {"q": "What is the boiling point of mercury?", "expect": []},
  {"q": "How do I bake sourdough bread?", "expect": []},
