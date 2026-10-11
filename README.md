@@ -35,3 +35,4 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.
+- `tools/content.py`: plans, downloads and verifies the offline library ZIMs by tier. See [CONTENT.md](docs/CONTENT.md).

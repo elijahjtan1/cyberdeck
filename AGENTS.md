@@ -43,7 +43,8 @@ described in the roadmap. Keep it importable without Pi hardware.
    exists) should report nothing new.
 3. **Offline first.** Nothing at runtime may fetch from the internet: vendor JavaScript,
    CSS and fonts into the repo. Only `panel_tools/updates.py` talks to GitHub, and only
-   when the user asks.
+   when the user asks. `tools/content.py` downloads ZIM files from download.kiwix.org, but
+   only when the owner runs it by hand; nothing at runtime imports it.
 4. **Dependencies:** standard library, Pillow, and packages available from Raspberry Pi
    OS `apt` (for example `python3-flask`, `python3-picamera2`). Ask the owner before
    adding anything that needs `pip` on the Pi.

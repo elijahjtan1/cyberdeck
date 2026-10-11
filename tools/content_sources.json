@@ -1,0 +1,36 @@
+{
+ "about": "Offline library sources by tier. dir is the folder under https://download.kiwix.org/zim/; the newest dated file for each prefix is used. See docs/CONTENT.md.",
+ "tiers": {
+  "0": "Survival core, small enough for the SD card",
+  "1": "128 GB SSD",
+  "2": "256 GB SSD (recommended)",
+  "3": "512 GB SSD",
+  "4": "1 TB SSD"
+ },
+ "sources": [
+  {"prefix": "restarters_en_all_maxi", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
+  {"prefix": "mdwiki_en_all_maxi", "dir": "other", "tiers": [0, 1, 2, 3, 4], "medical": true},
+  {"prefix": "wikem_en_all_maxi", "dir": "other", "tiers": [0, 1, 2, 3, 4], "medical": true},
+  {"prefix": "zimgit-post-disaster_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
+  {"prefix": "zimgit-water_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
+  {"prefix": "zimgit-food-preparation_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
+  {"prefix": "zimgit-knots_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
+  {"prefix": "ifixit_en_all_maxi", "dir": "ifixit", "tiers": [1, 2, 3, 4]},
+  {"prefix": "medlineplus.gov_en_all", "dir": "zimit", "tiers": [1, 2, 3, 4], "medical": true},
+  {"prefix": "appropedia_en_all_maxi", "dir": "other", "tiers": [1, 2, 3, 4]},
+  {"prefix": "energypedia_en_all_maxi", "dir": "other", "tiers": [1, 2, 3, 4]},
+  {"prefix": "diy.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "gardening.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "outdoors.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "ham.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "electronics.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "raspberrypi.stackexchange.com_en_all", "dir": "stack_exchange", "tiers": [1, 2, 3, 4]},
+  {"prefix": "wikivoyage_en_all_maxi", "dir": "wikivoyage", "tiers": [1, 2, 3, 4]},
+  {"prefix": "wikibooks_en_all_nopic", "dir": "wikibooks", "tiers": [1, 2, 3, 4]},
+  {"prefix": "wikipedia_en_all_mini", "dir": "wikipedia", "tiers": [1]},
+  {"prefix": "wikipedia_en_all_nopic", "dir": "wikipedia", "tiers": [2]},
+  {"prefix": "wikipedia_en_all_maxi", "dir": "wikipedia", "tiers": [3, 4]},
+  {"prefix": "wiktionary_en_all_nopic", "dir": "wiktionary", "tiers": [3, 4]},
+  {"prefix": "gutenberg_en_all", "dir": "gutenberg", "tiers": [4]}
+ ]
+}
