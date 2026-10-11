@@ -187,6 +187,9 @@ class ToolsLayoutTest(unittest.TestCase):
                 saved=json.loads(ui.presets_path.read_text())['Camera']
                 self.assertEqual((saved['volume'],saved['fps'],saved['muted']),(45,15,True))
                 tap('presetapply'); callbacks['preset'].assert_called_once_with(saved)
+                tap('presetnext'); tap('presetapply')  # Unsaved preset: factory settings.
+                callbacks['preset'].assert_called_with({'options':{'pixel_level':70,'saver_style':'clock',
+                                                        'saver_delay':300},'fps':20,'volume':30,'muted':False})
                 ui.page='updates'; tap('restart')
                 self.assertIsNotNone(ui.confirm); tap('cancel')
                 self.assertIsNone(ui.confirm)

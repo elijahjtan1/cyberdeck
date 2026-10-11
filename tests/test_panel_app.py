@@ -41,6 +41,14 @@ class OptionsTest(unittest.TestCase):
             path.write_text(json.dumps({'snap_timer': '3'}))
             self.assertEqual(app.load_options(path)['snap_timer'], 0)
 
+    def test_saved_options_load_back_unchanged(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'options.json'
+            options = dict(app.DEFAULT_OPTIONS, pixel_level=40, saver_style='clock')
+            app.save_options(path, options)
+            self.assertEqual(app.load_options(path), options)
+            self.assertEqual([p.name for p in Path(folder).iterdir()], ['options.json'])
+
 
 class AlertTest(unittest.TestCase):
     def test_quiet_system_has_no_alerts(self):

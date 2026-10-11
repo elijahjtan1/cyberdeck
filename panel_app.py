@@ -11,7 +11,7 @@ Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.
 import argparse
 import sys
 import queue
-from panel_tools.runtime import CameraWorker, Job, data_home
+from panel_tools.runtime import CameraWorker, Job, atomic_json, data_home
 from panel_tools.backend import Backend
 from core.sysinfo import (SystemSampler, command_output, decode_throttle, health_alerts,
                           undervoltage_seen, wireless_signal)
@@ -137,10 +137,7 @@ def load_options(path):
 
 
 def save_options(path, options):
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(options))
-    user_owns(temporary)
-    temporary.replace(path)
+    atomic_json(path, options, user_owns)
 
 
 class HealthPoller:
