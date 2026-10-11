@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageColor, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import panel_app as app  # noqa: E402
@@ -252,6 +252,38 @@ class RotationTest(unittest.TestCase):
         self.assertEqual(app.hit(*app.grid_rects(10)[0][:2]), None)  # Status has no grid.
         for label in ('Pixel level: 100%', 'Calibrate touch...', 'Screen: 90\u00b0 CW'):
             self.assertLess(d.textlength(label, font=app.SMALL), 240)
+
+    def test_long_page_notes_wrap_instead_of_being_cut(self):
+        background = ImageColor.getrgb(app.BG)
+        for degrees in (0, 90):
+            app.set_rotation(degrees)
+            for page, lines in (('options', 1 if degrees == 0 else 2), ('saverstyle', 2)):
+                image = app.render(page, None, False, 20, self.rows, '')
+                top = max(y1 for (_, _, _, y1), a in app.HOTSPOTS if not a.startswith('tab:'))+1
+                inked = [any(image.getpixel((x, y)) != background for x in range(app.W))
+                         for y in range(top, app.content_bottom()+1)]
+                bands = sum(1 for i, ink in enumerate(inked) if ink and (i == 0 or not inked[i-1]))
+                self.assertEqual(bands, lines, (degrees, page))
+                self.assertFalse(inked[-1], (degrees, page))  # Clear of the tab bar.
+
+    def test_narrow_button_wraps_a_long_label(self):
+        app.set_rotation(90)
+        drawn = []
+
+        class Recorder:
+            def __init__(self, d):
+                self.d = d
+
+            def __getattr__(self, name):
+                return getattr(self.d, name)
+
+            def text(self, xy, text, **kw):
+                drawn.append((xy[1], text))
+
+        rect = app.row_rects(4, 100, 127)[1]
+        app.button(Recorder(ImageDraw.Draw(Image.new('RGB', (240, 320)))), rect, 'TIMER OFF')
+        self.assertEqual([t for _, t in drawn], ['TIMER', 'OFF'])
+        self.assertTrue(all(rect[1] < y < rect[3] for y, _ in drawn))
 
     def test_portrait_savers_and_apps(self):
         app.set_rotation(90)

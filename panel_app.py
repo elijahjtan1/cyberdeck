@@ -614,13 +614,17 @@ def hit(x, y, slop=2):
 
 
 def button(d, rect, label, active=False, fill=None, font_=None, action=None):
-    """Rounded button; the label shrinks, then truncates, to fit narrow portrait buttons."""
+    """Rounded button; the label shrinks, then wraps or truncates, to fit narrow portrait buttons."""
     d.rounded_rectangle(rect, radius=5, fill=fill or (ACCENT if active else PANEL))
     chosen, room = font_ or SMALL, rect[2]-rect[0]-8
     if d.textlength(label, font=chosen) > room:
         chosen = TINY
-    d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), fit_text(d, label, room, chosen),
-           font=chosen, fill=BG if active else TEXT, anchor='mm')
+    lines = [label]
+    if d.textlength(label, font=chosen) > room and rect[3]-rect[1] >= 24:
+        lines = wrap_text(d, label, room, chosen)  # 'TIMER OFF' reads better than 'TIMER ...'.
+    for i, line in enumerate(lines):
+        d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2+11*i-11*(len(lines)-1)//2),
+               fit_text(d, line, room, chosen), font=chosen, fill=BG if active else TEXT, anchor='mm')
     hotspot(rect, action)
 
 
@@ -3688,11 +3692,14 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             actions = [f'style:{style}' for style in SAVER_STYLES]
             active = [options['saver_style'] == style for style in SAVER_STYLES]
             note = 'Pictures: camera + cyberdeck-data/album. GIFs: cyberdeck-data/gifs'
-        rects = grid_rects(len(labels))
+        note_lines = wrap_text(d, note, W-16, TINY)
+        # A two-line note takes 12 px from the buttons rather than being cut off.
+        rects = grid_rects(len(labels), bottom=bottom-12*(len(note_lines)-1))
         for rect, label, action, on in zip(rects, labels, actions, active):
             button(d, rect, label, on, action=action)
-        d.text((8, rects[-1][3]+4), fit_text(d, note, W-16, TINY), font=TINY,
-               fill=TEXT if page == 'options' and message else MUTED)
+        for i, line in enumerate(note_lines):
+            d.text((8, rects[-1][3]+4+12*i), line, font=TINY,
+                   fill=TEXT if page == 'options' and message else MUTED)
     elif page == 'home':
         notes = extra.get('home', {})
         clock = wall_time.strftime('%H:%M')
@@ -3756,7 +3763,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         elif state.get('player'):
             playing = 'No media player running'
         else:
-            playing = 'Media keys need playerctl (see docs)'
+            playing = 'Install playerctl for media keys'  # Fits the portrait width too.
         d.text((10, vis_bottom+16), fit_text(d, playing, W-20, SMALL), font=SMALL, fill=TEXT)
         volume = state.get('volume')
         bar_y = vis_bottom+33
@@ -3809,7 +3816,8 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         centred(d, 80+top, 'Close releases the camera and touch.', SMALL, MUTED)
         centred(d, 98+top, 'Busy: wait before closing.' if extra.get('busy') else
                 'Shut down asks once more first.', SMALL, MUTED)
-        rects = ([(20, 120+i*46, W-21, 158+i*46) for i in range(3)] if portrait() else
+        # Portrait: start below the second line of text, which ends near y=122.
+        rects = ([(20, 128+i*43, W-21, 165+i*43) for i in range(3)] if portrait() else
                  row_rects(3, 121, 174, margin=12, gap=11))
         for rect, label, action in zip(rects,
                                        ('CANCEL', 'CLOSE APP', 'SHUT DOWN'),

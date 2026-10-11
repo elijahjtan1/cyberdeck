@@ -38,6 +38,8 @@ prints and log in again. Without that group, `vcgencmd` can't read the undervolt
 
 ## On the panel
 
+![STATUS -> HISTORY with sample data, and without the backend](previews/history-preview.png)
+
 - **STATUS -> HISTORY:**
   - **Charts:** maximum temperature (30-90 C, with a red line at 80 C, where the Pi starts to slow down) and average CPU use.
   - **Ranges:** **1H**, **6H**, **24H** and **7D**.

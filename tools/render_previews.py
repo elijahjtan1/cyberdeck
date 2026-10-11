@@ -51,6 +51,7 @@ def main():
     fun_screens(clock, rows)
     portrait_screens(clock, rows)
     games_screens(clock)
+    history_screens(clock, rows)
 
 
 def save_sheet(screens, name, cols=2, gap=8, scale=2):
@@ -334,6 +335,33 @@ def bunny_life():
     out = ROOT / 'docs/previews/bunny-life.png'
     image.resize((640, 480), Image.NEAREST).save(out, optimize=True)
     print(out)
+
+
+def history_screens(clock, rows):
+    """STATUS -> HISTORY over a made-up day: warm afternoon, a few AI answers and one dip."""
+    now, seconds = 100_000., 86400
+    rng = np.random.default_rng(4)
+    samples = []
+    for i in range(240):
+        t = now - seconds + i*seconds/240
+        busy = 1. if 140 <= i < 150 or 200 <= i < 206 else 0.
+        cpu = 6 + 4*rng.random() + 70*busy
+        temp = 48 + 8*np.sin(np.pi*i/240) + 14*busy + rng.random()
+        samples.append([t, cpu, temp, 30., 0, 0])
+    samples[90:96] = []  # Backend restarted: a gap in the lines.
+    events = [{'kind': 'ai', 'detail': '', 'start': now-seconds+140*360, 'end': now-seconds+150*360},
+              {'kind': 'ai', 'detail': '', 'start': now-seconds+200*360, 'end': now-seconds+206*360},
+              {'kind': 'search', 'detail': '', 'start': now-seconds+120*360, 'end': now-seconds+121*360},
+              {'kind': 'camera', 'detail': '', 'start': now-seconds+60*360, 'end': now-seconds+60*360},
+              {'kind': 'undervoltage', 'detail': '', 'start': now-seconds+203*360,
+               'end': now-seconds+204*360}]
+    data = {'now': now, 'seconds': seconds, 'samples': samples, 'events': events}
+    online = {**rows, 'backend_online': True, 'history_range': seconds, 'history': data}
+    common = dict(options=app.DEFAULT_OPTIONS, wall_time=clock)
+    screens = [app.render('history', None, False, 20, {**online, 'busy': ('ai',)}, '', **common),
+               app.render('history', None, False, 20, {**rows, 'backend_online': False}, '', **common)]
+    save_sheet(screens, 'history-preview.png')
+
 
 if __name__ == '__main__':
     main()
