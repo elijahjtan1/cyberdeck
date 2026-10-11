@@ -252,6 +252,29 @@ running, or predates `/api/ask`, it says so and answers in the terminal itself. 
 always answers in the terminal; `--explain` adds the keywords and passage scores (with
 `--local`, also the Kiwix articles found).
 
+### On the panel
+
+![ASK page: keyboard, waiting for the first word, and an answer (sample text)](previews/ask-landscape-preview.png)
+
+**HOME → ASK** asks the same backend from the touchscreen, so `cyberdeck-core` must be running.
+
+- **Typing:** type on the on-screen keyboard; **123** switches to digits and symbols. Tap the
+  x at the right of the question box to clear it. When the box is empty, tapping it lists your last three questions
+  and a few example questions; tap one to ask it.
+- **Waiting:** the answer page shows the time so far: *Searching*, then *Reading* while the
+  model reads the sources (this can take a minute on the Pi), then *Answering* as the text
+  streams in.
+- **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
+  stopped while it is still reading, it finishes reading first and a new question waits that long.
+- **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
+  in the offline sources* and *UNVERIFIED* (no citations) are shown as they are, never hidden.
+- **Scrolling:** **UP** and **DOWN** scroll a long answer.
+- **Editing:** **EDIT** brings the question back to change it.
+- **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
+  *Answering...* until it finishes. The screensaver waits while the ASK page is open and answering.
+- **Backend down:** if the backend isn't running, the page says so instead of answering. It
+  never answers on the panel itself.
+
 ## Benchmark
 
 `deck bench` asks a list of questions and reports what matters for the librarian: did the
@@ -271,7 +294,9 @@ context size (2,048 by default) the start of the prompt was cut, so lower the bu
 Each line shows the verdict, time to first word and total time, and for a miss the titles
 it got instead. The summary gives the **top-3 hit rate** (in-scope questions whose expected
 article was among the first three distinct passage titles), how many in-scope questions were
-answered and how many of those cited nothing, the **honest "not found" rate** for
+answered and how many of those cited nothing or were **copied** (at least 60% of the answer's
+words pasted from the sources in runs of eight or more, which reads as the sources rather
+than an answer; marked COPIED on its line), the **honest "not found" rate** for
 out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
 the lowest `MemAvailable` and the peak resident memory of Ollama and its `llama-server`
 model runner, sampled every half second from `/proc`. The full run takes a while (about a minute per
@@ -316,19 +341,26 @@ multimeter (expected article ranked 4th).
 Later runs the same day with Chromium closed and smaller passage budgets
 (`deck bench --budget 700`, then `--budget 400`, which became the default):
 
-| Measure | 1,400 tokens | 700 tokens | 400 tokens |
-| --- | --- | --- | --- |
-| Top-3 hit rate | 75% | 75% | 75% |
-| Answered (in scope) | 94% | 100%, none uncited | 100%, none uncited |
-| Honest "not found" | 100% | 100% | 100% |
-| Time to first word | 69 s median, 111 s max | 45 s median, 56 s max | 28 s median, 55 s max |
-| Total per question | 79 s median, 237 s max | 62 s median, 163 s max | 45 s median, 94 s max |
-| Largest prompt | not measured | 835 tokens | not recorded |
-| Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB | 973 MiB |
+| Measure | 1,400 tokens | 700 tokens | 400 tokens | 400, one source per article |
+| --- | --- | --- | --- | --- |
+| Top-3 hit rate | 75% | 75% | 75% | 75% |
+| Answered (in scope) | 94% | 100%, none uncited | 100%, none uncited | 100%, 12% uncited |
+| Honest "not found" | 100% | 100% | 100% | 100% |
+| Time to first word | 69 s median, 111 s max | 45 s median, 56 s max | 28 s median, 55 s max | 22 s median, 31 s max |
+| Total per question | 79 s median, 237 s max | 62 s median, 163 s max | 45 s median, 94 s max | 35 s median, 65 s max |
+| Largest prompt | not measured | 835 tokens | not recorded | 502 tokens |
+| Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB | 973 MiB | 1,126 MiB |
 
 Smaller budgets cut the wait for the first word with no loss in hits or answers. The 400 run
 overlapped one manual `deck ask`, so its slowest times are a little high. The model reads
 roughly 18 prompt tokens a second on the Pi, so most of the wait is still that reading.
+
+The last column is after merging paragraphs into one source per article
+([#28](https://github.com/elijahjtan1/cyberdeck/pull/28)): fewer, shorter prompts sped up the
+first word, but two answers (iPhone, table lamp) cited nothing, and the coffee maker answer
+was its three sources pasted back in the `[1] Title` form the prompt showed them in. The
+prompt now labels them `Source [1]: Title` and ends with the instruction to answer in a few
+sentences of the model's own words with citations, and the benchmark counts copied answers.
 
 ## Grounded answers
 
