@@ -314,7 +314,9 @@ so `Lamp` matches `Table lamps` but not `Clamp meter`. An empty `expect` marks a
 the sources shouldn't answer. Most of those find no passages and never reach the model; the
 ones about repair topics (a part number, a screw torque) are meant to find related
 passages that lack the specific fact, so they test whether the model says it
-doesn't know. Entries with `"checked": true` use titles seen on the Pi; the other
+doesn't know. On the Pi, the torque and toaster questions do find passages; the coffee
+maker and kettle part-number questions don't (too few of their words appear together to
+pass the relevance gate), so they end as an honest "not found" without testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
@@ -366,6 +368,14 @@ first word, but two answers (iPhone, table lamp) cited nothing, and the coffee m
 was its three sources pasted back in the `[1] Title` form the prompt showed them in. The
 prompt now labels them `Source [1]: Title` and ends with the instruction to answer in a few
 sentences of the model's own words with citations, and the benchmark counts copied answers.
+
+**Expectations changed after these runs.** Hair dryer, fuse and cracked phone screen named
+articles that the Restarters wiki doesn't have. A retrieval trace on the Pi showed their
+content in other pages, so `Cleaning`, `PAT testing` and `Spare parts` became expected titles
+([#41](https://github.com/elijahjtan1/cyberdeck/pull/41)). That alone turns those three
+misses into hits, so a run after it reports a higher top-3 rate without better retrieval.
+To compare with the 75% above, also count the hits under the old expectations: those three
+questions counted as misses then, so subtract any of them that hit only through a new title.
 
 ## Grounded answers
 
