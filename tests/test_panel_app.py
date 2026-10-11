@@ -266,6 +266,25 @@ class RotationTest(unittest.TestCase):
                 self.assertEqual(bands, lines, (degrees, page))
                 self.assertFalse(inked[-1], (degrees, page))  # Clear of the tab bar.
 
+    def test_narrow_button_wraps_a_long_label(self):
+        app.set_rotation(90)
+        drawn = []
+
+        class Recorder:
+            def __init__(self, d):
+                self.d = d
+
+            def __getattr__(self, name):
+                return getattr(self.d, name)
+
+            def text(self, xy, text, **kw):
+                drawn.append((xy[1], text))
+
+        rect = app.row_rects(4, 100, 127)[1]
+        app.button(Recorder(ImageDraw.Draw(Image.new('RGB', (240, 320)))), rect, 'TIMER OFF')
+        self.assertEqual([t for _, t in drawn], ['TIMER', 'OFF'])
+        self.assertTrue(all(rect[1] < y < rect[3] for y, _ in drawn))
+
     def test_portrait_savers_and_apps(self):
         app.set_rotation(90)
         options = {**app.DEFAULT_OPTIONS, 'bunny_count': 6}

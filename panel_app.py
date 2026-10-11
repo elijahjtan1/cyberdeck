@@ -614,13 +614,17 @@ def hit(x, y, slop=2):
 
 
 def button(d, rect, label, active=False, fill=None, font_=None, action=None):
-    """Rounded button; the label shrinks, then truncates, to fit narrow portrait buttons."""
+    """Rounded button; the label shrinks, then wraps or truncates, to fit narrow portrait buttons."""
     d.rounded_rectangle(rect, radius=5, fill=fill or (ACCENT if active else PANEL))
     chosen, room = font_ or SMALL, rect[2]-rect[0]-8
     if d.textlength(label, font=chosen) > room:
         chosen = TINY
-    d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), fit_text(d, label, room, chosen),
-           font=chosen, fill=BG if active else TEXT, anchor='mm')
+    lines = [label]
+    if d.textlength(label, font=chosen) > room and rect[3]-rect[1] >= 24:
+        lines = wrap_text(d, label, room, chosen)  # 'TIMER OFF' reads better than 'TIMER ...'.
+    for i, line in enumerate(lines):
+        d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2+11*i-11*(len(lines)-1)//2),
+               fit_text(d, line, room, chosen), font=chosen, fill=BG if active else TEXT, anchor='mm')
     hotspot(rect, action)
 
 
