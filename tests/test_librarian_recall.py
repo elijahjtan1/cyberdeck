@@ -38,6 +38,14 @@ class RecallTest(unittest.TestCase):
         lamps = Passage('Table lamps often flicker when the bulb holder is loose.', 'Table lamps', 'u', 'kiwix')
         self.assertEqual(len(rank_passages('My table lamp flickers', [lamps], 200)), 1)
 
+    def test_title_words_count_toward_a_match(self):
+        body = Passage('If the bulb flickers, tighten it in its holder.',
+                       'Table lamps', 'u', 'kiwix')
+        other = Passage('Flickers can come from a loose plug.', 'Spare parts', 'v', 'kiwix')
+        rows = rank_passages('My table lamp flickers. What should I check?', [other, body], 200)
+        self.assertEqual([r.title for r in rows], ['Table lamps'])  # Without the title, 1 of 4 words.
+        self.assertEqual(rows[0].text, body.text)  # The title is matched, not added to the text.
+
     def test_any_word_search_tops_up_an_empty_all_words_search(self):
         kiwix = FakeKiwix([('Coffee makers', 'coffee maker descale pump'),
                            ('Kettles', 'kettle element')])

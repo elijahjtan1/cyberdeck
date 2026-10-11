@@ -53,7 +53,9 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
                 continue
             seen.add(key)
             candidates.append(replace(passage, text=text))
-            counts.append(Counter(match_key(word) for word in tokens(text)))
+            # The title counts as part of every chunk: a "Table lamps" paragraph rarely says
+            # "table lamp" itself, but it is still about one.
+            counts.append(Counter(match_key(word) for word in tokens(f'{passage.title} {text}')))
             if len(candidates) >= 1000:
                 break
         if len(candidates) >= 1000:
