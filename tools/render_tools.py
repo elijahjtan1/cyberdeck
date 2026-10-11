@@ -1,7 +1,7 @@
 """Render the new tools without Pi hardware. Sample network figures are illustrative."""
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image, ImageFont
@@ -40,6 +40,17 @@ def main():
                     ui.page=page
                     canvas.paste(ui.render(10,datetime(2026,10,10,12,30),()),(i%3*app.W,i//3*app.H))
                 canvas.save(target/f'tools-{rotation}.png')
+            # Sun & moon: no saved location, then a saved one, in both orientations.
+            ui.page,sheet,x='sky',Image.new('RGB',(320*2+240*2+18,320),'#080e14'),0
+            when=datetime(2026,10,21,21,0,tzinfo=timezone(timedelta(hours=1)))  # London summer time
+            for rotation in (0,90):
+                app.set_rotation(rotation)
+                for location in (None,'{"lat": 51.51, "lon": -0.13}'):
+                    path=data/'location.json'
+                    path.unlink(missing_ok=True)
+                    if location: path.write_text(location)
+                    sheet.paste(ui.render(10,when,()),(x,0)); x+=app.W+6
+            sheet.save(target/'sky-preview.png')
         finally:
             ui.close(); app.set_rotation(0)
 

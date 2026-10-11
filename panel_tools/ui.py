@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageOps
 from .runtime import Clocks, Timelapse, Job, atomic_json
 from .network import NetworkHistory, PhotoShare
 from .updates import Updates
+from . import sky
 
 
 def duration(seconds):
@@ -113,7 +114,7 @@ class ToolsUI:
             items = [('Quick controls','go:quick'), ('Timelapse','go:timelapse'),
                      ('Timers','go:timers'), ('Network','go:network'), ('Photo sharing','go:share'),
                      ('Presets','go:presets'), ('Recovery','go:recovery'), ('Updates','go:updates'),
-                     ('GNSS','go:gnss')]
+                     ('GNSS','go:gnss'), ('Sun & moon','go:sky')]
             grid(items[self.menu*6:self.menu*6+6], 56, bottom-38)
             button((8,bottom-37,a.W-9,bottom-8), 'MORE >' if not self.menu else '< FIRST PAGE', 'more')
         elif self.page == 'quick':
@@ -199,6 +200,18 @@ class ToolsUI:
             for y,text in zip(range(79,174,23),('Position: --','Satellites: -- / Fix: --',
                                                'Speed: -- / Altitude: --','Waiting for your GNSS module')):
                 line(y,text)
+        elif self.page == 'sky':
+            # Read on each draw: the file is tiny and editing it takes effect at once.
+            info = sky.sky_lines(wall_time, sky.load_location(self.data/'location.json'))
+            line(38, info['where'], a.MUTED)
+            rows = info['sun'] or ['Sun times need a position:',
+                                   'save it in cyberdeck-data/location.json']
+            for y, text in zip(range(58, 120, 19), rows):
+                line(y, text, None if info['sun'] else a.WARN)
+            moon_y = max(122, (bottom+120)//2-26)
+            self.draw_moon(d, (a.W//2, moon_y+16), 15, info['lit'], info['waxing'])
+            line(moon_y+40, info['moon'])
+            line(moon_y+59, info['next'], a.MUTED)
         elif self.page == 'zoom':
             source = self.zoom_image
             if source:
@@ -233,6 +246,17 @@ class ToolsUI:
             button((8,a.H-65,a.W//2-5,a.H-15),'CANCEL','cancel')
             button((a.W//2+5,a.H-65,a.W-9,a.H-15),'CONFIRM','confirm')
         return image
+
+    def draw_moon(self, d, centre, radius, lit, waxing):
+        """Moon disc lit from the right while waxing, as seen from the northern hemisphere."""
+        cx, cy = centre
+        d.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill='#26323c')
+        for dy in range(-radius, radius+1):
+            half = math.sqrt(max(0, radius*radius - dy*dy))
+            edge = half*(1-2*lit)  # Terminator: the lit part is beyond it.
+            x0, x1 = (cx+edge, cx+half) if waxing else (cx-half, cx-edge)
+            if x1 > x0:
+                d.line((x0, cy+dy, x1, cy+dy), fill='#e8e4d0')
 
     def tap(self,x,y,now):
         action = next((action for (x0,y0,x1,y1),action in reversed(self.rects)

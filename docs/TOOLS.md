@@ -1,7 +1,7 @@
 # Camera and deck tools
 
 Open **APPS > TOOLS**. The menu has two pages; use **MORE** for Recovery, Updates
-and GNSS. **APPS > QUICK CONTROLS** opens the shortcuts directly. Layouts support
+GNSS and Sun & moon. **APPS > QUICK CONTROLS** opens the shortcuts directly. Layouts support
 all four screen rotations. The original camera, calibration, savers, audio and
 games remain available.
 
@@ -72,6 +72,7 @@ keep that argument. Keep your own backup of important photos/settings.
 | Presets | Camera, Desk and Quiet defaults. Apply a preset or confirm Save current to replace that slot. Stores display/saver/camera options, camera FPS and available volume/mute settings. |
 | Recovery | Retry camera initialization and rediscover the audio backend without restarting the app. Detailed errors also go to the terminal/service journal. |
 | GNSS | Deliberate **NO RECEIVER CONNECTED** placeholder with no position, satellite count, speed or altitude. No simulated fixes and no driver assumptions before the module arrives. |
+| Sun & moon | Today's sunrise, sunset, civil dawn and dusk, hours of daylight, and the moon's phase with days to the next full or new moon. Computed on the Pi from the date and a saved position; nothing is downloaded. |
 
 Timelapse waits the selected interval **after a photo finishes**, so slow captures
 never produce catch-up bursts. The displayed shot count is an upper bound.
@@ -79,6 +80,24 @@ Storage estimates use recent JPEG sizes, or 5 MiB per image before any exist;
 actual sizes vary with the camera and scene. The existing 200 MiB free-space
 guard still applies. A failed capture/save stops the sequence and shows an error.
 Timelapse and timers are not resumed after an app restart or power loss.
+
+### Sun & moon
+
+![Sun & moon without and with a saved location](previews/sky-preview.png)
+
+The moon's phase needs no position, so it always shows. Sun times need one, and until
+GPS arrives that is a position you save in `~/cyberdeck-data/location.json`:
+
+```json
+{"lat": 51.51, "lon": -0.13}
+```
+
+Latitude is positive north, longitude positive east (so west is negative). The page
+reads the file each time it draws, so changes show at once. Without a valid file it
+says **No saved location** and shows no sun times rather than guessing a city.
+
+Times are in the Pi's time zone and good to a minute or two; the moon phase can be
+up to half a day off. Near the poles the page says when the sun stays up or down all day.
 
 ## Photo zoom and sharing
 
