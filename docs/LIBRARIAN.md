@@ -271,6 +271,28 @@ in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first 
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
 
+### Baseline
+
+First full run on the Pi 4 (4 GB) with the Restarters ZIM, `qwen3:0.6b`, the default
+2,048-token context and 1,400-token passage budget, 11 October 2026:
+
+| Measure | Result |
+| --- | --- |
+| Top-3 hit rate | 75% (12 of 16 in-scope questions) |
+| Answered (in scope) | 94% (15 of 16; the other timed out), none uncited |
+| Honest "not found" | 100% (4 of 4 out-of-scope questions) |
+| Retrieval | 0.22 s median, 1.28 s max |
+| Time to first word | 69 s median, 111 s max |
+| Total per question | 79 s median, 237 s max |
+| Lowest available memory | 339 MiB |
+
+Retrieval and honesty are good; speed is the problem. Most of the wait is the model reading
+the passages before its first word, and one question hit the 120-second Ollama timeout
+before any text arrived. Ollama's peak memory read 35 MiB, which is too low to be the model
+runner, so that figure isn't trusted yet. Remaining misses: hair dryer and cracked phone
+screen (no matching article found in the ZIM), fuse (Glossary:Fuse not reached) and
+multimeter (expected article ranked 4th).
+
 ## Grounded answers
 
 `core/librarian/answer.py` puts retrieval and the model together. To test it without the
