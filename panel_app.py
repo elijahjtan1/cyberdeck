@@ -3688,11 +3688,14 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             actions = [f'style:{style}' for style in SAVER_STYLES]
             active = [options['saver_style'] == style for style in SAVER_STYLES]
             note = 'Pictures: camera + cyberdeck-data/album. GIFs: cyberdeck-data/gifs'
-        rects = grid_rects(len(labels))
+        note_lines = wrap_text(d, note, W-16, TINY)
+        # A two-line note takes 12 px from the buttons rather than being cut off.
+        rects = grid_rects(len(labels), bottom=bottom-12*(len(note_lines)-1))
         for rect, label, action, on in zip(rects, labels, actions, active):
             button(d, rect, label, on, action=action)
-        d.text((8, rects[-1][3]+4), fit_text(d, note, W-16, TINY), font=TINY,
-               fill=TEXT if page == 'options' and message else MUTED)
+        for i, line in enumerate(note_lines):
+            d.text((8, rects[-1][3]+4+12*i), line, font=TINY,
+                   fill=TEXT if page == 'options' and message else MUTED)
     elif page == 'home':
         notes = extra.get('home', {})
         clock = wall_time.strftime('%H:%M')
@@ -3756,7 +3759,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         elif state.get('player'):
             playing = 'No media player running'
         else:
-            playing = 'Media keys need playerctl (see docs)'
+            playing = 'Install playerctl for media keys'  # Fits the portrait width too.
         d.text((10, vis_bottom+16), fit_text(d, playing, W-20, SMALL), font=SMALL, fill=TEXT)
         volume = state.get('volume')
         bar_y = vis_bottom+33
