@@ -80,6 +80,7 @@ class AnswerTest(unittest.TestCase):
     def test_not_found_with_a_citation_or_decoration_is_still_not_found(self):
         # Told to cite every fact, a small model may cite its not-found sentence too.
         for text in ('Not found in the offline sources. [1]', 'Not found in the offline sources [1].',
+                     'Not found in the offline sources. [1][2]', 'Not found in the offline sources. [1]. [2]',
                      '**Not found in the offline sources.**', '"Not found in the offline sources."',
                      'Not found in the offline sources.\n\nThe sources only discuss notes.'):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))

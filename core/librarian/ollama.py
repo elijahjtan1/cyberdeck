@@ -8,6 +8,7 @@ from http.client import HTTPException
 import ipaddress
 import json
 import os
+import socket
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
@@ -119,6 +120,11 @@ class OllamaClient:
         except HTTPError as exc:
             raise OllamaError(self._http_message(exc)) from exc
         except (URLError, OSError, ValueError, HTTPException) as exc:
+            if isinstance(getattr(exc, 'reason', exc), (socket.timeout, TimeoutError)):
+                # Ollama sends nothing until the model has read the whole prompt, which on the
+                # Pi can pass the timeout; that is slow, not down.
+                raise OllamaError(f'Ollama did not start answering within {self.timeout:g} s; '
+                                  'the model may be busy or the prompt too long') from exc
             raise OllamaError('Ollama is unavailable or timed out; check `systemctl status ollama`') from exc
 
     def _http_message(self, exc):

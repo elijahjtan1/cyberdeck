@@ -83,9 +83,9 @@ def said_not_found(text):
     if start < 0 or text[:start].strip(DECORATION):
         return False
     rest = text[start + len(phrase):].lstrip(DECORATION)
-    citation = CITATION.match(rest)  # "...sources. [1]" cites the sentence, not a fact.
-    if citation:
-        rest = rest[citation.end():]
+    # "...sources. [1]" or "[1][2]" cites the sentence, not a fact.
+    while citation := CITATION.match(rest):
+        rest = rest[citation.end():].lstrip(DECORATION)
     return not CITATION.search(rest)
 
 

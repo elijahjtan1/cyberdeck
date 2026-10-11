@@ -216,7 +216,9 @@ given, so the panel's AI badge lights while the model works. The URL must be loo
 HTTP, and proxies are disabled. Each socket read may wait up to 120 s (the first word on
 the Pi can be slow while the model loads), and a reply is capped at one megabyte.
 Failures raise `OllamaError`: server down, timeout, missing model, a dropped or truncated
-stream, or an error reported mid-answer.
+stream, or an error reported mid-answer. Ollama sends nothing until the model has read
+the whole prompt, so a timeout before the first word is reported as "did not start
+answering" rather than as Ollama being down.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
