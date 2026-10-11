@@ -26,10 +26,13 @@ for versions that require the legacy parameter. The base URL must be loopback HT
 is supported. An empty book searches all books supported by that server.
 
 kiwix-serve only returns articles that contain every search word, so one word the wiki
-doesn't use (for example "leak" in "Why does my coffee maker leak?") would find nothing. When
-the all-words search returns fewer than five articles, the librarian tops it up with an
-any-word search (`coffee OR maker OR leak`), which Kiwix ranks by how many words match;
-passage ranking then drops articles that don't cover enough of the question.
+doesn't use (for example "flickers" in "My table lamp flickers. What should I check?") would
+find nothing. It also reads `OR` as an ordinary word, so an any-word search isn't possible.
+When the all-words search returns fewer than five articles, the librarian searches again with
+adjacent word pairs (`table lamp`, `lamp flickers`, ...) and then single words, stopping once
+it has five; passage ranking then drops articles that don't cover enough of the question.
+Translated copies of a wiki page (`Table lamps/fr`) are skipped so they don't use up the
+five slots; `/en` copies count as the page itself.
 
 Search results contain `title`, `url`, `snippet`, and `source`. Article URLs come
 directly from the RSS response, preserving `/content/<book>/...` or `/<book>/A/...`
