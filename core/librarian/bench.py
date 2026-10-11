@@ -195,10 +195,10 @@ def show_result(n, r, out):
         verdict = (f'top-3 hit (#{r.rank})' if r.top3 else f'hit #{r.rank}' if r.rank else 'MISS')
         if r.model and r.found and r.uncited:
             verdict += ', UNVERIFIED'
-        if r.model and r.copied:
-            verdict += ', COPIED'
         elif r.model and not r.found:
             verdict += ', said not found'
+        if r.model and r.copied:
+            verdict += ', COPIED'
     elif not r.model:
         verdict = 'no passages' if not r.found else 'passages found (model would decide)'
     else:

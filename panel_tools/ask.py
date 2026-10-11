@@ -139,6 +139,8 @@ class AskApp:
             for event in events:
                 if self.cancel.is_set():
                     break
+                if not isinstance(event, dict):
+                    raise ValueError('the backend sent something that is not an event')
                 kind = event.get('event')
                 with self.lock:
                     if kind == 'passages':
@@ -224,11 +226,13 @@ class AskApp:
             elif choice is not None:
                 self.view = 'type'
             return None
-        if a.index_at([field_rect(a.W, a.H)], x, y, slop=2) is not None:
-            if self.question:
-                self.question = ''
-            else:
+        box = field_rect(a.W, a.H)
+        if a.index_at([box], x, y, slop=0) is not None:
+            # Only the x clears, so a stray tap just above the keys can't wipe the question.
+            if not self.question:
                 self.view = 'examples'
+            elif x >= box[2] - 24:
+                self.question = ''
             return None
         keys = keyboard_rects(a.W, a.H, self.symbols)
         choice = a.index_at([rect for rect, _ in keys], x, y, slop=1)
@@ -266,9 +270,9 @@ class AskApp:
     def body(self):
         """Paragraphs for the answer view."""
         if self.stage == 'error':
-            return [self.error]
+            return (self.text.split('\n') + [''] if self.text else []) + [self.error]  # Keep a partial answer.
         if self.text:
-            parts = [self.text]
+            parts = self.text.split('\n')  # Numbered steps keep their own lines.
         elif self.stage == 'searching':
             parts = ['Searching the offline library...']
         elif self.stage == 'reading':

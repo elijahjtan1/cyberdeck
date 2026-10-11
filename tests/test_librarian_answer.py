@@ -208,6 +208,7 @@ class AnswerTest(unittest.TestCase):
         messages = build_messages('  Why?  ', [NOTES])
         self.assertEqual([m['role'] for m in messages], ['system', 'user'])
         self.assertIn('Question: Why?\n\n', messages[1]['content'])
+        self.assertTrue(messages[1]['content'].endswith(NOT_FOUND))  # The last thing it reads.
 
     def test_copied_share_spots_pasted_sources(self):
         lamp = Passage('Seals can leak, and this is often more problematic. Cleaning might resolve '

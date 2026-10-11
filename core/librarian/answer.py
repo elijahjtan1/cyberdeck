@@ -79,7 +79,8 @@ def by_article(passages):
 # Last in the prompt, where a small model heeds it most. On the Pi, the coffee maker question
 # came back as the "[1] Title" source blocks copied out, the format the prompt showed it.
 ANSWER_CUE = ('Answer the question in two to four sentences of your own, using only the sources '
-              'above. Put the source number after each fact, like [1]. Do not copy the sources out.')
+              'above. Put the source number after each fact, like [1]. Do not copy the sources out. '
+              f'If the sources do not answer it, reply exactly: {NOT_FOUND}')
 
 
 def build_messages(question, passages):

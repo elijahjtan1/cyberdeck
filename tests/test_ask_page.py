@@ -80,7 +80,10 @@ class AskPageTest(unittest.TestCase):
         self.assertEqual(page.question, 'why fus ')
         self.press(page, 'mode', '1', '2', 'mode', '?')
         self.assertEqual(page.question, 'why fus 12?')
-        page.tap(*centre(field_rect(app.W, app.H)), 0)  # Tapping the box clears it...
+        box = field_rect(app.W, app.H)
+        page.tap(*centre(box), 0)  # A stray tap on the box keeps the question...
+        self.assertEqual(page.question, 'why fus 12?')
+        page.tap(box[2] - 8, centre(box)[1], 0)  # ...the x clears it...
         self.assertEqual(page.question, '')
         page.tap(*centre(field_rect(app.W, app.H)), 0)  # ...and an empty box offers examples.
         self.assertEqual(page.view, 'examples')
@@ -120,6 +123,19 @@ class AskPageTest(unittest.TestCase):
         self.assertIn('UNVERIFIED: the answer cites no source.', body)
         self.assertIn('Warning: Kiwix timed out', body)
         self.assertIn('Searched:', body)
+
+    def test_partial_answers_line_breaks_and_bad_lines(self):
+        page = self.page(scripted(PASSAGES, {'event': 'text', 'text': '1. Unplug it [1].\n2. Check the seal'},
+                                  {'event': 'error', 'error': 'lost the backend mid-answer'}))
+        page.ask('Why does my coffee maker leak?')
+        self.finish(page)
+        self.assertEqual(page.body(), ['1. Unplug it [1].', '2. Check the seal', '', 'lost the backend mid-answer'])
+        page.stage = 'done'
+        self.assertEqual(page.body()[:2], ['1. Unplug it [1].', '2. Check the seal'])
+        odd = self.page(scripted(PASSAGES, [1, 2]))
+        odd.ask('anything')
+        self.finish(odd)
+        self.assertEqual(odd.stage, 'error')
 
     def test_backend_down_is_a_message_not_a_crash(self):
         page = self.page(scripted(BackendMissing('the backend is not running')))
