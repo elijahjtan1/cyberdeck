@@ -113,7 +113,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 6.1 | Real-time clock: DS3231 on I2C, kept in sync from NTP (and GPS once 5.1 lands); STATUS shows the clock source (network, RTC, GPS or unsynced) | - | todo | About $5. Needs `dtoverlay=i2c-rtc,ds3231` in `/boot/firmware/config.txt`, so Eli applies that step |
-| 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | - | todo | Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged |
+| 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | - | todo | Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged. Medical answers (WikiMed) show the passages first with a "verify before acting" warning |
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
 
 ## Phase 7: software for an offline world
@@ -124,16 +124,16 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | --- | --- | --- | --- | --- |
 | 7.1 | Library manifest: sha256 of every ZIM and library file, checked weekly at low priority, result on STATUS | - | todo | Detects silent SD or SSD corruption |
 | 7.2 | Quick cards: short plain-text sheets (first aid, water purification, fire, knots, radio frequencies) readable on the panel with no model | - | todo | Sources must be cited on each card; content reviewed by Eli |
-| 7.3 | Panel ASK page: on-screen keyboard that calls `/api/ask` and streams the answer with citations | - | todo | Shows "backend not running" instead of failing |
+| 7.3 | Panel ASK page: on-screen keyboard that calls `/api/ask` and streams the answer with citations | - | todo | Shows "backend not running" instead of failing. Preset questions or a full-screen answer view, since the keyboard leaves little room on 320x240. First word takes about a minute on the Pi, so show progress and the passages event from `/api/ask?stream=1` while waiting |
 | 7.4 | Deck hotspot: the Pi as a Wi-Fi access point so phones nearby reach Kiwix, the librarian and the browser UI (4.1) | - | todo | Changes network config; Eli approves before it is installed |
-| 7.5 | Hardware watchdog for the panel and core services | - | todo | `bcm2835_wdt`; systemd `WatchdogSec` |
+| 7.5 | Hardware watchdog for the panel and core services | - | todo | `bcm2835_wdt`; systemd `WatchdogSec`, which needs the panel and core to send `sd_notify` keep-alives |
 | 7.6 | Survival power profile: Wi-Fi, Bluetooth and HDMI off, powersave governor, Ollama unloaded when idle, backlight low; one switch on the panel | - | todo | Measure the saving with 6.3 |
 | 7.7 | Read-only root with overlayfs; user data on its own writable partition | - | todo | Survives sudden power loss. Changes boot config; Eli applies it |
 | 7.8 | Backup to a USB stick or second SD from the panel, with verify | - | todo | |
 | 7.9 | Self-rebuild kit: cached apt packages, a repo bundle and a restore guide on the SSD | - | todo | After 6.2 |
-| 7.10 | Night mode: red-on-black palette on every page | - | todo | Previews regenerated in both palettes |
+| 7.10 | Night mode: red-on-black palette on every page | - | todo | Large diff: colours are hard-coded throughout `panel_app.py`. Night previews for a few key pages only |
 | 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | - | todo | Uses GPS when present, otherwise a saved location |
-| 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | - | todo | |
+| 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | - | todo | Backlight beacon needs the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)); otherwise it flashes the whole screen white and black |
 | 7.13 | Field journal: timestamped notes with optional photo and position | - | todo | |
 | 7.14 | Supplies tracker: food, water and medicine with quantities, expiry dates and days remaining | - | todo | |
 | 7.15 | Survival calculators: water disinfection doses, calorie and water needs, unit conversions | - | todo | Formulas cited from the offline sources |
@@ -141,7 +141,7 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | 7.17 | Offline dictionaries and phrasebooks from FreeDict (`dict-freedict-*` from apt) | - | todo | |
 | 7.18 | Camera motion watch: low-rate frame differencing that saves snapshots | - | todo | Low CPU; holds the camera only while armed |
 | 7.19 | Offline place-name search from a GeoNames extract, for maps and waypoints (5.2, 5.3) | - | todo | |
-| 7.20 | Survival dashboard on HOME: time and clock source, power, weather, last message | - | todo | After 6.1 and 6.3 |
+| 7.20 | Survival dashboard, a page of its own opened from HOME (HOME is already full): time and clock source, power, last journal entry | - | todo | After 6.1, 6.3 and 7.13. Shows only fields with a real source; weather or messages need new hardware first |
 
 ## Deferred until hardware is chosen
 
