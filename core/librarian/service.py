@@ -1,6 +1,7 @@
 """Combine offline sources; source failures are distinct from no evidence."""
 from contextlib import nullcontext
 import os
+import re
 
 from .extract import fetch_article
 from .kiwix import KiwixClient, KiwixError, SearchResult
@@ -11,6 +12,18 @@ from .rank import Passage, rank_passages, chunks
 
 class RetrievalError(RuntimeError):
     pass
+
+
+# Wiki translation subpages such as "Table lamps/fr" take result slots from other articles.
+LANGUAGE_PAGE = re.compile(r'/([a-z]{2}(?:-[a-z]+)?)$')
+
+
+def english_title(title):
+    """The title to dedupe on: "Table lamps/en" is "Table lamps"; other languages are None."""
+    match = LANGUAGE_PAGE.search(title)
+    if not match:
+        return title
+    return title[:match.start()] if match.group(1) == 'en' else None
 
 
 class Retriever:
@@ -80,24 +93,28 @@ class Retriever:
             return results, list(dict.fromkeys(errors))
 
     def kiwix_search(self, query, limit=5):
-        """kiwix-serve only returns articles containing every word, so a question with one
-        word the wiki doesn't use finds nothing. Top up with an any-word search, which Kiwix
-        ranks by how many words match; passage ranking then filters the extra articles."""
-        found = self.kiwix.search(query, limit=limit)
+        """kiwix-serve only returns articles containing every word (and reads "OR" as just
+        another word), so one word the wiki doesn't use finds nothing: "table lamp flickers
+        check" misses Table lamps. Fall back to adjacent word pairs, then single words, until
+        there are enough articles; passage ranking then drops the ones that don't fit."""
         terms = query.split()
-        if len(found) >= limit or len(terms) < 2:
-            return found
-        try:
-            extra = self.kiwix.search(' OR '.join(terms), limit=limit)
-        except KiwixError:
-            if found:
-                return found
-            raise
-        seen = {row.url for row in found}
-        for row in extra:
-            if row.url not in seen and len(found) < limit:
-                seen.add(row.url)
-                found.append(row)
+        pairs = [' '.join(terms[i:i + 2]) for i in range(len(terms) - 1)] if len(terms) > 2 else []
+        found, seen = [], set()
+        for pattern in dict.fromkeys([query, *pairs, *(terms if len(terms) > 1 else [])]):
+            try:
+                # Extra rows because translated copies of a page are skipped below.
+                rows = self.kiwix.search(pattern, limit=min(limit * 3, 20))
+            except KiwixError:
+                if found:
+                    return found  # Keep what earlier searches found.
+                raise  # Kiwix is down; don't wait out a timeout per fallback.
+            for row in rows:
+                key = english_title(row.title)
+                if key and key not in seen:
+                    seen.add(key)
+                    found.append(row)
+                if len(found) >= limit:
+                    return found
         return found
 
     def retrieve(self, question, budget_tokens=1400):

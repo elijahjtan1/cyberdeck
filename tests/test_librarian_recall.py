@@ -8,21 +8,17 @@ from core.librarian.service import Retriever
 
 
 class FakeKiwix:
-    """kiwix-serve style: a plain query needs every word; 'a OR b' needs any."""
+    """kiwix-serve style: every word of the query must appear, "OR" included."""
 
-    def __init__(self, articles, or_error=False):
-        self.articles, self.or_error, self.queries = articles, or_error, []
+    def __init__(self, articles, fail_after=None):
+        self.articles, self.fail_after, self.queries = articles, fail_after, []
 
     def search(self, query, limit=5):
         self.queries.append(query)
-        if ' OR ' in query:
-            if self.or_error:
-                raise KiwixError('Kiwix is unavailable')
-            words, match = query.split(' OR '), any
-        else:
-            words, match = query.split(), all
+        if self.fail_after is not None and len(self.queries) > self.fail_after:
+            raise KiwixError('Kiwix is unavailable')
         rows = [SearchResult(title, f'http://k/{title}', '') for title, text in self.articles
-                if match(w in text for w in words)]
+                if all(w in text.split() for w in query.split())]
         return rows[:limit]
 
 
@@ -46,25 +42,34 @@ class RecallTest(unittest.TestCase):
         self.assertEqual([r.title for r in rows], ['Table lamps'])  # Without the title, 1 of 4 words.
         self.assertEqual(rows[0].text, body.text)  # The title is matched, not added to the text.
 
-    def test_any_word_search_tops_up_an_empty_all_words_search(self):
-        kiwix = FakeKiwix([('Coffee makers', 'coffee maker descale pump'),
-                           ('Kettles', 'kettle element')])
-        found = Retriever(kiwix=kiwix).kiwix_search('coffee maker leak')
-        self.assertEqual([r.title for r in found], ['Coffee makers'])
-        self.assertEqual(kiwix.queries, ['coffee maker leak', 'coffee OR maker OR leak'])
+    def test_word_pairs_find_what_the_full_question_misses(self):
+        kiwix = FakeKiwix([('Table lamps', 'table lamp bulb holder'),
+                           ('Light bulbs', 'lamp flickers bulb')])
+        found = Retriever(kiwix=kiwix).kiwix_search('table lamp flickers check')
+        self.assertEqual([r.title for r in found], ['Table lamps', 'Light bulbs'])
+        self.assertEqual(kiwix.queries, ['table lamp flickers check', 'table lamp', 'lamp flickers',
+                                         'flickers check', 'table', 'lamp', 'flickers', 'check'])
 
-    def test_full_or_single_word_searches_skip_the_fallback(self):
-        kiwix = FakeKiwix([(f'Kettle {n}', 'kettle') for n in range(6)])
-        retriever = Retriever(kiwix=kiwix)
-        self.assertEqual(len(retriever.kiwix_search('kettle')), 5)
-        self.assertEqual(kiwix.queries, ['kettle'])
+    def test_translated_pages_do_not_take_slots(self):
+        kiwix = FakeKiwix([('Table lamps/fr', 'lamp'), ('Table lamps/en', 'lamp'),
+                           ('Table lamps', 'lamp'), ('Table lamps/nl', 'lamp'),
+                           ('Glossary:AC/DC', 'lamp')])
+        found = Retriever(kiwix=kiwix).kiwix_search('lamp')
+        self.assertEqual([r.title for r in found], ['Table lamps/en', 'Glossary:AC/DC'])
+
+    def test_enough_results_skip_the_fallback(self):
+        kiwix = FakeKiwix([(f'Kettle {n}', 'kettle switch') for n in range(6)])
+        self.assertEqual(len(Retriever(kiwix=kiwix).kiwix_search('kettle switch')), 5)
+        self.assertEqual(kiwix.queries, ['kettle switch'])
 
     def test_fallback_failure_keeps_earlier_hits(self):
-        kiwix = FakeKiwix([('Kettles', 'kettle switch')], or_error=True)
+        kiwix = FakeKiwix([('Kettles', 'kettle switch')], fail_after=1)
         self.assertEqual([r.title for r in Retriever(kiwix=kiwix).kiwix_search('kettle switch')],
                          ['Kettles'])
+        kiwix = FakeKiwix([('Kettles', 'kettle')], fail_after=0)
         with self.assertRaises(KiwixError):
             Retriever(kiwix=kiwix).kiwix_search('kettle lid')
+        self.assertEqual(len(kiwix.queries), 1)  # Down: no fallback searches.
 
 
 if __name__ == '__main__':
