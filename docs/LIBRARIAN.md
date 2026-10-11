@@ -142,6 +142,17 @@ a source failure, HTTP 503 carries `error`; this must not be treated as evidence
 the answer is absent. Invalid input is HTTP 400. Only one API search runs at a time;
 another receives a readable 503 rather than increasing Pi memory pressure.
 
+`GET /api/ask?q=How%20does%20a%20passive%20sonobuoy%20work%3F` answers from the offline
+sources (see **Grounded answers**). It returns `question`, `answer`, `found`, `uncited`,
+`cited`, `dropped`, numbered `sources` (`n`, `title`, `url`, `source`, `score`, `text`),
+`warnings`, `partial`, `model`, `seconds` and `output_tokens`. "Not found" is a normal
+answer with `found: false` and `model: null` (the model wasn't called). Add `stream=1` for
+newline-delimited JSON: one `passages` event (with `keywords` and `model`), `text` events as
+the answer streams, then `done` with the fields above, or `error`. A source or model failure
+is HTTP 503 with `error` (or an `error` event when streaming), never a false "not found".
+One question is answered at a time; another gets a 503 until it finishes. Closing the
+connection stops the model.
+
 Local URLs use `GET /api/library/<relative-path>` and return the original document as
 plain text with browser execution blocked. Paths outside the configured library and
 symlinks are rejected. Kiwix URLs retain the server's exact article path and configured
@@ -204,16 +215,35 @@ stream, or an error reported mid-answer.
 
 The defaults match the Pi, so the boot service needs no extra settings.
 
+## Asking questions
+
+With Kiwix, Ollama and the `cyberdeck-core` service running, ask from any terminal on the Pi:
+
+```bash
+~/cyberdeck-repo/deck ask "How does a passive sonobuoy work?"
+```
+
+To type just `deck`, link it once (no sudo; open a new terminal afterwards):
+`mkdir -p ~/.local/bin && ln -s ~/cyberdeck-repo/deck ~/.local/bin/deck`.
+
+`deck ask` sends the question to the backend's `/api/ask`, so the panel's AI badge lights and
+only one question is answered at a time. It prints `Searching...`, then `Reading N passage(s)
+with qwen3:0.6b...` while the model reads (the slow part on the Pi), then streams the answer
+and the cited sources. Ctrl+C stops it cleanly, and stops the model too. If the backend isn't
+running, or predates `/api/ask`, it says so and answers in the terminal itself. `--local`
+always answers in the terminal; `--explain` adds the keywords and passage scores (with
+`--local`, also the Kiwix articles found).
+
 ## Grounded answers
 
-`core/librarian/answer.py` puts retrieval and the model together. Try it on the Pi with
-Kiwix and Ollama running (and the Kiwix variables exported as in **Backend configuration**):
+`core/librarian/answer.py` puts retrieval and the model together. To test it without the
+backend, run it in the terminal directly:
 
 ```bash
 python3 -m core.librarian.answer "How does a passive sonobuoy work?"
 ```
 
-If `CYBERDECK_KIWIX_URL` isn't set in your terminal, the command uses the Kiwix settings
+That is the same as `deck ask --local`. If `CYBERDECK_KIWIX_URL` isn't set in your terminal, the command uses the Kiwix settings
 the `cyberdeck-core` service was installed with (and says so); if neither has them it warns
 that Kiwix is off, so only local documents are searched. Add `--explain` to see each step:
 the keywords sent to Kiwix, the articles Kiwix returned, and the passages that passed the
@@ -237,7 +267,8 @@ The passage budget is shrunk so passages, about 250 tokens of instructions and t
 all fit in the model's context: with the defaults (2,048 context, 400 answer tokens) that
 is 1,398 passage tokens. A failed source or model raises `RetrievalError` or `OllamaError`
 rather than returning "not found", because an outage is not evidence that the answer is
-absent. The panel and `/api/ask` do not call this yet (roadmap 3.4).
+absent. `ask_events()` yields the same steps one at a time (passages, text pieces, then the
+`Answer`) for callers that stream, such as `/api/ask`.
 
 ### Citation check
 

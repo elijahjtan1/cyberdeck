@@ -54,24 +54,59 @@ def said_not_found(text):
     return text.strip().rstrip('.').casefold() == NOT_FOUND.rstrip('.').casefold()
 
 
-def answer(question, retriever, client, *, budget_tokens=1400, on_text=None, on_passages=None):
-    """Raises RetrievalError if every source failed, OllamaError if the model failed.
+def ask_events(question, retriever, client, *, budget_tokens=1400):
+    """Yield ('passages', (passages, warnings)), then ('text', piece)..., then ('done', Answer).
 
-    Neither error means the answer is absent; callers show the error instead.
+    Raises RetrievalError if every source failed, OllamaError if the model failed, and
+    ValueError for bad settings. None of them means the answer is absent.
     """
     budget = passage_budget(client, budget_tokens)
     if not budget:
         raise ValueError('The model context is too small for any passages; raise num_ctx')
     passages, warnings = retriever.run(question, budget)
-    if on_passages:
-        on_passages(passages)
+    yield 'passages', (passages, warnings)
     if not passages:
-        return Answer(question, NOT_FOUND, False, [], warnings)
-    reply = client.chat(build_messages(question, passages), on_text=on_text, detail=question)
-    if not reply.text or said_not_found(reply.text):
-        return Answer(question, NOT_FOUND, False, passages, warnings, reply)
-    text, cited, dropped = check_citations(reply.text, len(passages))
-    return Answer(question, text, True, passages, warnings, reply, cited, dropped)
+        yield 'done', Answer(question, NOT_FOUND, False, [], warnings)
+        return
+    for item in client.iter_chat(build_messages(question, passages), detail=question):
+        if isinstance(item, str):
+            yield 'text', item
+            continue
+        if not item.text or said_not_found(item.text):
+            yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
+        else:
+            text, cited, dropped = check_citations(item.text, len(passages))
+            yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped)
+
+
+def answer(question, retriever, client, *, budget_tokens=1400, on_text=None, on_passages=None):
+    """Run ask_events to the end; the callbacks see passages and streamed text."""
+    for kind, value in ask_events(question, retriever, client, budget_tokens=budget_tokens):
+        if kind == 'passages' and on_passages:
+            on_passages(value[0])
+        elif kind == 'text' and on_text:
+            on_text(value)
+        elif kind == 'done':
+            return value
+
+
+def to_json(result):
+    """Plain dict for the API; sources keep their [n] numbers."""
+    reply = result.reply
+    return {
+        'question': result.question, 'answer': result.text, 'found': result.found,
+        'uncited': result.uncited, 'cited': result.cited, 'dropped': result.dropped,
+        'sources': [passage_json(n, p) for n, p in enumerate(result.sources, 1)],
+        'warnings': result.warnings, 'partial': bool(result.warnings),
+        'model': reply.model if reply else None,
+        'seconds': reply.seconds if reply else 0.0,
+        'output_tokens': reply.output_tokens if reply else 0,
+    }
+
+
+def passage_json(n, passage):
+    return {'n': n, 'title': passage.title, 'url': passage.url, 'source': passage.source,
+            'score': round(passage.score, 3), 'text': passage.text}
 
 
 def check_citations(text, count):
@@ -135,58 +170,15 @@ def explain(question, retriever, out):
 
 
 def main(argv=None):
+    """Answer in this process, always; `deck ask` prefers the running backend."""
     import argparse
-    import os
-    import sys
-    from .ollama import OllamaClient, OllamaError
-    from .service import RetrievalError, Retriever
+    from ..cli import ask_local
     parser = argparse.ArgumentParser(description='Answer a question from the offline sources.')
     parser.add_argument('question')
     parser.add_argument('--explain', action='store_true',
                         help='show keywords, Kiwix articles and passage scores')
     args = parser.parse_args(argv)
-    if not os.environ.get('CYBERDECK_KIWIX_URL'):
-        # A terminal doesn't see the boot service's settings; borrow them rather than
-        # silently searching without Kiwix.
-        saved = service_kiwix_settings()
-        if saved.get('CYBERDECK_KIWIX_URL'):
-            os.environ.update(saved)
-            print(f"Using the cyberdeck-core service's Kiwix settings: {saved['CYBERDECK_KIWIX_URL']} "
-                  f"book {saved.get('CYBERDECK_KIWIX_BOOK') or '(all)'}", file=sys.stderr)
-        else:
-            print('warning: Kiwix is off. Set CYBERDECK_KIWIX_URL (see docs/LIBRARIAN.md); '
-                  'only local documents are searched.', file=sys.stderr)
-    try:
-        retriever, client = Retriever.from_environment(), OllamaClient.from_environment()
-        if args.explain:
-            explain(args.question, retriever, sys.stderr)
-
-        def show(passages):
-            print(f'passages: {len(passages)} passed the relevance gate', file=sys.stderr)
-            for n, passage in enumerate(passages, 1):
-                print(f'  [{n}] score {passage.score:.2f} {passage.title}', file=sys.stderr)
-
-        result = answer(args.question, retriever, client,
-                        on_text=lambda t: print(t, end='', flush=True),
-                        on_passages=show if args.explain else None)
-    except (RetrievalError, OllamaError, ValueError) as exc:
-        print(f'error: {exc}', file=sys.stderr)
-        return 1
-    # The model's words were already streamed; only a skipped or empty reply needs the message.
-    print(NOT_FOUND if result.reply is None or not result.reply.text else '')
-    if result.dropped:
-        print('Removed citations to sources that were not given: '
-              + ', '.join(f'[{n}]' for n in result.dropped))
-    if result.uncited:
-        print('UNVERIFIED: the answer cites no source.')
-    if result.sources:
-        print('Sources:' if result.cited else 'Searched:')
-    for n, passage in enumerate(result.sources, 1):
-        if n in result.cited or not result.cited:
-            print(f'[{n}] {passage.title} ({passage.source}) {passage.url}')
-    for warning in result.warnings:
-        print(f'warning: {warning}', file=sys.stderr)
-    return 0
+    return ask_local(args.question, explain=args.explain)
 
 
 if __name__ == '__main__':
