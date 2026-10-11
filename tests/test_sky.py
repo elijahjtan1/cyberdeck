@@ -92,7 +92,10 @@ class LocationTest(unittest.TestCase):
         self.assertTrue(info['sun'][0].startswith('Sunrise 04:4'), info['sun'])
         self.assertIn('Daylight 16h 3', info['sun'][2])
         polar = sky.sky_lines(datetime(2026, 6, 21, 12, tzinfo=UTC), (78.2, 15.6))
-        self.assertEqual(polar['sun'][0], 'Sunrise sun up all day   Sunset sun up all day')
+        self.assertEqual(polar['sun'][0], 'Sun up all day')
+        self.assertEqual(polar['sun'][2], 'No sunrise or sunset today')
+        self.assertFalse(polar['south'])
+        self.assertTrue(sky.sky_lines(datetime(2026, 6, 21, 12, tzinfo=UTC), (-33.9, 151.2))['south'])
 
 
 class ClockTest(unittest.TestCase):
@@ -107,6 +110,15 @@ class ClockTest(unittest.TestCase):
 class SkyPageTest(unittest.TestCase):
     def tearDown(self):
         app.set_rotation(0)
+
+    def test_moon_disc_lights_the_requested_side(self):
+        from PIL import Image, ImageDraw
+        for right in (True, False):
+            image = Image.new('RGB', (40, 40))
+            ToolsUI.draw_moon(None, ImageDraw.Draw(image), (20, 20), 15, .5, right)
+            lit_x, dark_x = (28, 12) if right else (12, 28)
+            self.assertEqual(image.getpixel((lit_x, 20)), (0xe8, 0xe4, 0xd0))
+            self.assertEqual(image.getpixel((dark_x, 20)), (0x26, 0x32, 0x3c))
 
     def test_page_renders_with_and_without_location_in_both_orientations(self):
         with tempfile.TemporaryDirectory() as directory:

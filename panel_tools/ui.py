@@ -212,7 +212,9 @@ class ToolsUI:
             for y, text in zip(range(56, 132, 19), rows):
                 line(y, text, a.MUTED if text == info['where'] else None if info['sun'] else a.WARN)
             moon_y = max(126 if info['clock'] else 122, (bottom+120)//2-26)
-            self.draw_moon(d, (a.W//2, moon_y+16), 15, info['lit'], info['waxing'])
+            # The southern hemisphere sees the moon upside down: lit from the left while waxing.
+            self.draw_moon(d, (a.W//2, moon_y+16), 15, info['lit'],
+                           info['waxing'] != info.get('south', False))
             line(moon_y+40, info['moon'])
             line(moon_y+59, info['next'], a.MUTED)
         elif self.page == 'zoom':
@@ -250,14 +252,14 @@ class ToolsUI:
             button((a.W//2+5,a.H-65,a.W-9,a.H-15),'CONFIRM','confirm')
         return image
 
-    def draw_moon(self, d, centre, radius, lit, waxing):
-        """Moon disc lit from the right while waxing, as seen from the northern hemisphere."""
+    def draw_moon(self, d, centre, radius, lit, right):
+        """Moon disc with `lit` of it lit, from the right side when `right` is true."""
         cx, cy = centre
         d.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill='#26323c')
         for dy in range(-radius, radius+1):
             half = math.sqrt(max(0, radius*radius - dy*dy))
             edge = half*(1-2*lit)  # Terminator: the lit part is beyond it.
-            x0, x1 = (cx+edge, cx+half) if waxing else (cx-half, cx-edge)
+            x0, x1 = (cx+edge, cx+half) if right else (cx-half, cx-edge)
             if x1 > x0:
                 d.line((x0, cy+dy, x1, cy+dy), fill='#e8e4d0')
 

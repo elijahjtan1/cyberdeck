@@ -105,16 +105,21 @@ def sky_lines(wall_time, location, sync='Unknown'):
             return 'sun down all day'
         return value.astimezone(zone).strftime('%H:%M')
 
+    # Worked out for the local calendar date; where clock time is far from solar time
+    # (Kiritimati, UTC+14 at 157W) the times can belong to the next day, a minute apart.
     rise, sunset = sun_events(day, lat, lon)
     dawn, dusk = sun_events(day, lat, lon, CIVIL_ALTITUDE)
     if isinstance(rise, datetime):
         minutes = round((sunset-rise).total_seconds()/60)
         daylight = f'Daylight {minutes//60}h {minutes%60:02}m'
+        times = f'Sunrise {clock(rise)}   Sunset {clock(sunset)}'
     else:
-        daylight = 'Daylight ' + clock(rise)
-    sun = [f'Sunrise {clock(rise)}   Sunset {clock(sunset)}',
+        daylight = 'No sunrise or sunset today' if rise == 'up' else 'No daylight today'
+        times = clock(rise).capitalize()
+    sun = [times,
            f'Civil dawn {clock(dawn)}   dusk {clock(dusk)}' if isinstance(dawn, datetime)
            else 'Civil twilight: ' + ('no full dark' if dawn == 'up' else 'none'),
            daylight]
     return {'where': 'Saved location ' + position_label(lat, lon), 'sun': sun, 'moon': moon,
-            'next': upcoming, 'lit': lit, 'waxing': to_full < to_new, 'clock': clock_note}
+            'next': upcoming, 'lit': lit, 'waxing': to_full < to_new, 'clock': clock_note,
+            'south': lat < 0}
