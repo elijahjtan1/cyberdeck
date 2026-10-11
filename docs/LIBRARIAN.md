@@ -221,7 +221,7 @@ stream, or an error reported mid-answer.
 | `CYBERDECK_OLLAMA_MODEL` | `qwen3:0.6b` | Model name from `ollama list` |
 | `CYBERDECK_OLLAMA_NUM_CTX` | `2048` | Context size in tokens (256-32768); larger is slower and uses more RAM |
 | `CYBERDECK_OLLAMA_NUM_PREDICT` | `400` | Maximum answer length in tokens (1-4096) |
-| `CYBERDECK_LIBRARIAN_BUDGET` | `1400` | Passage tokens the model reads before answering (100-10000, capped to fit the context). On the Pi most of the wait for the first word is reading these, so a smaller budget answers sooner with less detail |
+| `CYBERDECK_LIBRARIAN_BUDGET` | `1400` | Passage tokens the model reads before answering (100-10000, capped to fit the context). On the Pi most of the wait for the first word is reading these, so a smaller budget answers sooner with less detail. The `cyberdeck-core` service doesn't see a value set in a terminal, so it applies to `deck ask --local` and `deck bench`, not to `deck ask` through the running backend |
 
 The defaults match the Pi, so the boot service needs no extra settings.
 
