@@ -84,6 +84,18 @@ class ParseTest(unittest.TestCase):
         self.assertFalse(gps.parse(nmea('GPGGA,010203,9100.000,N,01131.000,E,1,05,1,1,M,,M,,'))['fix'])
 
 
+    def test_estimated_manual_and_simulator_fixes_are_not_fixes(self):
+        for quality in '678':
+            body = f'GPGGA,123519,4807.038,N,01131.000,E,{quality},08,0.9,545.4,M,46.9,M,,'
+            self.assertFalse(gps.parse(nmea(body))['fix'], quality)
+        self.assertTrue(gps.parse(nmea('GPGGA,123519,4807.038,N,01131.000,E,2,08,0.9,545.4,M,46.9,M,,'))['fix'])
+        rmc = 'GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W,'
+        for mode in 'NEMS':
+            self.assertFalse(gps.parse(nmea(rmc + mode))['fix'], mode)
+        for mode in 'ADR':
+            self.assertTrue(gps.parse(nmea(rmc + mode))['fix'], mode)
+
+
 class TrackerTest(unittest.TestCase):
     def test_merges_sentences_and_goes_stale(self):
         clock = Clock()
@@ -101,12 +113,27 @@ class TrackerTest(unittest.TestCase):
         self.assertFalse(r['fix'])
         self.assertIsNone(r['lat'])
         self.assertEqual(r['age_s'], gps.STALE_S + 1)
+        self.assertIsNone(r['utc'])  # Old receiver time must not pass for the current time.
+
+    def test_time_comes_only_from_rmc(self):
+        tracker = gps.Tracker('serial', clock=Clock())
+        tracker.feed(RMC)
+        tracker.feed(nmea('GPGGA,000001,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,'))
+        self.assertEqual(tracker.snapshot()['utc'], '1994-03-23T12:35:19Z')  # Not 1994-03-23T00:00:01.
 
     def test_losing_the_fix_clears_the_position(self):
         tracker = gps.Tracker('serial', clock=Clock())
         tracker.feed(GGA)
         tracker.feed(GGA_NO_FIX)
         self.assertEqual((tracker.snapshot()['fix'], tracker.snapshot()['lat']), (False, None))
+        tracker.feed(GGA)
+        tracker.feed(RMC_VOID)  # Altitude came from the earlier GGA; it goes with the fix.
+        r = tracker.snapshot()
+        self.assertEqual((r['fix'], r['altitude_m'], r['lat']), (False, None, None))
+        self.assertIsNone(gps.Tracker(clock=Clock()).snapshot()['utc'])
+        no_fix = gps.Tracker(clock=Clock())
+        no_fix.feed(RMC_VOID)
+        self.assertIsNone(no_fix.snapshot()['utc'])  # A receiver without a fix may not know the time.
 
 
 def run_source(source, until):

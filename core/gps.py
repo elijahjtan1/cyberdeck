@@ -83,7 +83,9 @@ def parse(sentence):
     if kind == 'GGA' and len(fields) >= 10:
         quality = int(fields[6]) if fields[6].isdigit() else 0
         lat, lon = _coordinate(fields[2], fields[3]), _coordinate(fields[4], fields[5])
-        fix = quality > 0 and lat is not None and lon is not None
+        # 1-5 are measured fixes; 6 is dead reckoning, 7 manual input and 8 the receiver's
+        # own simulator, none of which may be shown as a real position.
+        fix = 1 <= quality <= 5 and lat is not None and lon is not None
         satellites = int(fields[7]) if fields[7].isdigit() else None
         return {'kind': 'GGA', 'time': _utc_time(fields[1]), 'fix': fix,
                 'lat': lat if fix else None, 'lon': lon if fix else None,
@@ -91,7 +93,9 @@ def parse(sentence):
                 'hdop': _float(fields[8])}
     if kind == 'RMC' and len(fields) >= 10:
         lat, lon = _coordinate(fields[3], fields[4]), _coordinate(fields[5], fields[6])
-        fix = fields[2] == 'A' and lat is not None and lon is not None
+        # NMEA 2.3+ adds a mode letter: N none, E estimated, M manual, S simulator.
+        mode = fields[12][:1] if len(fields) > 12 else 'A'
+        fix = fields[2] == 'A' and mode not in ('N', 'E', 'M', 'S') and lat is not None and lon is not None
         day = None
         try:
             year = int(fields[9][4:6])  # Two digits; GPS time starts in 1980.
@@ -119,7 +123,7 @@ class Reading:
     hdop: float = None
     speed_kmh: float = None
     course_deg: float = None
-    utc: str = None  # ISO time from the receiver, once an RMC sentence has given the date.
+    utc: str = None  # ISO time from the last RMC sentence with a fix.
 
 
 class Tracker:
@@ -129,7 +133,6 @@ class Tracker:
         self.clock = clock
         self.reading = Reading(source, simulated)
         self.updated = None  # Clock time of the last valid sentence.
-        self.date = None
 
     def feed(self, line):
         data = parse(line)
@@ -137,24 +140,29 @@ class Tracker:
             return False
         r = self.reading
         if data['kind'] == 'RMC':
-            self.date = data['date'] or self.date
             r.speed_kmh, r.course_deg = data['speed_kmh'], data['course_deg']
+            # Time only from a valid RMC, which carries its own date (a GGA just after
+            # midnight paired with the previous RMC's date would be a day behind). Without a
+            # fix the receiver's clock may be a guess, so it isn't reported.
+            if data['fix'] and data['time'] and data['date']:
+                r.utc = (datetime.combine(data['date'], data['time'], timezone.utc)
+                         .isoformat().replace('+00:00', 'Z'))
         else:
             r.altitude_m, r.satellites, r.hdop = data['altitude_m'], data['satellites'], data['hdop']
         r.fix, r.lat, r.lon = data['fix'], data['lat'], data['lon']
-        if data['time'] and self.date:
-            r.utc = datetime.combine(self.date, data['time'], timezone.utc).isoformat().replace('+00:00', 'Z')
         self.updated = self.clock()
         return True
 
     def snapshot(self):
-        """The reading as a dict, with no position once it is older than STALE_S."""
+        """The reading as a dict: position fields only with a current fix, and nothing from
+        the receiver (not even its time) once the last sentence is older than STALE_S."""
         data = asdict(self.reading)
         age = None if self.updated is None else self.clock() - self.updated
         data['age_s'] = None if age is None else round(age, 1)
         if age is None or age > STALE_S:
-            data.update(fix=False, lat=None, lon=None, altitude_m=None, satellites=None,
-                        hdop=None, speed_kmh=None, course_deg=None)
+            data.update(fix=False, satellites=None, hdop=None, utc=None)
+        if not data['fix']:
+            data.update(lat=None, lon=None, altitude_m=None, speed_kmh=None, course_deg=None)
         return data
 
 

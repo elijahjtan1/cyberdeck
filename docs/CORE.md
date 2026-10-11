@@ -114,7 +114,7 @@ All responses are JSON. Times are Unix seconds.
 | `POST /api/activity/start` `{"kind": "ai", "detail": "..."}` | Start an activity; returns `{"id": n}` |
 | `POST /api/activity/end` `{"id": n}` | End it |
 | `POST /api/activity/mark` `{"kind": "camera", "detail": "photo"}` | An instant event |
-| `GET /api/gps` | `configured`, `source` (`serial`, `gpsd`, `replay` or null), `simulated`, `fix`, `lat`, `lon`, `altitude_m`, `satellites`, `hdop`, `speed_kmh`, `course_deg`, `utc` (receiver time), `age_s`, `error`; plus `"label": "SIMULATED"` for replays. Position fields are null without a current fix |
+| `GET /api/gps` | `configured`, `source` (`serial`, `gpsd`, `replay` or null), `simulated`, `fix`, `lat`, `lon`, `altitude_m`, `satellites`, `hdop`, `speed_kmh`, `course_deg`, `utc` (receiver time from the last RMC with a fix), `age_s`, `error`; plus `"label": "SIMULATED"` for replays. Position fields are null without a current fix, and `utc` is null once the receiver has been silent for 10 s. Dead-reckoned, manual and receiver-simulator fixes count as no fix |
 
 Librarian routes (`/api/search`, `/api/retrieve`, `/api/ask`, `/api/library/...`) are described
 in [LIBRARIAN.md](LIBRARIAN.md#api); `deck ask "..."` is the terminal front end for `/api/ask`.
