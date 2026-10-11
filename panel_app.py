@@ -3200,6 +3200,13 @@ class VisualApp:
         return image
 
 
+def app_light_level(app, options):
+    """Brightness for a full-screen app: its own level if it drives the light (SOS & LIGHT),
+    otherwise the user's chosen level."""
+    level = getattr(app, 'level', None)
+    return options['pixel_level'] if level is None else level
+
+
 class SignalApp:
     """SOS light beacon and a steady torch. The whole screen flashes; with a PWM backlight
     the LEDs switch too, so the dark parts are really dark. Any tap stops the light."""
@@ -3228,20 +3235,22 @@ class SignalApp:
         return None
 
     def render(self, now, wall_time, alerts):
-        if self.mode == 'torch':
-            self.level, self.delay = 100, 1.
-            return Image.new('RGB', (W, H), 'white')
-        if self.mode == 'sos':
-            lit, left = beacon.state_at(self.steps, now - self.started)
+        if self.mode is not None:
+            lit, left = (True, 1.) if self.mode == 'torch' else \
+                beacon.state_at(self.steps, now - self.started)
             self.level, self.delay = (100 if lit else 0), max(.02, left)
-            return Image.new('RGB', (W, H), 'white' if lit else 'black')
+            image = Image.new('RGB', (W, H), 'white' if lit else 'black')
+            if alerts:  # A finished timer or a power warning must stay readable.
+                self.level = 100
+                draw_banner(ImageDraw.Draw(image), alerts, wall_time.strftime('%H:%M'))
+            return image
         self.level, self.delay = None, 1.
         image = Image.new('RGB', (W, H), BG)
         d = ImageDraw.Draw(image)
         game_header(d, 'SOS & LIGHT', wall_time, False)
         light = 'screen and backlight' if BACKLIGHT_PWM else 'whole screen'
         lines = ('Beacon flashes Morse SOS  ... --- ...', f'Uses the {light}.',
-                 'Under 2 flashes/s. Tap to stop.')
+                 'Flashing light, under 2/s. Tap to stop.')
         for i, line in enumerate(lines):
             d.text((10, 30 + i*16), fit_text(d, line, W-20, SMALL), font=SMALL,
                    fill=TEXT if i == 0 else MUTED)
@@ -3788,17 +3797,8 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         notes = extra.get('notes', {})
         for rect, (label, key) in zip(grid_rects(len(APP_TILES), 30, bottom+4, max_pitch=200), APP_TILES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
-            middle, room = (rect[1]+rect[3])//2, rect[2]-rect[0]-8
-            title_lines = wrap_text(d, label, room, FONT, 2)
-            note_lines = wrap_text(d, notes.get(key, ''), room, TINY, 2)
-            y = middle - (len(title_lines)*18 + len(note_lines)*13)//2 + 2
-            for line in title_lines:
-                d.text(((rect[0]+rect[2])//2, y+8), line, font=FONT, fill=TEXT, anchor='mm')
-                y += 18
-            y += 4
-            for line in note_lines:
-                d.text(((rect[0]+rect[2])//2, y+6), line, font=TINY, fill=MUTED, anchor='mm')
-                y += 13
+            for line, y, selected, colour in tile_text(d, rect, label, notes.get(key, '')):
+                d.text(((rect[0]+rect[2])//2, y), line, font=selected, fill=colour, anchor='mm')
             hotspot(rect, 'app:' + key)
     elif page == 'audio':
         state, capture = extra.get('audio', {}), extra.get('capture')
@@ -3880,6 +3880,30 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         active = TAB_PARENT.get(page, page) == label.lower()
         button(d, rect, label, active, font_=TAB_FONT, action='tab:' + label.lower())
     return image
+
+
+def tile_text(draw, rect, title, note):
+    """[(line, centre y, font, colour)] for a launcher tile. Short tiles drop note lines and
+    tighten spacing before shortening the title, so everything stays inside the tile."""
+    room, height = rect[2]-rect[0]-8, rect[3]-rect[1]-4
+    for title_max, note_max, title_step, note_step, gap in (
+            (2, 2, 18, 13, 4), (2, 1, 18, 13, 4), (2, 1, 16, 12, 1), (2, 0, 18, 0, 0),
+            (2, 0, 16, 0, 0), (1, 1, 16, 12, 1), (1, 0, 16, 0, 0)):
+        titles = wrap_text(draw, title, room, FONT, title_max)
+        notes = wrap_text(draw, note, room, TINY, note_max) if note_max else []
+        used = len(titles)*title_step + (gap + len(notes)*note_step if notes else 0)
+        if used <= height:
+            break
+    y = (rect[1]+rect[3])//2 - used//2
+    lines = []
+    for line in titles:
+        lines.append((line, y + title_step//2, FONT, TEXT))
+        y += title_step
+    y += gap
+    for line in notes:
+        lines.append((line, y + note_step//2, TINY, MUTED))
+        y += note_step
+    return lines
 
 
 def wrap_text(draw, value, width, selected_font, max_lines=2):
@@ -4176,8 +4200,7 @@ def main():
             """Draw the current page; returns seconds until it next needs drawing."""
             if page in apps:
                 image = apps[page].render(now, datetime.now().astimezone(), alerts)
-                level = getattr(apps[page], 'level', None)  # Set by apps that drive the light.
-                light.apply(options['pixel_level'] if level is None else level)
+                light.apply(app_light_level(apps[page], options))
                 screen.show(image)
                 return apps[page].delay
             extra = None

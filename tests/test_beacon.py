@@ -1,6 +1,7 @@
 """SOS & LIGHT: Morse timing, flash rate and the panel app's touch flow."""
 import sys
 import unittest
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import panel_app as app  # noqa: E402
 from panel_tools import beacon  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
 
 
 def centre(rect):
@@ -88,6 +90,48 @@ class SignalAppTest(unittest.TestCase):
         image = signal.render(50, CLOCK, ())
         self.assertEqual(image.getextrema(), ((255, 255),)*3)
         self.assertEqual(signal.level, 100)
+
+    def test_alerts_stay_readable_while_flashing(self):
+        signal = app.SignalApp()
+        signal.tap(*centre(signal.rects()[0]), 0)
+        alerts = [('warning', 'TIMER DONE - tap to dismiss')]
+        dark = signal.render(beacon.UNIT + .05, CLOCK, alerts)  # Between flashes.
+        self.assertEqual(dark.getpixel((2, 2)), (0xf0, 0xb3, 0x47))  # Warning banner.
+        self.assertEqual(dark.getpixel((5, app.H-5)), (0, 0, 0))     # Still dark below it.
+        self.assertEqual(signal.level, 100)
+
+    def test_light_level_hook_restores_the_users_level(self):
+        options = {**app.DEFAULT_OPTIONS, 'pixel_level': 70}
+        signal = app.SignalApp()
+        self.assertEqual(app.app_light_level(signal, options), 70)  # Menu.
+        self.assertEqual(app.app_light_level(app.VisualApp(None, None), options), 70)
+        signal.tap(*centre(signal.rects()[0]), 0)
+        signal.render(beacon.UNIT + .05, CLOCK, ())
+        pwm = mock.Mock(available=True)
+        app.Brightness(mock.Mock(pixel_level=100), pwm).apply(app.app_light_level(signal, options))
+        pwm.set.assert_called_with(0)  # Dark phase: LEDs really off.
+        signal.tap(5, 5, 1)
+        signal.render(2, CLOCK, ())
+        self.assertEqual(app.app_light_level(signal, options), 70)
+
+    def test_apps_tile_text_stays_inside_tiles(self):
+        notes = {'audio': 'Volume, media, visualizer', 'games': '9 games: arcade and puzzles',
+                 'album': '12 pictures | slideshow', 'gifs': 'Copy GIFs to cyberdeck-data/gifs',
+                 'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
+                 'sos': 'SOS beacon and torch'}
+        d = ImageDraw.Draw(Image.new('RGB', (8, 8)))
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            rects = app.grid_rects(len(app.APP_TILES), 30, app.content_bottom()+4, max_pitch=200)
+            for rect, (label, key) in zip(rects, app.APP_TILES):
+                lines = app.tile_text(d, rect, label, notes[key])
+                self.assertTrue(lines, key)
+                self.assertNotIn('...', lines[0][0], (rotation, key))  # Titles stay whole.
+                for line, y, selected, _ in lines:
+                    box = d.textbbox(((rect[0]+rect[2])//2, y), line, font=selected, anchor='mm')
+                    self.assertTrue(rect[0] <= box[0] and box[2] <= rect[2]
+                                    and rect[1] <= box[1] and box[3] <= rect[3],
+                                    (rotation, key, line, box, rect))
 
     def test_listed_in_apps_and_never_covered_by_a_saver(self):
         self.assertIn(('SOS & LIGHT', 'sos'), app.APP_TILES)
