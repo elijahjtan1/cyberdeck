@@ -30,6 +30,7 @@ class Result:
     total_s: float = 0.0
     found: bool = False
     uncited: bool = False
+    prompt_tokens: int = 0  # As counted by the model; over num_ctx means the prompt was cut.
     error: str = ''
     model: bool = True  # False for retrieval-only runs; found then means "had passages".
 
@@ -140,6 +141,7 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                     result.first_word_s = clock() - start
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
+                    result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.
         result.error = str(exc) or type(exc).__name__
     result.total_s = clock() - start
@@ -172,6 +174,7 @@ def summarize(results, memory=None):
         'retrieval_s': spread([r.retrieval_s for r in results if not r.error]),
         'first_word_s': spread(firsts),
         'total_s': spread(totals),
+        'max_prompt_tokens': max((r.prompt_tokens for r in results), default=0) or None,
         'min_mem_available_mib': memory.min_available_mib if memory else None,
         'peak_ollama_rss_mib': memory.max_ollama_mib if memory else None,
     }
@@ -210,6 +213,8 @@ def show_summary(s, out):
     print(f"Retrieval:             {secs(s['retrieval_s'])}", file=out)
     print(f"Time to first word:    {secs(s['first_word_s'])}", file=out)
     print(f"Total per question:    {secs(s['total_s'])}", file=out)
+    if s.get('max_prompt_tokens'):
+        print(f"Largest prompt:        {s['max_prompt_tokens']} tokens", file=out)
     if s['min_mem_available_mib'] is not None:
         ollama = s['peak_ollama_rss_mib']
         print(f"Memory:                lowest available {s['min_mem_available_mib']} MiB"

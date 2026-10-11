@@ -47,6 +47,8 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(r.titles, ['Glossary:Repair Café', 'Table lamps'])  # Deduplicated.
         self.assertEqual((r.rank, r.top3, r.found, r.uncited, r.error), (1, True, True, False, ''))
         self.assertEqual((r.retrieval_s, r.first_word_s, r.total_s), (0.5, 1.0, 1.5))
+        self.assertEqual(r.prompt_tokens, 300)  # From the model's reply.
+        self.assertEqual(bench.summarize([r])['max_prompt_tokens'], 300)
 
     def test_retrieval_only_and_errors(self):
         client = FakeClient('unused')

@@ -257,7 +257,8 @@ can't answer, and how long it took on the Pi.
 ```
 
 `--budget` sets how many passage tokens the model reads, to compare speed against answer
-quality; `--limit 5` runs only the first five questions.
+quality. The summary's largest prompt is the model's own token count; if it exceeds the
+context size (2,048 by default) the start of the prompt was cut, so lower the budget; `--limit 5` runs only the first five questions.
 
 Each line shows the verdict, time to first word and total time, and for a miss the titles
 it got instead. The summary gives the **top-3 hit rate** (in-scope questions whose expected
