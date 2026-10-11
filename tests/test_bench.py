@@ -113,6 +113,9 @@ class BenchTest(unittest.TestCase):
         self.assertIn('got: Toasters, Coffee makers, Irons', text)
         self.assertIn('honest: not found', text)
         self.assertIn('ANSWERED an out-of-scope question', text)
+        self.assertIn('    said: An answer [1].', text)  # Shown only for answers to check.
+        self.assertEqual(text.count('    said:'), 1)
+        self.assertEqual(saved['results'][0]['answer'], 'An answer [1].')
         self.assertIn('Top-3 hit rate:        50%', text)
 
     def test_memory_watch_reads_proc(self):

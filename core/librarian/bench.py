@@ -33,6 +33,7 @@ class Result:
     found: bool = False
     uncited: bool = False
     copied: bool = False  # Most of the answer is source text pasted back, not an answer.
+    answer: str = ''  # The checked answer, so a wrong one can be read back from the JSON.
     prompt_tokens: int = 0  # As counted by the model; over num_ctx means the prompt was cut.
     error: str = ''
     model: bool = True  # False for retrieval-only runs; found then means "had passages".
@@ -147,6 +148,7 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                     result.first_word_s = clock() - start
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
+                    result.answer = value.text
                     result.copied = value.found and copied_share(value.text, value.sources) >= COPIED
                     result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.
@@ -207,6 +209,10 @@ def show_result(n, r, out):
     print(f'{n:2}. {verdict} | first word {first}, total {r.total_s:.1f}s | {r.question}', file=out)
     if r.answerable and not r.top3 and r.titles:
         print(f'    got: {", ".join(r.titles[:3])}', file=out)
+    if r.answer and r.found and (r.copied or not r.answerable):
+        # The answers worth reading: out-of-scope ones that should have been "not found".
+        answer = ' '.join(r.answer.split())
+        print(f'    said: {answer[:240]}{"..." if len(answer) > 240 else ""}', file=out)
 
 
 def show_summary(s, out):
