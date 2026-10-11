@@ -10,7 +10,9 @@ stemming, translation, or semantic understanding.
 and `score`. `rank_passages(question, passages, budget_tokens=1400)` compares paragraphs
 from all sources using BM25 (k1=1.2, b=0.75). Matching ignores case and accents, so
 "cafe" matches "Café", and applies a light plural rule ("lamps" matches "lamp", "batteries"
-matches "battery"). It is not a full stemmer: "flickering" does not match "flicker". It splits long paragraphs at sentence or
+matches "battery"). It is not a full stemmer: "flickering" does not match "flicker". A passage's title counts toward its
+match, so a paragraph from "Table lamps" matches "table lamp" even when the paragraph only
+says "bulb"; the title is not added to the text sent to the model. It splits long paragraphs at sentence or
 word boundaries, deduplicates text, and considers at most 1,000 chunks. It returns
 passages in decreasing score order whose combined estimated token cost fits the budget.
 The estimate is `ceil(len(text)/4)` per passage. Prompt text, titles and URLs need a
