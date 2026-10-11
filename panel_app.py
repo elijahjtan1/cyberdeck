@@ -3816,7 +3816,8 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         centred(d, 80+top, 'Close releases the camera and touch.', SMALL, MUTED)
         centred(d, 98+top, 'Busy: wait before closing.' if extra.get('busy') else
                 'Shut down asks once more first.', SMALL, MUTED)
-        rects = ([(20, 120+i*46, W-21, 158+i*46) for i in range(3)] if portrait() else
+        # Portrait: start below the second line of text, which ends near y=122.
+        rects = ([(20, 128+i*43, W-21, 165+i*43) for i in range(3)] if portrait() else
                  row_rects(3, 121, 174, margin=12, gap=11))
         for rect, label, action in zip(rects,
                                        ('CANCEL', 'CLOSE APP', 'SHUT DOWN'),
