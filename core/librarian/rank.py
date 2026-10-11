@@ -14,6 +14,7 @@ class Passage:
     url: str
     source: str
     score: float = 0.0
+    order: int = 0  # Position in its article, so pieces of one page can be read in page order.
 
 
 def chunks(text, max_chars=1600):
@@ -47,12 +48,12 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
         return []
     candidates, counts, seen = [], [], set()
     for passage in passages:
-        for text in chunks(passage.text, min(1600, budget_tokens * 4)):
+        for part, text in enumerate(chunks(passage.text, min(1600, budget_tokens * 4))):
             key = text.casefold()
             if key in seen:
                 continue
             seen.add(key)
-            candidates.append(replace(passage, text=text))
+            candidates.append(replace(passage, text=text, order=passage.order * 1000 + part))
             # The title counts as part of every chunk: a "Table lamps" paragraph rarely says
             # "table lamp" itself, but it is still about one.
             counts.append(Counter(match_key(word) for word in tokens(f'{passage.title} {text}')))

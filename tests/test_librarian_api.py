@@ -125,6 +125,7 @@ class ApiTest(unittest.TestCase):
         data = self.client.get('/api/retrieve?q=passive+sonobuoy&budget_tokens=80').get_json()
         self.assertTrue(data['results'])
         self.assertLessEqual(sum((len(p['text']) + 3) // 4 for p in data['results']), 80)
+        self.assertNotIn('order', data['results'][0])  # An internal sort key.
 
     def test_validation_down_and_partial_results(self):
         for url in ('/api/search', '/api/search?q=' + 'x' * 1001,

@@ -76,7 +76,8 @@ class Retriever:
                                 count = 0
                                 for row in rows:
                                     for text in chunks(row):
-                                        candidates.append(Passage(text, result.title, result.url, 'kiwix'))
+                                        candidates.append(Passage(text, result.title, result.url, 'kiwix',
+                                                                 order=count))
                                         count += 1
                                         if count >= 150:
                                             break

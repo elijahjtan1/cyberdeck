@@ -105,13 +105,32 @@ class AnswerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'num_ctx'):
             answer('q', retriever, client)  # A config error, never a false "not found".
 
+    def test_paragraphs_of_one_article_are_one_source(self):
+        more = Passage('It drifts and transmits for hours.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 2.0)
+        client = FakeClient('It listens [1] and charges [2], see [3].')
+        result = answer('q', FakeRetriever([SONOBUOY, NOTES, more]), client)
+        self.assertEqual([p.title for p in result.sources], ['Sonobuoy', 'notes.md'])
+        self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
+        self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
+        prompt = client.calls[0][0][1]['content']
+        self.assertIn('[2] notes.md', prompt)
+        self.assertNotIn('[3]', prompt)
+        self.assertEqual(result.dropped, [3])
+
+    def test_merged_paragraphs_keep_page_order(self):
+        later = Passage('It radios the sound back.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 3.0, order=7)
+        earlier = Passage('A sonobuoy is a small buoy.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 1.0, order=2)
+        result = answer('q', FakeRetriever([later, earlier]), FakeClient('ok [1]'))
+        self.assertEqual(result.sources[0].text, f'{earlier.text}\n\n{later.text}')
+        self.assertEqual(result.sources[0].score, 3.0)
+
     def test_budget_from_environment(self):
         retriever = FakeRetriever([NOTES])
         with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '5000'}):
             answer('q', retriever, FakeClient('ok [1]'))
         with mock.patch.dict(os.environ, {}, clear=True):
             answer('q', retriever, FakeClient('ok [1]'))
-        self.assertEqual([c[1] for c in retriever.calls], [1398, 700])  # 5000 capped by the context.
+        self.assertEqual([c[1] for c in retriever.calls], [1398, 400])  # 5000 capped by the context.
         for bad in ('lots', '50'):
             with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': bad}):
                 with self.assertRaisesRegex(ValueError, 'CYBERDECK_LIBRARIAN_BUDGET'):
