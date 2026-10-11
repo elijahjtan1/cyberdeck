@@ -11,6 +11,7 @@ one, and the old file is listed for the owner to remove after checking the new o
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -167,20 +168,26 @@ def download(kiwix, row, dest, out=sys.stdout):
     if have > row['size']:
         part.unlink()
         have = 0
-    done = have
     if have < row['size']:  # A complete .part (interrupted before the rename) only needs checking.
         response = kiwix.open(row['url'], {'Range': 'bytes=%d-' % have} if have else {})
-        with response:
-            if have and getattr(response, 'status', 200) != 206:
-                have = done = 0  # The server ignored the range, so start again.
-            with part.open('ab' if have else 'wb') as target:
-                for block in iter(lambda: response.read(CHUNK), b''):
-                    target.write(block)
-                    done += len(block)
+        try:
+            with response:
+                if have and getattr(response, 'status', 200) != 206:
+                    have = 0  # The server ignored the range, so start again.
+                with part.open('ab' if have else 'wb') as target:
+                    for block in iter(lambda: response.read(CHUNK), b''):
+                        target.write(block)
+        except (OSError, http.client.HTTPException) as error:
+            raise ContentError('%s stopped part way (%s); the partial file was kept, run fetch '
+                               'again to resume.' % (row['file'], str(error) or type(error).__name__)) from error
+    size = part.stat().st_size
+    if size < row['size']:
+        raise ContentError('%s ended early at %s of %s; the partial file was kept, run fetch '
+                           'again to resume.' % (row['file'], human(size), human(row['size'])))
     with part.open('rb') as written:  # Hash what is on disk, not what was sent.
         for block in iter(lambda: written.read(CHUNK), b''):
             digest.update(block)
-    if done != row['size'] or digest.hexdigest() != row['sha256']:
+    if size != row['size'] or digest.hexdigest() != row['sha256']:
         part.unlink()
         raise ContentError('%s failed its size or sha256 check and was removed; run fetch again.'
                            % row['file'])
@@ -196,15 +203,17 @@ def fetch(kiwix, sources, dest, out=sys.stdout):
     if problem:
         raise ContentError(problem)
     failed = []
+    old = []
     for row in rows:
-        if row['state'] == 'installed':
-            continue
-        try:
-            download(kiwix, row, dest, out)
-        except ContentError as error:
-            failed.append(str(error))
-            out.write('FAILED     %s\n' % error)
-    old = [name for row in rows for name in row['installed'] if name != row['file']]
+        if row['state'] != 'installed':
+            try:
+                download(kiwix, row, dest, out)
+            except ContentError as error:
+                failed.append(str(error))
+                out.write('FAILED     %s\n' % error)
+                continue
+        # Only once the newest file is in place is an older one safe to remove.
+        old.extend(name for name in row['installed'] if name != row['file'])
     if old:
         out.write('Superseded (delete after checking the new file in kiwix-serve):\n')
         for name in old:
@@ -215,8 +224,12 @@ def fetch(kiwix, sources, dest, out=sys.stdout):
 
 def verify(dest, out=sys.stdout):
     """Re-hash every manifest entry. Returns the names that are missing or changed."""
+    manifest = Manifest(dest)
+    if not manifest.path.exists():
+        out.write('No manifest.json in %s; nothing fetched there yet.\n' % dest)
+        return ['manifest.json']
     bad = []
-    for name, entry in sorted(Manifest(dest).files.items()):
+    for name, entry in sorted(manifest.files.items()):
         path = Path(dest) / name
         if not path.exists():
             state = 'MISSING'

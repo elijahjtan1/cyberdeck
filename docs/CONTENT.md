@@ -35,12 +35,12 @@ python3 tools/content.py verify --dest /mnt/deck-ssd/zims
   release, with its size and the free space left. It downloads nothing and exits with an
   error if the tier would leave less than 10% of the disk free.
 - `fetch` downloads what is missing or newer into `<name>.zim.part`. Run it again after an
-  interruption and it resumes. Each file is checked against the size and sha256 Kiwix
+  interruption or a dropped connection and it resumes from the partial file. Each file is checked against the size and sha256 Kiwix
   publishes before it is renamed into place and recorded in `manifest.json`. A newer
-  release downloads beside the old one; the old file is listed as superseded and is never
-  deleted by the script.
+  release downloads beside the old one; once it has passed its check, the old file is
+  listed as superseded. The script never deletes a finished ZIM.
 - `verify` re-reads every file in `manifest.json` and reports `ok`, `CHANGED` or
-  `MISSING`. It only reads, so it is safe to run any time, but hashing a full Wikipedia
+  `MISSING`. With no `manifest.json` in the folder it says so and exits with an error. It only reads, so it is safe to run any time, but hashing a full Wikipedia
   takes a while on the Pi.
 - `--only <name>` limits `plan` or `fetch` to one source, for example
   `--only mdwiki_en_all_maxi`.
@@ -48,5 +48,6 @@ python3 tools/content.py verify --dest /mnt/deck-ssd/zims
 After a fetch, add new files to kiwix-serve (see [LIBRARIAN.md](LIBRARIAN.md)) and point the
 backend at the book you want searched.
 
-Medical sources (WikiMed, WikEM, MedlinePlus) are marked `"medical": true` in the JSON,
-so the librarian can show its "verify before acting" warning for them.
+Medical sources (WikiMed, WikEM, MedlinePlus) are marked `"medical": true` in the JSON.
+Nothing reads that flag yet; it is there for the librarian's planned "verify before acting"
+warning (roadmap 6.2).

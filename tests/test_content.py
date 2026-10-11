@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import io
 import json
 import sys
@@ -22,6 +23,20 @@ class Response(io.BytesIO):
         self.status = status
 
 
+class Broken(Response):
+    """Sends some bytes, then fails the way a dropped connection does."""
+
+    def __init__(self, body, error, status):
+        super().__init__(body, status)
+        self.error = error
+
+    def read(self, size=-1):
+        block = super().read(size)
+        if not block:
+            raise self.error
+        return block
+
+
 class FakeKiwix:
     """Serves listings, metalinks and file bodies; records Range headers."""
 
@@ -30,6 +45,7 @@ class FakeKiwix:
         self.folder = folder
         self.meta_sha = meta_sha
         self.ranges = []
+        self.break_with = None  # Exception raised after the body, or 'short' to end early.
 
     def open(self, request, timeout=None):
         url = request.full_url
@@ -53,9 +69,13 @@ class FakeKiwix:
         body = self.files[name]
         byte_range = request.get_header('Range')
         self.ranges.append(byte_range)
-        if byte_range:
-            return Response(body[int(byte_range[6:-1]):], status=206)
-        return Response(body)
+        start = int(byte_range[6:-1]) if byte_range else 0
+        status = 206 if byte_range else 200
+        if self.break_with == 'short':
+            return Response(body[start:start + 3], status)
+        if self.break_with:
+            return Broken(body[start:start + 3], self.break_with, status)
+        return Response(body[start:], status)
 
 
 SOURCE = {'prefix': 'zimgit-water_en', 'dir': 'other', 'tiers': [0]}
@@ -125,6 +145,46 @@ class ContentTest(unittest.TestCase):
         with self.assertRaises(content.ContentError):
             content.download(kiwix, row, self.dest, self.out)
         self.assertEqual(list(self.dest.iterdir()), [])
+
+    def test_failed_update_does_not_offer_old_copy_for_deletion(self):
+        fake = FakeKiwix({'zimgit-water_en_2024-01.zim': b'old'})
+        content.fetch(self.kiwix(fake), [SOURCE], self.dest, self.out)
+        fake.files['zimgit-water_en_2025-03.zim'] = b'new'
+        kiwix = self.kiwix(fake)
+        kiwix.latest(SOURCE)  # Publish the real hash, then corrupt the body in transit.
+        fake.files['zimgit-water_en_2025-03.zim'] = b'bad'
+        kiwix.metalink = lambda url: (3, hashlib.sha256(b'new').hexdigest())
+        with self.assertRaises(content.ContentError):
+            content.fetch(kiwix, [SOURCE], self.dest, self.out)
+        self.assertNotIn('Superseded', self.out.getvalue())
+
+    def test_dropped_connection_keeps_part_and_reports(self):
+        body = b'0123456789' * 10
+        fake = FakeKiwix({'zimgit-water_en_2025-03.zim': body})
+        for error in (ConnectionResetError(104, 'reset'), TimeoutError(),
+                      http.client.IncompleteRead(b'')):
+            fake.break_with = error
+            self.out = io.StringIO()
+            code = content.main(['fetch', '0', '--dest', str(self.dest), '--only', 'zimgit-water_en'],
+                                opener=fake, out=self.out)
+            self.assertEqual(code, 1)
+            self.assertIn('partial file was kept', self.out.getvalue())
+        self.assertTrue((self.dest / 'zimgit-water_en_2025-03.zim.part').exists())
+        fake.break_with = None
+        content.fetch(self.kiwix(fake), [SOURCE], self.dest, self.out)
+        self.assertEqual((self.dest / 'zimgit-water_en_2025-03.zim').read_bytes(), body)
+
+    def test_short_response_keeps_part_for_resume(self):
+        fake = FakeKiwix({'zimgit-water_en_2025-03.zim': b'0123456789'})
+        fake.break_with = 'short'
+        with self.assertRaises(content.ContentError):
+            content.fetch(self.kiwix(fake), [SOURCE], self.dest, self.out)
+        self.assertEqual((self.dest / 'zimgit-water_en_2025-03.zim.part').read_bytes(), b'012')
+
+    def test_verify_without_manifest_is_not_an_all_clear(self):
+        code = content.main(['verify', '--dest', str(self.dest)], out=self.out)
+        self.assertEqual(code, 1)
+        self.assertIn('No manifest.json', self.out.getvalue())
 
     def test_refuses_when_disk_would_be_too_full(self):
         fake = FakeKiwix({'zimgit-water_en_2025-03.zim': b'x' * 100})
