@@ -105,6 +105,18 @@ class AnswerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'num_ctx'):
             answer('q', retriever, client)  # A config error, never a false "not found".
 
+    def test_paragraphs_of_one_article_are_one_source(self):
+        more = Passage('It drifts and transmits for hours.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 2.0)
+        client = FakeClient('It listens [1] and charges [2], see [3].')
+        result = answer('q', FakeRetriever([SONOBUOY, NOTES, more]), client)
+        self.assertEqual([p.title for p in result.sources], ['Sonobuoy', 'notes.md'])
+        self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
+        self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
+        prompt = client.calls[0][0][1]['content']
+        self.assertIn('[2] notes.md', prompt)
+        self.assertNotIn('[3]', prompt)
+        self.assertEqual(result.dropped, [3])
+
     def test_budget_from_environment(self):
         retriever = FakeRetriever([NOTES])
         with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '5000'}):
