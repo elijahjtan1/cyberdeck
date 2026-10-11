@@ -32,4 +32,5 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - `AGENTS.md`: rules for the coding agents working on this repo; [ROADMAP.md](docs/ROADMAP.md) is the shared task list.
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md): model-free keywords and passage ranking.
+- [ESP32-PROTOCOL.md](docs/ESP32-PROTOCOL.md): the planned serial protocol between the Pi and an ESP32 power and button board.
 - `tools/render_previews.py`: regenerates the sample screen images in `docs/previews/`.
