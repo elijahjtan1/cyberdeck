@@ -125,6 +125,22 @@ class DeckCommandTest(unittest.TestCase):
         self.assertIn('Reading 1 passage(s) with qwen3:0.6b...', err)
         self.assertIn('[1] score 3.20 Sonobuoy', err)
 
+    def test_unknown_citations_never_appear_while_streaming(self):
+        pieces = ['Buoys listen', ' [', '4', ']. They', ' float [1', ', 9', ']', '.']
+        events = [PASSAGES, *({'event': 'text', 'text': t} for t in pieces), dict(DONE, dropped=[4, 9])]
+        err = io.StringIO()
+
+        class Recorder(io.StringIO):
+            def write(self, text):
+                self.seen = getattr(self, 'seen', '') + text
+                return super().write(text)
+
+        out = Recorder()
+        cli.show(iter(events), False, out, err)
+        streamed = out.seen.split('\n')[0]
+        self.assertEqual(streamed, 'Buoys listen. They float [1].')
+        self.assertIn('Removed citations to sources that were not given: [4], [9]', out.seen)
+
     def test_show_not_found_and_unverified(self):
         empty = dict(PASSAGES, passages=[])
         done = dict(DONE, found=False, cited=[], sources=[])

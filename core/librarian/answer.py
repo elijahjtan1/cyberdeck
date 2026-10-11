@@ -147,28 +147,29 @@ def passage_json(n, passage):
             'score': round(passage.score, 3), 'text': passage.text}
 
 
+def keep_citation(match, count, cited, dropped):
+    """Rewrite one CITATION match to the numbers 1..count, or '' if none are; records both."""
+    good = []
+    for number in (int(n) for n in match.group(1).split(',')):
+        if 1 <= number <= count:
+            good.append(number)
+            if number not in cited:
+                cited.append(number)
+        elif number not in dropped:
+            dropped.append(number)
+    if not good:
+        return ''
+    space = match.group(0)[:len(match.group(0)) - len(match.group(0).lstrip())]
+    return space + '[' + ', '.join(str(n) for n in dict.fromkeys(good)) + ']'
+
+
 def check_citations(text, count):
     """Keep [n] citations for sources 1..count; remove the rest.
 
     Returns (text, cited, dropped): cited and dropped list numbers in order of first use.
     """
     cited, dropped = [], []
-
-    def keep(match):
-        good = []
-        for number in (int(n) for n in match.group(1).split(',')):
-            if 1 <= number <= count:
-                good.append(number)
-                if number not in cited:
-                    cited.append(number)
-            elif number not in dropped:
-                dropped.append(number)
-        if not good:
-            return ''
-        space = match.group(0)[:len(match.group(0)) - len(match.group(0).lstrip())]
-        return space + '[' + ', '.join(str(n) for n in dict.fromkeys(good)) + ']'
-
-    text = CITATION.sub(keep, text)
+    text = CITATION.sub(lambda match: keep_citation(match, count, cited, dropped), text)
     return re.sub(r'[ \t]+([.,;:!?])', r'\1', text).strip(), cited, dropped
 
 

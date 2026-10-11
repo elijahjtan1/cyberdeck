@@ -160,7 +160,9 @@ sources (see **Grounded answers**). It returns `question`, `answer`, `found`, `u
 `warnings`, `partial`, `model`, `seconds` and `output_tokens`. "Not found" is a normal
 answer with `found: false` and `model: null` (the model wasn't called). Add `stream=1` for
 newline-delimited JSON: one `passages` event (with `keywords` and `model`), `text` events as
-the answer streams, then `done` with the fields above, or `error`. A source or model failure
+the answer streams (raw: citations are checked only in `done`, so a client showing `text`
+should drop numbers above the passage count, as `deck ask` does), then `done` with the fields
+above, or `error`. A source or model failure
 is HTTP 503 with `error` (or an `error` event when streaming), never a false "not found".
 One question is answered at a time; another gets a 503 until it finishes. Closing the
 connection stops the model.
@@ -244,7 +246,8 @@ To type just `deck`, link it once (no sudo; open a new terminal afterwards):
 `deck ask` sends the question to the backend's `/api/ask`, so the panel's AI badge lights and
 only one question is answered at a time. It prints `Searching...`, then `Reading N passage(s)
 with qwen3:0.6b...` while the model reads (the slow part on the Pi), then streams the answer
-and the cited sources. Ctrl+C stops it cleanly, and stops the model too. If the backend isn't
+and the cited sources. Citations to sources the model wasn't given are left out as the text
+streams, not only in the final check. Ctrl+C stops it cleanly, and stops the model too. If the backend isn't
 running, or predates `/api/ask`, it says so and answers in the terminal itself. `--local`
 always answers in the terminal; `--explain` adds the keywords and passage scores (with
 `--local`, also the Kiwix articles found).

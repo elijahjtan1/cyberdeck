@@ -7,6 +7,7 @@ import argparse
 from contextlib import closing
 import json
 import os
+import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -69,17 +70,43 @@ def local_events(question, retriever, client):
         yield {'event': 'error', 'error': str(exc)}
 
 
+# A citation still arriving: "[", "[1", "[1, 3" (with any spaces before it).
+OPEN_CITATION = re.compile(r'\s*\[[\d,\s]*$')
+
+
+class CitationFilter:
+    """Removes citations to sources that weren't given while the answer streams, as the
+    final check does, so "[7]" never flashes up. Holds back a citation split across pieces."""
+
+    def __init__(self, count):
+        self.count, self.pending = count, ''
+
+    def feed(self, text):
+        from .librarian.answer import CITATION, keep_citation
+        self.pending += text
+        held = OPEN_CITATION.search(self.pending) or re.search(r'\s+$', self.pending)
+        cut = held.start() if held and len(self.pending) - held.start() < 40 else len(self.pending)
+        ready, self.pending = self.pending[:cut], self.pending[cut:]
+        return CITATION.sub(lambda m: keep_citation(m, self.count, [], []), ready)
+
+    def flush(self):
+        rest, self.pending = self.pending, ''
+        return rest
+
+
 def show(events, explain=False, out=None, err=None):
     """Print an answer as it streams. Returns the exit status."""
     from .librarian.answer import NOT_FOUND
     out, err = out or sys.stdout, err or sys.stderr
     print('Searching...', file=err, flush=True)
     streamed = False
+    citations = CitationFilter(0)
     try:
         for event in events:
             kind = event.get('event')
             if kind == 'passages':
                 passages = event.get('passages', [])
+                citations = CitationFilter(len(passages))
                 if explain:
                     print(f"keywords: {' '.join(event.get('keywords', [])) or '(none)'}", file=err)
                     print(f'passages: {len(passages)} passed the relevance gate', file=err)
@@ -91,12 +118,12 @@ def show(events, explain=False, out=None, err=None):
                           file=err, flush=True)
             elif kind == 'text':
                 streamed = True
-                print(event['text'], end='', file=out, flush=True)
+                print(citations.feed(event['text']), end='', file=out, flush=True)
             elif kind == 'error':
                 print(('\n' if streamed else '') + f"error: {event.get('error')}", file=err)
                 return 1
             elif kind == 'done':
-                print('' if streamed else NOT_FOUND, file=out)
+                print(citations.flush() if streamed else NOT_FOUND, file=out)
                 if event.get('dropped'):
                     print('Removed citations to sources that were not given: '
                           + ', '.join(f'[{n}]' for n in event['dropped']), file=out)
