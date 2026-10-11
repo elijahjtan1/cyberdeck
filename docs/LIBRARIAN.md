@@ -252,6 +252,28 @@ running, or predates `/api/ask`, it says so and answers in the terminal itself. 
 always answers in the terminal; `--explain` adds the keywords and passage scores (with
 `--local`, also the Kiwix articles found).
 
+### On the panel
+
+![ASK page: keyboard, waiting for the first word, and an answer (sample text)](previews/ask-landscape-preview.png)
+
+**HOME → ASK** asks the same backend from the touchscreen, so `cyberdeck-core` must be running.
+
+- **Typing:** type on the on-screen keyboard; **123** switches to digits and symbols. Tap the
+  question box to clear it. When the box is empty, tapping it lists your last three questions
+  and a few example questions; tap one to ask it.
+- **Waiting:** the answer page shows the time so far: *Searching*, then *Reading* while the
+  model reads the sources (this can take a minute on the Pi), then *Answering* as the text
+  streams in.
+- **Stopping:** **STOP** ends the question and stops the model.
+- **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
+  in the offline sources* and *UNVERIFIED* (no citations) are shown as they are, never hidden.
+- **Scrolling:** **UP** and **DOWN** scroll a long answer.
+- **Editing:** **EDIT** brings the question back to change it.
+- **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
+  *Answering...* until it finishes. The screensaver waits while a question is being answered.
+- **Backend down:** if the backend isn't running, the page says so instead of answering. It
+  never answers on the panel itself.
+
 ## Benchmark
 
 `deck bench` asks a list of questions and reports what matters for the librarian: did the

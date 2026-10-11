@@ -4,7 +4,8 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 
 | Page | What it does |
 | --- | --- |
-| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and screensaver |
+| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and Ask |
+| ASK (via Home) | Type a question on an on-screen keyboard and read the offline librarian's answer with its sources (needs cyberdeck-core) |
 | CAMERA | Live preview, full-resolution SNAP, 3 s/10 s self-timer, pause, FPS, and a last-photo thumbnail |
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
 | APPS (via Home) | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy, Space Invaders, Minesweeper, Solitaire, Sudoku), slideshow, GIFs, Quick controls and Tools |
