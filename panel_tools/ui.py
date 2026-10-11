@@ -98,7 +98,7 @@ class ToolsUI:
                 button(rect, label, action)
         def graph(values, rect, colours):
             x0,y0,x1,y1 = rect
-            d.rectangle(rect, fill='#0b1218')
+            d.rectangle(rect, fill=a.SCREEN)
             maximum = max([v for series in values for v in series if v is not None] or [1]) or 1
             for series, colour in zip(values, colours):
                 points = []
