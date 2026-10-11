@@ -50,6 +50,14 @@ class RecallTest(unittest.TestCase):
         self.assertEqual(kiwix.queries, ['table lamp flickers check', 'table lamp', 'lamp flickers',
                                          'flickers check', 'table', 'lamp', 'flickers', 'check'])
 
+    def test_one_broad_pair_does_not_take_every_slot(self):
+        # "test fuse" matches many articles; "fuse plug" still gets its best one in.
+        articles = [(f'Testing {n}', 'test fuse') for n in range(8)]
+        kiwix = FakeKiwix(articles + [('Glossary:Fuse', 'fuse plug')])
+        found = [r.title for r in Retriever(kiwix=kiwix).kiwix_search('test fuse plug')]
+        self.assertEqual(found, ['Testing 0', 'Glossary:Fuse', 'Testing 1', 'Testing 2', 'Testing 3'])
+        self.assertEqual(kiwix.queries, ['test fuse plug', 'test fuse', 'fuse plug'])
+
     def test_translated_pages_do_not_take_slots(self):
         kiwix = FakeKiwix([('Table lamps/fr', 'lamp'), ('Table lamps/en', 'lamp'),
                            ('Table lamps', 'lamp'), ('Table lamps/nl', 'lamp'),

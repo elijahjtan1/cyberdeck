@@ -96,26 +96,45 @@ class Retriever:
         """kiwix-serve only returns articles containing every word (and reads "OR" as just
         another word), so one word the wiki doesn't use finds nothing: "table lamp flickers
         check" misses Table lamps. Fall back to adjacent word pairs, then single words, until
-        there are enough articles; passage ranking then drops the ones that don't fit."""
+        there are enough articles; passage ranking then drops the ones that don't fit.
+
+        Each fallback stage runs all its searches and takes their results in turns, so the
+        first pair can't fill every slot: in "test fuse plug", "test fuse" matches many
+        articles, and "fuse plug" must still get its best one in."""
         terms = query.split()
         pairs = [' '.join(terms[i:i + 2]) for i in range(len(terms) - 1)] if len(terms) > 2 else []
-        found, seen = [], set()
-        for pattern in dict.fromkeys([query, *pairs, *(terms if len(terms) > 1 else [])]):
-            try:
-                # Extra rows because translated copies of a page are skipped below.
-                rows = self.kiwix.search(pattern, limit=min(limit * 3, 20))
-            except KiwixError:
-                if found:
+        found, seen, searched = [], set(), set()
+        for stage in ([query], pairs, terms if len(terms) > 1 else []):
+            batches = []
+            for pattern in stage:
+                if pattern in searched:
+                    continue
+                searched.add(pattern)
+                try:
+                    # Extra rows because translated copies of a page are skipped below.
+                    batches.append(self.kiwix.search(pattern, limit=min(limit * 3, 20)))
+                except KiwixError:
+                    if not found and not any(batches):
+                        raise  # Kiwix is down; don't wait out a timeout per fallback.
+                    self._take_in_turns(batches, found, seen, limit)
                     return found  # Keep what earlier searches found.
-                raise  # Kiwix is down; don't wait out a timeout per fallback.
-            for row in rows:
-                key = english_title(row.title)
-                if key and key not in seen:
-                    seen.add(key)
-                    found.append(row)
-                if len(found) >= limit:
-                    return found
+            if self._take_in_turns(batches, found, seen, limit):
+                return found
         return found
+
+    @staticmethod
+    def _take_in_turns(batches, found, seen, limit):
+        """Add each search's best new article, then each one's second, ...; True when full."""
+        for rank in range(max((len(rows) for rows in batches), default=0)):
+            for rows in batches:
+                if rank < len(rows):
+                    key = english_title(rows[rank].title)
+                    if key and key not in seen:
+                        seen.add(key)
+                        found.append(rows[rank])
+                if len(found) >= limit:
+                    return True
+        return False
 
     def retrieve(self, question, budget_tokens=1400):
         return self.run(question, budget_tokens)[0]
