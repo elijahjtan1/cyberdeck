@@ -99,7 +99,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | - | todo | Replaces the GNSS placeholder only when a source is configured |
+| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | in progress | Main Programmer 2: `core/gps.py` and `/api/gps`. Replaces the GNSS placeholder only when a source is configured |
 | 5.2 | Offline maps: a region extract in a local map file shown with a vendored map library | - | todo | Don't bulk-download openstreetmap.org tiles |
 | 5.3 | Waypoints in SQLite, with distance and bearing to a chosen one | - | todo | No routing yet |
 | 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | - | todo | `docs/ESP32-PROTOCOL.md` |
