@@ -147,7 +147,7 @@ class OllamaClient:
                                'temperature': self.temperature}}
         activity = self.telemetry.activity('ai', detail) if self.telemetry else nullcontext()
         with activity, self._open('api/chat', payload) as response:
-            think, total = _ThinkFilter(), 0
+            think, total, started = _ThinkFilter(), 0, False
             try:
                 while True:
                     line = response.readline(self.max_bytes + 1)
@@ -169,10 +169,16 @@ class OllamaClient:
                     message = event.get('message') or {}
                     # Only content is shown; a separate 'thinking' field is ignored.
                     text = think.feed(message.get('content') or '')
+                    if not started:
+                        # Qwen3 opens with blank lines (often after an empty think block).
+                        text = text.lstrip()
+                        started = bool(text)
                     if text:
                         yield 'text', text
                     if event.get('done'):
                         rest = think.flush()
+                        if not started:
+                            rest = rest.lstrip()
                         if rest:
                             yield 'text', rest
                         yield 'done', event
@@ -186,20 +192,27 @@ class OllamaClient:
             if kind == 'text':
                 yield value
 
-    def chat(self, messages, *, on_text=None, detail=''):
-        """Run a whole answer; on_text(piece) is called as text streams in."""
+    def iter_chat(self, messages, *, detail=''):
+        """Yield answer text pieces as they arrive, then one final Reply."""
         pieces, final = [], {}
         for kind, value in self._events(messages, detail):
             if kind == 'text':
                 pieces.append(value)
-                if on_text:
-                    on_text(value)
+                yield value
             else:
                 final = value
-        return Reply(''.join(pieces).strip(), final.get('model') or self.model,
-                     final.get('done_reason', ''), int(final.get('prompt_eval_count') or 0),
-                     int(final.get('eval_count') or 0),
-                     round((final.get('total_duration') or 0) / 1e9, 2))
+        yield Reply(''.join(pieces).strip(), final.get('model') or self.model,
+                    final.get('done_reason', ''), int(final.get('prompt_eval_count') or 0),
+                    int(final.get('eval_count') or 0),
+                    round((final.get('total_duration') or 0) / 1e9, 2))
+
+    def chat(self, messages, *, on_text=None, detail=''):
+        """Run a whole answer; on_text(piece) is called as text streams in."""
+        for item in self.iter_chat(messages, detail=detail):
+            if isinstance(item, Reply):
+                return item
+            if on_text:
+                on_text(item)
 
 
 def main(argv=None):

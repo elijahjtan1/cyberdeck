@@ -70,6 +70,10 @@ class OllamaTest(unittest.TestCase):
         self.assertEqual(body['options']['num_ctx'], 1024)
         self.assertEqual(telemetry.events, [('start', 'ai', 'hi'), ('end', 'ai', 'hi')])
 
+    def test_leading_blank_lines_not_streamed(self):
+        opener = FakeOpener(ndjson(piece('<think>\n\n</think>\n\n'), piece('  \n'), piece('Hi\n\nthere'), DONE))
+        self.assertEqual(list(client(opener).stream([])), ['Hi\n\nthere'])
+
     def test_stream_yields_pieces(self):
         opener = FakeOpener(ndjson(piece('a'), piece('b'), DONE))
         self.assertEqual(list(client(opener).stream([])), ['a', 'b'])

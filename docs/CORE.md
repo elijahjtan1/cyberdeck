@@ -77,6 +77,9 @@ All responses are JSON. Times are Unix seconds.
 | `POST /api/activity/end` `{"id": n}` | End it |
 | `POST /api/activity/mark` `{"kind": "camera", "detail": "photo"}` | An instant event |
 
+Librarian routes (`/api/search`, `/api/retrieve`, `/api/ask`, `/api/library/...`) are described
+in [LIBRARIAN.md](LIBRARIAN.md#api); `deck ask "..."` is the terminal front end for `/api/ask`.
+
 Activity kinds: `ai`, `search`, `camera`, `other`. Details are cut to 200 characters.
 
 ## For code inside the backend

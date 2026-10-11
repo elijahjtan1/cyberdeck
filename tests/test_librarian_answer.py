@@ -30,18 +30,18 @@ class FakeRetriever:
 
 
 class FakeClient:
-    num_ctx, num_predict = 2048, 400
+    num_ctx, num_predict, model = 2048, 400, 'qwen3:0.6b'
 
     def __init__(self, text='', error=None):
         self.text, self.error, self.calls = text, error, []
 
-    def chat(self, messages, *, on_text=None, detail=''):
+    def iter_chat(self, messages, *, detail=''):
         self.calls.append((messages, detail))
         if self.error:
             raise self.error
-        if on_text:
-            on_text(self.text)
-        return Reply(self.text, 'qwen3:0.6b', 'stop', 300, 20, 4.0)
+        if self.text:
+            yield self.text
+        yield Reply(self.text, 'qwen3:0.6b', 'stop', 300, 20, 4.0)
 
 
 class AnswerTest(unittest.TestCase):
