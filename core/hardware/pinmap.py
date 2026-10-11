@@ -14,10 +14,12 @@ Clash = namedtuple('Clash', 'resource owners')
 
 # Pi 4 header pins of each peripheral (BCM numbers), per the overlay defaults.
 PERIPHERAL_PINS = {
-    'i2c1': (2, 3), 'i2c3': (4, 5), 'i2c4': (6, 7), 'i2c5': (10, 11), 'i2c6': (22, 23),
+    'i2c1': (2, 3), 'i2c3': (4, 5), 'i2c4': (8, 9), 'i2c5': (12, 13), 'i2c6': (22, 23),
     'spi0': (9, 10, 11), 'spi1': (19, 20, 21),
     'uart0': (14, 15), 'uart2': (0, 1), 'uart3': (4, 5), 'uart4': (8, 9), 'uart5': (12, 13),
 }
+# The flow-control pins a uartN overlay adds with its ctsrts flag.
+UART_CTSRTS = {'uart2': (2, 3), 'uart3': (6, 7), 'uart4': (10, 11), 'uart5': (14, 15)}
 SPI_CE_DEFAULTS = {'spi0': (8, 7), 'spi1': (18, 17, 16)}
 # BCM2711 PWM0 on the header: channel 0 on GPIO12 or GPIO18, channel 1 on GPIO13 or GPIO19.
 PWM_CHANNEL = {12: 0, 18: 0, 13: 1, 19: 1}
@@ -29,8 +31,12 @@ USB_PORTS = 4  # Two USB 3 and two USB 2 on a Pi 4, 1.2 A shared between them.
 
 
 class Device:
-    def __init__(self, name, claims, part='', note=''):
+    """overlay names the config.txt overlay that switches this part on, so a planned part
+    can be matched with the overlay line once it has been applied."""
+
+    def __init__(self, name, claims, part='', note='', overlay=''):
         self.name, self.claims, self.part, self.note = name, list(claims), part, note
+        self.overlay = overlay
 
     def __repr__(self):
         return f'Device({self.name!r})'
@@ -75,7 +81,8 @@ def usb():
 BASELINE = [
     Device('2.8" TFT', spi('spi0', 0), 'ILI9341 (fbtft)'),
     Device('Touch', spi('spi0', 1), 'XPT2046 / ADS7846'),
-    Device('Backlight PWM', pwm(18), note='Only once setup_backlight.py has run'),
+    Device('Backlight PWM', pwm(18), note='Only once setup_backlight.py has run; until then '
+           'the LED pin is on 3.3 V and GPIO18 is free'),
 ]
 
 # The parts on order (October 2026) and the roadmap's Phase 6 parts, wired the recommended
@@ -84,22 +91,24 @@ PLAN = [
     Device('GNSS', uart('uart0'), 'BZGNSS BZ-251, u-blox M10',
            'GPIO14/15. Needs dtoverlay=disable-bt and no serial console'),
     Device('GNSS PPS', gpio(12), 'Only if the module breaks out PPS (assumed)',
-           'Plain input; GPIO12 is then not free for PWM'),
+           'Plain input; GPIO12 is then not free for PWM', overlay='pps-gpio'),
     Device('Compass', i2c(0x0D), 'QMC5883L, if the GNSS board has one (assumed)',
            'An HMC5883L would be 0x1E instead'),
     Device('Radar A', uart('uart3'), 'HLK-LD2450, 256000 baud',
-           'GPIO4/5 via dtoverlay=uart3, so 1-wire moves to GPIO6'),
+           'GPIO4/5 via dtoverlay=uart3, so 1-wire moves to GPIO6', overlay='uart3'),
     Device('Radar B', usb(), 'HLK-LD2450 on a CP2102 USB-serial adapter',
            'No spare GPIO UART without giving up PWM or the HAT ID pins'),
     Device('RTC', i2c(0x68, 0x57), 'DS3231 module (roadmap 6.1)',
-           '0x57 is the AT24C32 EEPROM most DS3231 boards carry'),
+           '0x57 is the AT24C32 EEPROM most DS3231 boards carry', overlay='i2c-rtc'),
     Device('Power sensor', i2c(0x40), 'INA226 or INA219 (roadmap 6.3)'),
     Device('Temperature probes', gpio(6), 'DS18B20 on 1-wire',
-           'dtoverlay=w1-gpio,gpiopin=6'),
+           'dtoverlay=w1-gpio,gpiopin=6', overlay='w1-gpio'),
     Device('Fan PWM', pwm(13), 'Fallback only: the power draft drives the fan from the ESP32',
-           'PWM0 channel 1; the backlight has channel 0. Needs dtoverlay=pwm-2chan'),
+           'PWM0 channel 1; the backlight has channel 0. Needs dtoverlay=pwm-2chan',
+           overlay='pwm-2chan'),
     Device('Power-off signal', gpio(26), 'To an ESP32 input (power draft)',
-           'dtoverlay=gpio-poweroff,gpiopin=26,active_low: tells the ESP32 shutdown finished'),
+           'dtoverlay=gpio-poweroff,gpiopin=26,active_low: tells the ESP32 shutdown finished',
+           overlay='gpio-poweroff'),
     Device('7" screen', hdmi(0) + usb(), '1024x600 IPS, HDMI with USB touch'),
     Device('5" screen', hdmi(1) + usb(), '1024x600, HDMI with USB touch'),
     Device('SDR', usb(), 'RTL-SDR Blog V4', 'A USB 2 port, away from the GNSS antenna'),
@@ -107,6 +116,28 @@ PLAN = [
     Device('ESP32', usb(), 'USB serial (roadmap 5.4)'),
     Device('Keyboard', usb(), 'iPazzPort 2.4 GHz, USB dongle'),
 ]
+
+
+def combine(installed, planned):
+    """Installed parts plus what config.txt doesn't already provide of the planned parts. An
+    overlay of the same name that claims one of a planned part's exclusive resources provides
+    those resources, and only the rest of the part (an RTC board's EEPROM) stays planned. The
+    same overlay on other pins provides nothing, so the difference shows as a clash."""
+    out = list(installed)
+    for part in planned:
+        provided = set()
+        for device in installed:
+            if part.overlay and device.overlay == part.overlay:
+                mine = {c.resource for c in device.claims if c.share is None}
+                if mine & {c.resource for c in part.claims if c.share is None}:
+                    provided |= mine
+        if not provided:
+            out.append(part)
+            continue
+        rest = [c for c in part.claims if c.resource not in provided]
+        if any(c.share is None for c in rest):
+            out.append(Device(part.name, rest, part.part, part.note, part.overlay))
+    return out
 
 
 def check(devices, usb_ports=USB_PORTS):
@@ -139,14 +170,20 @@ ONE_PIN = {'w1-gpio': ('gpiopin', 4), 'pps-gpio': ('gpiopin', 18), 'gpio-fan': (
            'gpio-shutdown': ('gpio_pin', 3), 'gpio-poweroff': ('gpiopin', 26)}
 # Overlays that use no header pins.
 NO_PINS = {'vc4-kms-v3d', 'vc4-fkms-v3d', 'dwc2', 'disable-bt', 'miniuart-bt', 'disable-wifi',
-           'imx219', 'imx477', 'imx708', 'ov5647', 'hifiberry-dac', 'rpivid-v4l2'}
-PIN_PARAM = re.compile(r'(pin|gpio|irq)', re.I)
+           'imx219', 'imx477', 'imx708', 'ov5647', 'rpivid-v4l2'}
+# I2S audio boards: PCM clock, frame, data in and data out.
+I2S_OVERLAYS = {'hifiberry-dac', 'hifiberry-dacplus', 'iqaudio-dac', 'iqaudio-dacplus',
+                'googlevoicehat-soundcard', 'i2s-mmap'}
+# Parameters that name a GPIO end in pin, gpio or irq (dc_pin, pin2, penirq); penirq_pull and
+# the like are settings, not pins.
+PIN_PARAM = re.compile(r'(pin|gpio|irq)\d*$', re.I)
 SECTIONS = {'all', 'pi4', 'pi400', 'board-type=0x11'}  # Filters a Pi 4 obeys.
 
 
 def from_config(text):
     """(devices, warnings) for what a config.txt switches on. Doesn't touch any hardware."""
     devices, warnings, active = [], [], True
+    overlays = []  # [where, value]; a dtparam line after an overlay sets that overlay's params.
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.split('#', 1)[0].strip()
         if not line:
@@ -157,16 +194,21 @@ def from_config(text):
         if not active or '=' not in line:
             continue
         key, value = (s.strip() for s in line.split('=', 1))
-        if key == 'dtparam':
+        if key == 'dtparam' and overlays and overlays[-1][1]:
+            overlays[-1][1] += ',' + value
+        elif key == 'dtparam':
             devices += _dtparams(value, f'config line {number}: dtparam')
-        elif key == 'dtoverlay' and value:
-            device, warning = _overlay(value, f'config line {number}')
-            devices += [device] if device else []
-            warnings += [warning] if warning else []
+        elif key == 'dtoverlay':
+            overlays.append([f'config line {number}', value])  # Empty: back to base params.
         elif key == 'enable_uart' and value == '1':
             warnings.append('enable_uart=1: if cmdline.txt has console=serial0, a login console '
                             'is on GPIO14/15 and a GNSS there would be fed console text')
             devices.append(Device(f'config line {number}: enable_uart', peripheral('uart0')))
+    for where, value in overlays:
+        if value:
+            device, warning = _overlay(value, where)
+            devices += [device] if device else []
+            warnings += [warning] if warning else []
     return devices, warnings
 
 
@@ -201,8 +243,16 @@ def _overlay(value, where):
 
     if name in NO_PINS:
         return None, None
-    if name in PERIPHERAL_PINS:  # uart2-5, i2c3-6
-        claims += uart(name) if name.startswith('uart') else peripheral(name)
+    if name.startswith('uart') and name in PERIPHERAL_PINS:  # uart2-5
+        claims += uart(name)
+        if 'ctsrts' in flags:
+            claims += [Claim(f'GPIO{n}', name) for n in UART_CTSRTS[name]]
+    elif name in PERIPHERAL_PINS:  # i2c3-6, optionally moved with pins_X_Y
+        selector = [f for f in flags if re.fullmatch(r'pins_\d+_\d+', f)]
+        pins = [int(n) for n in selector[0].split('_')[1:]] if selector else PERIPHERAL_PINS[name]
+        claims += [Claim(f'GPIO{n}', name) for n in pins] + [Claim(name, None)]
+    elif name in I2S_OVERLAYS:
+        claims += [c for n in (18, 19, 20, 21) for c in gpio(n)]
     elif name in ONE_PIN:
         claims += gpio(number(*ONE_PIN[name]))
     elif name in ('pwm', 'pwm-2chan'):
@@ -212,6 +262,8 @@ def _overlay(value, where):
         handled.add('func')
     elif name == 'i2c-rtc':
         chips = [RTC_ADDRESSES[f] for f in flags if f in RTC_ADDRESSES]
+        if chips and 'addr' in kv:
+            chips = [number('addr', chips[0])]
         claims += i2c(*chips) if not flags & {'i2c0', 'i2c_csi_dsi'} else []
     elif name.startswith('spi1-') and name[5:6].isdigit():
         for ce in range(int(name[5])):
@@ -235,7 +287,7 @@ def _overlay(value, where):
                 claims += gpio(n)
     if not claims:
         return None, f'{owner}: overlay not known to the checker, pins not checked'
-    return Device(owner, claims), None
+    return Device(owner, claims, overlay=name), None
 
 
 # --- report -------------------------------------------------------------------------------
@@ -265,4 +317,8 @@ def report(devices, warnings=(), usb_ports=USB_PORTS):
     lines.append(f'{len(clashes)} clash(es)' if clashes else 'No clashes.')
     lines += [f'  CLASH {c.resource}: ' + ' vs '.join(c.owners) for c in clashes]
     lines += [f'  NOTE {w}' for w in warnings]
+    described = [d for d in devices if d.part or d.note]
+    if described:
+        lines += ['', 'Parts (assumed details say so):']
+        lines += [f'  {d.name}: ' + '. '.join(x for x in (d.part, d.note) if x) for d in described]
     return '\n'.join(lines), clashes

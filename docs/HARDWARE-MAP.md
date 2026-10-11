@@ -104,6 +104,8 @@ Physical pin numbers are in brackets. Pins marked *from config* are confirmed on
 ## config.txt lines, per part
 
 Applied by Eli when the part is wired, never by an installer without asking. Reboot after each.
+Once a line is in `config.txt`, the checker counts that part as installed rather than
+planned. The same overlay on different pins is still reported, so a typo shows up.
 
 | Part | Line |
 | --- | --- |
@@ -115,6 +117,11 @@ Applied by Eli when the part is wired, never by an installer without asking. Reb
 | GNSS PPS | `dtoverlay=pps-gpio,gpiopin=12` |
 | Power-off signal | `dtoverlay=gpio-poweroff,gpiopin=26,active_low` |
 | Fan PWM | `dtoverlay=pwm-2chan,pin=18,func=2,pin2=13,func2=4` in place of the backlight's `pwm` line |
+
+The fan line replaces the backlight's own line, and `setup_backlight.py --undo` deletes any
+line starting with `dtoverlay=pwm`. If the fan ever moves to the Pi, an undo would remove it
+too, so re-add the fan line after an undo. The current power draft drives the fan from the
+ESP32, so this only matters for the fallback.
 
 ## Trying a part when it arrives
 
