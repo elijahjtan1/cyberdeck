@@ -17,6 +17,12 @@ def tokens(text):
     return TOKEN.findall(unicodedata.normalize('NFKC', text))
 
 
+def fold(word):
+    """Case- and accent-insensitive form, so "cafe" matches "Café"."""
+    decomposed = unicodedata.normalize('NFKD', word.casefold())
+    return ''.join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def keywords(question, limit=24):
     """Preserve spelling of names, numbers, hyphens, C++ and C#; deduplicate."""
     found, seen = [], set()

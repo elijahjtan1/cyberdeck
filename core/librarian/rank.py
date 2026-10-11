@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 import math
 import re
 
-from .query import keywords, tokens
+from .query import fold, keywords, tokens
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
         raise ValueError('budget_tokens must be a nonnegative integer')
     if not math.isfinite(threshold) or threshold < 0 or not 0 <= min_coverage <= 1:
         raise ValueError('invalid relevance threshold or coverage')
-    terms = {word.casefold() for word in keywords(question)}
+    terms = {fold(word) for word in keywords(question)}
     if not terms or not budget_tokens:
         return []
     candidates, counts, seen = [], [], set()
@@ -53,7 +53,7 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
                 continue
             seen.add(key)
             candidates.append(replace(passage, text=text))
-            counts.append(Counter(word.casefold() for word in tokens(text)))
+            counts.append(Counter(fold(word) for word in tokens(text)))
             if len(candidates) >= 1000:
                 break
         if len(candidates) >= 1000:

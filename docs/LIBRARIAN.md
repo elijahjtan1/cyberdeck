@@ -213,6 +213,13 @@ Kiwix and Ollama running (and the Kiwix variables exported as in **Backend confi
 python3 -m core.librarian.answer "How does a passive sonobuoy work?"
 ```
 
+If `CYBERDECK_KIWIX_URL` isn't set in your terminal, the command uses the Kiwix settings
+the `cyberdeck-core` service was installed with (and says so); if neither has them it warns
+that Kiwix is off, so only local documents are searched. Add `--explain` to see each step:
+the keywords sent to Kiwix, the articles Kiwix returned, and the passages that passed the
+relevance gate with their scores. That tells apart a ZIM without the topic (no articles),
+keywords that miss (articles but no passages), and a model problem (passages but a poor answer).
+
 The answer streams, followed by the numbered sources it was given. When retrieval finds
 no passage above the relevance gate, it prints `Not found in the offline sources.` at once
 and never calls the model. The passages go to the model numbered `[1]`, `[2]`, ... with

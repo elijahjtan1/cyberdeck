@@ -8,7 +8,8 @@ stemming, translation, or semantic understanding.
 
 `core.librarian.rank.Passage` has `text`, `title`, `url`, `source` (`kiwix` or `local`),
 and `score`. `rank_passages(question, passages, budget_tokens=1400)` compares paragraphs
-from all sources using BM25 (k1=1.2, b=0.75). It splits long paragraphs at sentence or
+from all sources using BM25 (k1=1.2, b=0.75). Matching ignores case and accents, so
+"cafe" matches "Café". It splits long paragraphs at sentence or
 word boundaries, deduplicates text, and considers at most 1,000 chunks. It returns
 passages in decreasing score order whose combined estimated token cost fits the budget.
 The estimate is `ceil(len(text)/4)` per passage. Prompt text, titles and URLs need a

@@ -22,6 +22,13 @@ class QueryTest(unittest.TestCase):
 
 
 class RankTest(unittest.TestCase):
+    def test_accents_and_case_do_not_block_a_match(self):
+        cafe = Passage('Repair Café events help people mend things.', 'Repair Café', 'u', 'kiwix')
+        rows = rank_passages('What is a repair cafe?', [cafe], 200)
+        self.assertEqual(len(rows), 1)
+        plain = rank_passages('What is a repair?', [cafe], 200)[0]
+        self.assertGreater(rows[0].score, plain.score)  # "cafe" now counts too.
+
     def test_bm25_order_across_sources(self):
         rows = [passage('Active sonar emits a pulse.'),
                 passage('A passive sonobuoy uses a hydrophone to listen underwater.', '/kiwix/sonobuoy', 'kiwix'),

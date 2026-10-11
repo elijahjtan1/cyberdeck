@@ -54,7 +54,7 @@ def said_not_found(text):
     return text.strip().rstrip('.').casefold() == NOT_FOUND.rstrip('.').casefold()
 
 
-def answer(question, retriever, client, *, budget_tokens=1400, on_text=None):
+def answer(question, retriever, client, *, budget_tokens=1400, on_text=None, on_passages=None):
     """Raises RetrievalError if every source failed, OllamaError if the model failed.
 
     Neither error means the answer is absent; callers show the error instead.
@@ -63,6 +63,8 @@ def answer(question, retriever, client, *, budget_tokens=1400, on_text=None):
     if not budget:
         raise ValueError('The model context is too small for any passages; raise num_ctx')
     passages, warnings = retriever.run(question, budget)
+    if on_passages:
+        on_passages(passages)
     if not passages:
         return Answer(question, NOT_FOUND, False, [], warnings)
     reply = client.chat(build_messages(question, passages), on_text=on_text, detail=question)
@@ -97,17 +99,76 @@ def check_citations(text, count):
     return re.sub(r'[ \t]+([.,;:!?])', r'\1', text).strip(), cited, dropped
 
 
+SERVICE_UNIT = '/etc/systemd/system/cyberdeck-core.service'
+
+
+def service_kiwix_settings(path=SERVICE_UNIT):
+    """Kiwix settings the boot service was installed with (setup_core_service.py --kiwix-*)."""
+    try:
+        with open(path, encoding='utf-8') as unit:
+            lines = unit.read().splitlines()
+    except OSError:
+        return {}
+    settings = {}
+    for line in lines:
+        key, _, value = line.removeprefix('Environment=').partition('=')
+        if line.startswith('Environment=') and key.startswith('CYBERDECK_KIWIX_'):
+            settings[key] = value
+    return settings
+
+
+def explain(question, retriever, out):
+    """Show each retrieval step, to tell missing data from bad keywords or a strict gate."""
+    from .query import search_query
+    query = search_query(question)
+    print(f'keywords: {query or "(none: only stopwords)"}', file=out)
+    if retriever.kiwix is None:
+        print('kiwix: off', file=out)
+    elif query:
+        try:
+            hits = retriever.kiwix.search(query, limit=5)
+            print(f'kiwix: {len(hits)} article(s) for "{query}"', file=out)
+            for hit in hits:
+                print(f'  - {hit.title}', file=out)
+        except Exception as exc:  # Diagnostics only; the real run reports errors itself.
+            print(f'kiwix: error: {exc}', file=out)
+
+
 def main(argv=None):
     import argparse
+    import os
     import sys
     from .ollama import OllamaClient, OllamaError
     from .service import RetrievalError, Retriever
     parser = argparse.ArgumentParser(description='Answer a question from the offline sources.')
     parser.add_argument('question')
+    parser.add_argument('--explain', action='store_true',
+                        help='show keywords, Kiwix articles and passage scores')
     args = parser.parse_args(argv)
+    if not os.environ.get('CYBERDECK_KIWIX_URL'):
+        # A terminal doesn't see the boot service's settings; borrow them rather than
+        # silently searching without Kiwix.
+        saved = service_kiwix_settings()
+        if saved.get('CYBERDECK_KIWIX_URL'):
+            os.environ.update(saved)
+            print(f"Using the cyberdeck-core service's Kiwix settings: {saved['CYBERDECK_KIWIX_URL']} "
+                  f"book {saved.get('CYBERDECK_KIWIX_BOOK') or '(all)'}", file=sys.stderr)
+        else:
+            print('warning: Kiwix is off. Set CYBERDECK_KIWIX_URL (see docs/LIBRARIAN.md); '
+                  'only local documents are searched.', file=sys.stderr)
     try:
-        result = answer(args.question, Retriever.from_environment(), OllamaClient.from_environment(),
-                        on_text=lambda t: print(t, end='', flush=True))
+        retriever, client = Retriever.from_environment(), OllamaClient.from_environment()
+        if args.explain:
+            explain(args.question, retriever, sys.stderr)
+
+        def show(passages):
+            print(f'passages: {len(passages)} passed the relevance gate', file=sys.stderr)
+            for n, passage in enumerate(passages, 1):
+                print(f'  [{n}] score {passage.score:.2f} {passage.title}', file=sys.stderr)
+
+        result = answer(args.question, retriever, client,
+                        on_text=lambda t: print(t, end='', flush=True),
+                        on_passages=show if args.explain else None)
     except (RetrievalError, OllamaError, ValueError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 1

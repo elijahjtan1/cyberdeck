@@ -1,7 +1,13 @@
+import io
+import os
+from pathlib import Path
+import tempfile
 import unittest
+from unittest import mock
 
+from core.librarian import answer as answer_module
 from core.librarian.answer import (NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
-                                   check_citations, passage_budget)
+                                   check_citations, passage_budget, service_kiwix_settings)
 from core.librarian.ollama import OllamaError, Reply
 from core.librarian.rank import Passage
 from core.librarian.service import RetrievalError
@@ -108,6 +114,46 @@ class AnswerTest(unittest.TestCase):
                          ('See [note], and [2].', [2], [0]))
         self.assertEqual(check_citations('A [2,1, 2]. B [1].', 2), ('A [2, 1]. B [1].', [2, 1], []))
         self.assertEqual(check_citations('plain', 3), ('plain', [], []))
+
+    def test_service_kiwix_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            unit = Path(tmp) / 'cyberdeck-core.service'
+            unit.write_text('[Service]\nEnvironment=CYBERDECK_KIWIX_URL=http://127.0.0.1:8080\n'
+                            'Environment=CYBERDECK_KIWIX_BOOK=restarters\nEnvironment=OTHER=x\n')
+            self.assertEqual(service_kiwix_settings(unit),
+                             {'CYBERDECK_KIWIX_URL': 'http://127.0.0.1:8080',
+                              'CYBERDECK_KIWIX_BOOK': 'restarters'})
+            self.assertEqual(service_kiwix_settings(Path(tmp) / 'missing'), {})
+
+    def test_command_borrows_service_settings_and_explains(self):
+        retriever = FakeRetriever([SONOBUOY])
+        retriever.kiwix = None
+        out, err = io.StringIO(), io.StringIO()
+        saved = {'CYBERDECK_KIWIX_URL': 'http://127.0.0.1:8080'}
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(answer_module, 'service_kiwix_settings', return_value=saved), \
+                mock.patch('core.librarian.service.Retriever.from_environment', return_value=retriever), \
+                mock.patch('core.librarian.ollama.OllamaClient.from_environment',
+                           return_value=FakeClient('Hydrophone [1].')), \
+                mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            self.assertEqual(answer_module.main(['What is a sonobuoy?', '--explain']), 0)
+            self.assertEqual(os.environ['CYBERDECK_KIWIX_URL'], 'http://127.0.0.1:8080')
+        self.assertIn("service's Kiwix settings", err.getvalue())
+        self.assertIn('keywords: sonobuoy', err.getvalue())
+        self.assertIn('[1] score 3.20 Sonobuoy', err.getvalue())
+        self.assertIn('Sources:\n[1] Sonobuoy', out.getvalue())
+
+    def test_command_warns_when_kiwix_is_off(self):
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(answer_module, 'service_kiwix_settings', return_value={}), \
+                mock.patch('core.librarian.service.Retriever.from_environment',
+                           return_value=FakeRetriever()), \
+                mock.patch('core.librarian.ollama.OllamaClient.from_environment',
+                           return_value=FakeClient()), \
+                mock.patch('sys.stdout', io.StringIO()), mock.patch('sys.stderr', err):
+            answer_module.main(['q'])
+        self.assertIn('Kiwix is off', err.getvalue())
 
     def test_messages_shape(self):
         messages = build_messages('  Why?  ', [NOTES])
