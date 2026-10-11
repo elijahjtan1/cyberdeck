@@ -234,6 +234,34 @@ running, or predates `/api/ask`, it says so and answers in the terminal itself. 
 always answers in the terminal; `--explain` adds the keywords and passage scores (with
 `--local`, also the Kiwix articles found).
 
+## Benchmark
+
+`deck bench` asks a list of questions and reports what matters for the librarian: did the
+right article reach the top 3 passages, did it admit "not found" for questions the sources
+can't answer, and how long it took on the Pi.
+
+```bash
+~/cyberdeck-repo/deck bench --no-model   # retrieval only: quick, checks the question list
+~/cyberdeck-repo/deck bench --json ~/cyberdeck-data/bench.json   # full run with the model
+```
+
+Each line shows the verdict, time to first word and total time, and for a miss the titles
+it got instead. The summary gives the **top-3 hit rate** (in-scope questions whose expected
+article was among the first three distinct passage titles), how many in-scope questions were
+answered and how many of those cited nothing, the **honest "not found" rate** for
+out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
+the lowest `MemAvailable` and Ollama's peak resident memory, sampled every half second from
+`/proc` (the model runs in Ollama's process). The full run takes a while (about a minute per
+answered question on the Pi); run it with nothing else busy, and Ctrl+C stops it.
+
+Questions live in `core/librarian/benchmarks/restarters.json` as
+`{"q": "...", "expect": ["title text"]}`; a passage title matches when it contains an
+`expect` entry, ignoring case and accents. An empty `expect` marks a question the sources
+shouldn't answer. Entries with `"checked": true` use titles seen on the Pi; the other
+in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
+`expect` that names an article your ZIM doesn't have. Pass another file as the first
+argument for a different ZIM (for example a Wikipedia set).
+
 ## Grounded answers
 
 `core/librarian/answer.py` puts retrieval and the model together. To test it without the
