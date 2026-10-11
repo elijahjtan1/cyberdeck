@@ -105,6 +105,44 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | - | todo | `docs/ESP32-PROTOCOL.md` |
 | 5.5 | Pi side of the protocol, plus a mock ESP32 on a virtual serial port sending simulated battery data | - | todo | Power is cut only after the shutdown ack and the heartbeat stops |
 
+## Phase 6: new hardware for resilience
+
+Hardware Eli has approved adding. Each module gets a real driver and a fake for tests, in
+`core/`, and shows nothing (not a made-up value) until the hardware is detected.
+
+| # | Item | Owner | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 6.1 | Real-time clock: DS3231 on I2C, kept in sync from NTP (and GPS once 5.1 lands); STATUS shows the clock source (network, RTC, GPS or unsynced) | - | todo | About $5. Needs `dtoverlay=i2c-rtc,ds3231` in `/boot/firmware/config.txt`, so Eli applies that step |
+| 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | - | todo | Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged |
+| 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
+
+## Phase 7: software for an offline world
+
+Software-only features that need no new hardware. Unclaimed; Eli chooses which to start.
+
+| # | Item | Owner | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 7.1 | Library manifest: sha256 of every ZIM and library file, checked weekly at low priority, result on STATUS | - | todo | Detects silent SD or SSD corruption |
+| 7.2 | Quick cards: short plain-text sheets (first aid, water purification, fire, knots, radio frequencies) readable on the panel with no model | - | todo | Sources must be cited on each card; content reviewed by Eli |
+| 7.3 | Panel ASK page: on-screen keyboard that calls `/api/ask` and streams the answer with citations | - | todo | Shows "backend not running" instead of failing |
+| 7.4 | Deck hotspot: the Pi as a Wi-Fi access point so phones nearby reach Kiwix, the librarian and the browser UI (4.1) | - | todo | Changes network config; Eli approves before it is installed |
+| 7.5 | Hardware watchdog for the panel and core services | - | todo | `bcm2835_wdt`; systemd `WatchdogSec` |
+| 7.6 | Survival power profile: Wi-Fi, Bluetooth and HDMI off, powersave governor, Ollama unloaded when idle, backlight low; one switch on the panel | - | todo | Measure the saving with 6.3 |
+| 7.7 | Read-only root with overlayfs; user data on its own writable partition | - | todo | Survives sudden power loss. Changes boot config; Eli applies it |
+| 7.8 | Backup to a USB stick or second SD from the panel, with verify | - | todo | |
+| 7.9 | Self-rebuild kit: cached apt packages, a repo bundle and a restore guide on the SSD | - | todo | After 6.2 |
+| 7.10 | Night mode: red-on-black palette on every page | - | todo | Previews regenerated in both palettes |
+| 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | - | todo | Uses GPS when present, otherwise a saved location |
+| 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | - | todo | |
+| 7.13 | Field journal: timestamped notes with optional photo and position | - | todo | |
+| 7.14 | Supplies tracker: food, water and medicine with quantities, expiry dates and days remaining | - | todo | |
+| 7.15 | Survival calculators: water disinfection doses, calorie and water needs, unit conversions | - | todo | Formulas cited from the offline sources |
+| 7.16 | OCR from the camera (`tesseract-ocr` from apt): photograph a label or page, then search or save the text | - | todo | Releases the camera when done |
+| 7.17 | Offline dictionaries and phrasebooks from FreeDict (`dict-freedict-*` from apt) | - | todo | |
+| 7.18 | Camera motion watch: low-rate frame differencing that saves snapshots | - | todo | Low CPU; holds the camera only while armed |
+| 7.19 | Offline place-name search from a GeoNames extract, for maps and waypoints (5.2, 5.3) | - | todo | |
+| 7.20 | Survival dashboard on HOME: time and clock source, power, weather, last message | - | todo | After 6.1 and 6.3 |
+
 ## Deferred until hardware is chosen
 
 - Battery-specific software and charge estimates (needs a real sensor)
