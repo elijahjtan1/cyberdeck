@@ -112,6 +112,23 @@ Applied by Eli when the part is wired, never by an installer without asking. Reb
 | GNSS PPS | `dtoverlay=pps-gpio,gpiopin=12` |
 | Fan PWM | `dtoverlay=pwm-2chan,pin=18,func=2,pin2=13,func2=4` in place of the backlight's `pwm` line |
 
+## Trying a part when it arrives
+
+Each driver has a terminal command that reads the part directly, so it can be checked before
+anything is connected to the panel or the backend.
+
+**LD2450 radar.** With the radar on a CP2102 adapter (no `config.txt` change needed):
+
+```bash
+cd ~/cyberdeck-repo && python3 -m core.hardware.ld2450 serial:/dev/ttyUSB0 --seconds 30
+```
+
+Walk in front of it: each line shows distance, angle (negative is left of the sensor) and
+speed (negative is approaching). `--record radar.bin` also saves the raw bytes. A recording
+is useful for tests, and `replay:radar.bin` plays it back labelled **SIMULATED**. Your user
+needs to be in the `dialout` group to open the port. On UART3 the device is `/dev/ttyAMA3` or
+similar, after `dtoverlay=uart3`.
+
 ## Open questions
 
 - The DC, RESET and touch IRQ pins of the 2.8" panel: read from `config.txt`.
