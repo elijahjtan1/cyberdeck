@@ -76,11 +76,36 @@ def by_article(passages):
     return merged
 
 
+# Last in the prompt, where a small model heeds it most. On the Pi, the coffee maker question
+# came back as the "[1] Title" source blocks copied out, the format the prompt showed it.
+ANSWER_CUE = ('Answer the question in two to four sentences of your own, using only the sources '
+              'above. Put the source number after each fact, like [1]. Do not copy the sources out.')
+
+
 def build_messages(question, passages):
-    blocks = [f'[{n}] {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
-    user = 'Sources:\n\n' + '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}'
+    blocks = [f'Source [{n}]: {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
+    user = '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}\n\n{ANSWER_CUE}'
     return [{'role': 'system', 'content': SYSTEM_PROMPT},
             {'role': 'user', 'content': user}]
+
+
+def copied_share(text, passages, run=8):
+    """Share of the answer's words that sit in runs of `run` or more words copied verbatim
+    from the passages (citations ignored). Near 1 means the sources were pasted back."""
+    def words(value):
+        return re.findall(r'\w+', CITATION.sub(' ', value).casefold())
+    answer_words = words(text)
+    if len(answer_words) < run:
+        return 0.0
+    grams = set()
+    for passage in passages:
+        found = words(f'{passage.title} {passage.text}')
+        grams.update(tuple(found[i:i + run]) for i in range(len(found) - run + 1))
+    covered = [False] * len(answer_words)
+    for i in range(len(answer_words) - run + 1):
+        if tuple(answer_words[i:i + run]) in grams:
+            covered[i:i + run] = [True] * run
+    return sum(covered) / len(answer_words)
 
 
 # Wrapping a small model puts around the not-found sentence: quotes, bold, the full stop.

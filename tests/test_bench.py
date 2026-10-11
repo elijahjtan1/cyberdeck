@@ -58,6 +58,19 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(r.prompt_tokens, 300)  # From the model's reply.
         self.assertEqual(bench.summarize([r])['max_prompt_tokens'], 300)
 
+    def test_answers_that_paste_the_sources_back_are_marked_copied(self):
+        source = Passage('Seals can leak, and this is often more problematic than a worn hose.',
+                         'Coffee makers', 'http://k/Coffee_makers', 'kiwix', 1.0)
+        pasted = bench.run_one('q', ['Coffee maker'], FakeRetriever([source]),
+                               FakeClient('[1] Coffee makers\n' + source.text), clock=Clock())
+        own = bench.run_one('q', ['Coffee maker'], FakeRetriever([source]),
+                            FakeClient('A worn seal is the usual cause [1].'), clock=Clock())
+        self.assertEqual((pasted.copied, own.copied), (True, False))
+        self.assertEqual(bench.summarize([pasted, own])['copied_rate'], 0.5)
+        out = io.StringIO()
+        bench.show_result(1, pasted, out)
+        self.assertIn('COPIED', out.getvalue())
+
     def test_retrieval_only_and_errors(self):
         client = FakeClient('unused')
         r = bench.run_one('q', ['Kettle'], FakeRetriever([passage('Kettles')]), client,
