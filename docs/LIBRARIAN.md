@@ -417,7 +417,9 @@ answer ("The part number is not provided in the sources.", "The sources do not p
 information about ...") is not found as well, but only when every sentence is about the
 sources lacking the answer and has no second clause (a comma, `;`, brackets, a dash, `so`, `if`, `but`, `and`,
 `which`, `usually`, `use`, `check` ...). A leading "Therefore," or "Unfortunately," doesn't count. Anything that might carry advice keeps the reply an answer, since hiding a real answer
-is worse than showing an honest one as unverified.
+is worse than showing an honest one as unverified. A reply whose first sentence has a
+citation where the value should be ("The thermal fuse in a Philips HD7546 is [1].") is not
+found too: the model had nothing to put there.
 
 ```python
 from core.librarian.answer import answer

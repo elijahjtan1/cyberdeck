@@ -141,6 +141,18 @@ def only_says_missing(text):
                                    for s in sentences)
 
 
+# On the Pi, asked for a part number the sources don't give, the model wrote "The thermal fuse
+# in a Philips HD7546 coffee maker is [1]." and padded on: the citation stands in for the value.
+BLANK_VALUE = re.compile(r'\b(?:is|are|was|were|be)\s*:?(?:\s*\[\d+(?:\s*,\s*\d+)*\])+\s*[.!?]?$',
+                         re.IGNORECASE)
+
+
+def blank_answer(text):
+    """The first sentence, the direct answer, has a citation where its value should be."""
+    first = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text.strip(), maxsplit=1)[0]
+    return bool(BLANK_VALUE.search(first.strip(DECORATION.replace('.', ''))))
+
+
 def said_not_found(text):
     """The not-found sentence, even with the [1], quotes or bold a small model adds, or a
     reply that only says, in its own words, that the sources don't have the answer.
@@ -183,7 +195,7 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
         if isinstance(item, str):
             yield 'text', item
             continue
-        if not item.text or said_not_found(item.text):
+        if not item.text or said_not_found(item.text) or blank_answer(item.text):
             yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
         else:
             text, cited, dropped = check_citations(item.text, len(passages))
