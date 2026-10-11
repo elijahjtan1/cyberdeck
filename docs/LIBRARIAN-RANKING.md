@@ -12,7 +12,10 @@ from all sources using BM25 (k1=1.2, b=0.75). Matching ignores case and accents,
 "cafe" matches "Café", and applies a light plural rule ("lamps" matches "lamp", "batteries"
 matches "battery"). It is not a full stemmer: "flickering" does not match "flicker". A passage's title counts toward its
 match, so a paragraph from "Table lamps" matches "table lamp" even when the paragraph only
-says "bulb"; the title is not added to the text sent to the model. It splits long paragraphs at sentence or
+says "bulb"; the title is not added to the text sent to the model. A title word weighs as
+much as three mentions in the text, so a paragraph of "How to use a multimeter" beats a
+Toasters paragraph that mentions a multimeter in passing. Paragraph length for BM25 counts
+the text only, so a title doesn't make its paragraphs look longer. It splits long paragraphs at sentence or
 word boundaries, deduplicates text, and considers at most 1,000 chunks. It returns
 passages in decreasing score order whose combined estimated token cost fits the budget.
 The estimate is `ceil(len(text)/4)` per passage. Prompt text, titles and URLs need a

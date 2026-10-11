@@ -35,7 +35,8 @@ The pair searches all run and take their results in turns (each pair's best arti
 each one's second, ...), so a broad first pair such as `test fuse` can't fill all five slots
 before `fuse plug` is tried.
 Translated copies of a wiki page (`Table lamps/fr`) are skipped so they don't use up the
-five slots; `/en` copies count as the page itself.
+five slots; `/en` copies count as the page itself. Main Page is skipped in every language:
+it links to everything, so it matched many searches without answering any.
 
 Search results contain `title`, `url`, `snippet`, and `source`. Article URLs come
 directly from the RSS response, preserving `/content/<book>/...` or `/<book>/A/...`
@@ -45,8 +46,12 @@ a two-megabyte response cap; search returns at most 20 results. A failed server 
 a readable `KiwixError`. Callers should display that error.
 
 `fetch_article(client, url)` returns plain paragraphs using `html.parser`, dropping
-navigation, tables, references and other common Wikipedia page furniture. The parser
-does not execute scripts or load linked assets.
+navigation, tables, references and other common Wikipedia page furniture, and paragraphs
+that are at least 80% link text (lists of links to other pages). The parser does not
+execute scripts or load linked assets. Before ranking, each run of article paragraphs shorter
+than 200 characters is joined onto the next: on the Pi, one-line list items such as
+"Filter coffee makers" were mostly title words, so they outscored the paragraphs that
+explain something and took the model's sources.
 
 ## Known limits and Pi check
 
@@ -310,7 +315,9 @@ so `Lamp` matches `Table lamps` but not `Clamp meter`. An empty `expect` marks a
 the sources shouldn't answer. Most of those find no passages and never reach the model; the
 ones about repair topics (a part number, a screw torque) are meant to find related
 passages that lack the specific fact, so they test whether the model says it
-doesn't know. Entries with `"checked": true` use titles seen on the Pi; the other
+doesn't know. On the Pi, the torque and toaster questions do find passages; the coffee
+maker and kettle part-number questions don't (too few of their words appear together to
+pass the relevance gate), so they end as an honest "not found" without testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
@@ -370,6 +377,14 @@ the four part-number and torque questions from
 [#29](https://github.com/elijahjtan1/cyberdeck/pull/29), and two of them (toaster heating
 element, iPhone 12 screw torque) were answered instead of "not found". The benchmark now
 prints what the model said for those.
+
+**Expectations changed after these runs.** Hair dryer, fuse and cracked phone screen named
+articles that the Restarters wiki doesn't have. A retrieval trace on the Pi showed their
+content in other pages, so `Cleaning`, `PAT testing` and `Spare parts` became expected titles
+([#41](https://github.com/elijahjtan1/cyberdeck/pull/41)). That alone turns those three
+misses into hits, so a run after it reports a higher top-3 rate without better retrieval.
+To compare with the 75% above, also count the hits under the old expectations: those three
+questions counted as misses then, so subtract any of them that hit only through a new title.
 
 ## Grounded answers
 

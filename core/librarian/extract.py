@@ -11,6 +11,8 @@ DROP_CLASSES = {'toc', 'infobox', 'navbox', 'sidebar', 'references', 'reflist',
                 'reference', 'mw-references-wrap', 'catlinks', 'zim-footer'}
 END_SECTIONS = {'references', 'notes', 'external links', 'further reading',
                 'bibliography', 'see also'}
+LINK_LIST = 0.8  # A paragraph with this share of its letters in links is navigation.
+SHORT = 200  # Characters; shorter paragraphs are joined to the next (see join_short).
 
 
 class ArticleParser(HTMLParser):
@@ -18,6 +20,7 @@ class ArticleParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = []
         self.parts = []
+        self.link_parts = []
         self.paragraphs = []
         self.heading = None
         self.heading_parts = []
@@ -25,9 +28,12 @@ class ArticleParser(HTMLParser):
 
     def flush(self):
         text = ' '.join(''.join(self.parts).split())
-        if text:
+        letters = sum(c.isalnum() for c in text)
+        linked = sum(c.isalnum() for c in ''.join(self.link_parts))
+        # Lists of links ("Spare parts", "Case Studies", ...) match every query and say nothing.
+        if text and not (letters and linked >= LINK_LIST * letters):
             self.paragraphs.append(text)
-        self.parts = []
+        self.parts, self.link_parts = [], []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -80,6 +86,8 @@ class ArticleParser(HTMLParser):
         elif not self.skip_section and any(tag in {'p', 'li', 'pre', 'blockquote'}
                                            for tag, _ in self.stack):
             self.parts.append(data)
+            if any(tag == 'a' for tag, _ in self.stack):
+                self.link_parts.append(data)
 
 
 def paragraphs(html):
@@ -88,6 +96,24 @@ def paragraphs(html):
     parser.close()
     parser.flush()
     return parser.paragraphs
+
+
+def join_short(rows, min_chars=SHORT):
+    """Join each run of short paragraphs onto the following one. A list item or one-line
+    paragraph ("Filter coffee makers") is mostly title words, so it outscored the
+    paragraphs that actually explain something; joined, it keeps its context."""
+    joined, pending = [], ''
+    for row in rows:
+        pending = f'{pending} {row}' if pending else row
+        if len(pending) >= min_chars:
+            joined.append(pending)
+            pending = ''
+    if pending:
+        if joined and len(joined[-1]) + len(pending) < 1600:
+            joined[-1] = f'{joined[-1]} {pending}'
+        else:
+            joined.append(pending)
+    return joined
 
 
 def fetch_article(client, url):
