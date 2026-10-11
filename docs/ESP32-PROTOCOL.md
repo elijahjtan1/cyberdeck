@@ -13,8 +13,8 @@ been acknowledged and the Pi's heartbeat has stopped** (see [Shutdown](#shutdown
 
 - **Link:** the ESP32's USB serial port (USB CDC, or its USB-to-UART chip) plugged into a
   Pi USB port. It appears on the Pi as `/dev/ttyACM0` or `/dev/ttyUSB0`; a udev rule can
-  give it a stable name later. The Pi's GPIO UART (`/dev/serial0`, GPIO 14/15) works the
-  same way as a fallback.
+  give it a stable name later. USB only: the Pi's GPIO UART (GPIO 14/15) is taken by the
+  GPS receiver in the wiring map.
 - **Settings:** 115200 baud, 8 data bits, no parity, 1 stop bit, no flow control.
 - **Framing:** one JSON object per line, UTF-8, ending in `\n` (a `\r` before it is
   ignored). At most 512 bytes per line including the newline.
@@ -157,8 +157,9 @@ Only the ESP32 can cut the Pi's power, and it does so only when **both** are tru
 It then waits before cutting power, because the backend stops early in the shutdown and
 the SD card may still be writing:
 
-- If the board has the **power-off signal** (a Pi GPIO set by `dtoverlay=gpio-poweroff`,
-  which goes active only once the Pi has halted), it waits for that signal and then
+- If the board has the **power-off signal** (GPIO 26, physical pin 37, driven by
+  `dtoverlay=gpio-poweroff`, which sets it only once the Pi has halted, wired to an ESP32
+  input), it waits for that signal and then
   **10 s** more. If the signal hasn't come 60 s after the heartbeat stopped, it falls back
   to the rule below. This is the preferred wiring: a missing heartbeat alone could be a
   hang, not a halt. It needs a line in `/boot/firmware/config.txt`, which Eli applies.
@@ -226,4 +227,3 @@ never touches real power. The Pi side is then pointed at the pty instead of
 - The thresholds above assume the 4S LiFePO4 pack in the power and thermal draft, which
   Eli hasn't approved yet; they move with the pack. `battery_critical` is kept for a
   pack that falls fast under load.
-- Which Pi GPIO carries the power-off signal is decided with the hardware pin map.
