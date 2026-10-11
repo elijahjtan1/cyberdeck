@@ -221,6 +221,7 @@ stream, or an error reported mid-answer.
 | `CYBERDECK_OLLAMA_MODEL` | `qwen3:0.6b` | Model name from `ollama list` |
 | `CYBERDECK_OLLAMA_NUM_CTX` | `2048` | Context size in tokens (256-32768); larger is slower and uses more RAM |
 | `CYBERDECK_OLLAMA_NUM_PREDICT` | `400` | Maximum answer length in tokens (1-4096) |
+| `CYBERDECK_LIBRARIAN_BUDGET` | `1400` | Passage tokens the model reads before answering (100-10000, capped to fit the context). On the Pi most of the wait for the first word is reading these, so a smaller budget answers sooner with less detail |
 
 The defaults match the Pi, so the boot service needs no extra settings.
 
@@ -252,7 +253,11 @@ can't answer, and how long it took on the Pi.
 ```bash
 ~/cyberdeck-repo/deck bench --no-model   # retrieval only: quick, checks the question list
 ~/cyberdeck-repo/deck bench --json ~/cyberdeck-data/bench.json   # full run with the model
+~/cyberdeck-repo/deck bench --budget 700 --json ~/cyberdeck-data/bench-700.json   # fewer passages
 ```
+
+`--budget` sets how many passage tokens the model reads, to compare speed against answer
+quality; `--limit 5` runs only the first five questions.
 
 Each line shows the verdict, time to first word and total time, and for a miss the titles
 it got instead. The summary gives the **top-3 hit rate** (in-scope questions whose expected

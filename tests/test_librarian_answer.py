@@ -88,6 +88,18 @@ class AnswerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'num_ctx'):
             answer('q', retriever, client)  # A config error, never a false "not found".
 
+    def test_budget_from_environment(self):
+        retriever = FakeRetriever([NOTES])
+        with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '700'}):
+            answer('q', retriever, FakeClient('ok [1]'))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            answer('q', retriever, FakeClient('ok [1]'))
+        self.assertEqual([c[1] for c in retriever.calls], [700, 1398])  # 1400 capped by the context.
+        for bad in ('lots', '50'):
+            with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': bad}):
+                with self.assertRaisesRegex(ValueError, 'CYBERDECK_LIBRARIAN_BUDGET'):
+                    answer('q', retriever, FakeClient('ok [1]'))
+
     def test_failures_are_errors_not_absence(self):
         with self.assertRaises(RetrievalError):
             answer('q', FakeRetriever(error=RetrievalError('Kiwix is unavailable')), FakeClient())

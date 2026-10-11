@@ -60,6 +60,13 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(r.error, 'Kiwix down')
         self.assertFalse(r.top3)
 
+    def test_budget_reaches_retrieval(self):
+        retriever = FakeRetriever([passage('Kettles')])
+        bench.run_one('q', ['Kettle'], retriever, FakeClient('A [1].'), budget=700, clock=Clock())
+        bench.run_one('q', ['Kettle'], retriever, FakeClient(), use_model=False, budget=500,
+                      clock=Clock())
+        self.assertEqual([c[1] for c in retriever.calls], [700, 500])
+
     def test_summary_scores_retrieval_and_honesty(self):
         retriever = TitleRetriever({'cafe?': ['Glossary:Repair Café'],
                                     'kettle?': ['Toasters', 'Coffee makers', 'Irons', 'Kettles'],

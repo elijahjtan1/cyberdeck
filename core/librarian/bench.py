@@ -12,7 +12,7 @@ import statistics
 import threading
 import time
 
-from .answer import ask_events
+from .answer import ask_events, budget_from_environment, passage_budget
 from .query import fold
 
 DEFAULT_QUESTIONS = Path(__file__).with_name('benchmarks') / 'restarters.json'
@@ -121,17 +121,18 @@ class MemoryWatch:
             self.sample()
 
 
-def run_one(question, expect, retriever, client, *, use_model=True, clock=time.monotonic):
+def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
+            clock=time.monotonic):
     result = Result(question, expect, model=use_model)
     start = clock()
     try:
         if not use_model:
-            passages, _ = retriever.run(question, 1400)
+            passages, _ = retriever.run(question, passage_budget(client, budget or budget_from_environment()))
             result.retrieval_s = clock() - start
             result.titles = list(dict.fromkeys(p.title for p in passages))
             result.found = bool(passages)
         else:
-            for kind, value in ask_events(question, retriever, client):
+            for kind, value in ask_events(question, retriever, client, budget_tokens=budget):
                 if kind == 'passages':
                     result.retrieval_s = clock() - start
                     result.titles = list(dict.fromkeys(p.title for p in value[0]))
@@ -217,19 +218,20 @@ def show_summary(s, out):
         print(f"Errors:                {s['errors']}", file=out)
 
 
-def run(questions, retriever, client, *, use_model=True, out=None, json_path=None):
+def run(questions, retriever, client, *, use_model=True, budget=None, out=None, json_path=None):
     import sys
     out = out or sys.stdout
     results = []
     with MemoryWatch() as memory:
         for n, (question, expect) in enumerate(questions, 1):
-            result = run_one(question, expect, retriever, client, use_model=use_model)
+            result = run_one(question, expect, retriever, client, use_model=use_model, budget=budget)
             results.append(result)
             show_result(n, result, out)
     summary = summarize(results, memory)
     show_summary(summary, out)
     if json_path:
         data = {'summary': summary, 'model': getattr(client, 'model', None) if use_model else None,
+                'budget_tokens': passage_budget(client, budget or budget_from_environment()),
                 'results': [asdict(r) for r in results]}
         Path(json_path).expanduser().write_text(json.dumps(data, indent=1), encoding='utf-8')
         print(f'Saved {json_path}', file=out)
@@ -248,8 +250,12 @@ def main(argv=None):
                         help='JSON list of {"q": ..., "expect": [titles]} (default: Restarters set)')
     parser.add_argument('--no-model', action='store_true', help='measure retrieval only; fast')
     parser.add_argument('--limit', type=int, help='run only the first N questions')
+    parser.add_argument('--budget', type=int, metavar='TOKENS',
+                        help='passage tokens the model reads (default: CYBERDECK_LIBRARIAN_BUDGET or 1400)')
     parser.add_argument('--json', help='also save the results to this file')
     args = parser.parse_args(argv)
+    if args.budget is not None and not 100 <= args.budget <= 10000:
+        parser.error('--budget must be from 100 to 10000')
     try:
         questions = load_questions(args.questions)[:args.limit]
     except (OSError, ValueError) as exc:
@@ -260,7 +266,10 @@ def main(argv=None):
         print('warning: without Kiwix most questions will miss.', file=sys.stderr)
     try:
         retriever, client = Retriever.from_environment(), OllamaClient.from_environment()
-        run(questions, retriever, client, use_model=not args.no_model, json_path=args.json)
+        print(f'Passage budget: {passage_budget(client, args.budget or budget_from_environment())} tokens',
+              file=sys.stderr)
+        run(questions, retriever, client, use_model=not args.no_model, budget=args.budget,
+            json_path=args.json)
     except ValueError as exc:
         print(f'error: {exc}', file=sys.stderr)
         return 1
