@@ -323,8 +323,8 @@ Later runs the same day with Chromium closed and smaller passage budgets
 | Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB | 973 MiB |
 
 Smaller budgets cut the wait for the first word with no loss in hits or answers. The 400 run
-overlapped one manual `deck ask`, so its slowest times are a little high. The model reads roughly 18 prompt tokens a second on the Pi,
-so the first word still takes most of a minute.
+overlapped one manual `deck ask`, so its slowest times are a little high. The model reads
+roughly 18 prompt tokens a second on the Pi, so most of the wait is still that reading.
 
 ## Grounded answers
 
