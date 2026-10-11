@@ -4,6 +4,7 @@ When retrieval finds nothing, the answer is NOT_FOUND and the model is never cal
 Citations to sources that weren't given are removed; an answer citing nothing is flagged.
 """
 from dataclasses import dataclass, field
+import os
 import re
 
 NOT_FOUND = 'Not found in the offline sources.'
@@ -11,6 +12,9 @@ NOT_FOUND = 'Not found in the offline sources.'
 CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 # Room for the instructions, titles and question around the passages (estimated tokens).
 PROMPT_OVERHEAD = 250
+# Passage tokens the model reads before answering. On the Pi most of the wait before the
+# first word is spent reading them, so this trades detail for speed.
+DEFAULT_BUDGET = 1400
 
 SYSTEM_PROMPT = (
     'You are an offline librarian. Answer the question using only the numbered sources. '
@@ -37,7 +41,21 @@ class Answer:
         return self.found and not self.cited
 
 
-def passage_budget(client, budget_tokens=1400):
+def budget_from_environment():
+    """CYBERDECK_LIBRARIAN_BUDGET, or DEFAULT_BUDGET when unset."""
+    raw = os.environ.get('CYBERDECK_LIBRARIAN_BUDGET', '').strip()
+    if not raw:
+        return DEFAULT_BUDGET
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError('CYBERDECK_LIBRARIAN_BUDGET must be an integer') from None
+    if not 100 <= value <= 10000:
+        raise ValueError('CYBERDECK_LIBRARIAN_BUDGET must be from 100 to 10000')
+    return value
+
+
+def passage_budget(client, budget_tokens=DEFAULT_BUDGET):
     """Fit passages, prompt and answer inside the model's context window."""
     room = client.num_ctx - client.num_predict - PROMPT_OVERHEAD
     return max(0, min(budget_tokens, room))
@@ -54,12 +72,15 @@ def said_not_found(text):
     return text.strip().rstrip('.').casefold() == NOT_FOUND.rstrip('.').casefold()
 
 
-def ask_events(question, retriever, client, *, budget_tokens=1400):
+def ask_events(question, retriever, client, *, budget_tokens=None):
     """Yield ('passages', (passages, warnings)), then ('text', piece)..., then ('done', Answer).
 
     Raises RetrievalError if every source failed, OllamaError if the model failed, and
     ValueError for bad settings. None of them means the answer is absent.
+    budget_tokens defaults to CYBERDECK_LIBRARIAN_BUDGET.
     """
+    if budget_tokens is None:
+        budget_tokens = budget_from_environment()
     budget = passage_budget(client, budget_tokens)
     if not budget:
         raise ValueError('The model context is too small for any passages; raise num_ctx')
@@ -79,7 +100,7 @@ def ask_events(question, retriever, client, *, budget_tokens=1400):
             yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped)
 
 
-def answer(question, retriever, client, *, budget_tokens=1400, on_text=None, on_passages=None):
+def answer(question, retriever, client, *, budget_tokens=None, on_text=None, on_passages=None):
     """Run ask_events to the end; the callbacks see passages and streamed text."""
     for kind, value in ask_events(question, retriever, client, budget_tokens=budget_tokens):
         if kind == 'passages' and on_passages:

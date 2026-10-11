@@ -47,6 +47,8 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(r.titles, ['Glossary:Repair Café', 'Table lamps'])  # Deduplicated.
         self.assertEqual((r.rank, r.top3, r.found, r.uncited, r.error), (1, True, True, False, ''))
         self.assertEqual((r.retrieval_s, r.first_word_s, r.total_s), (0.5, 1.0, 1.5))
+        self.assertEqual(r.prompt_tokens, 300)  # From the model's reply.
+        self.assertEqual(bench.summarize([r])['max_prompt_tokens'], 300)
 
     def test_retrieval_only_and_errors(self):
         client = FakeClient('unused')
@@ -59,6 +61,13 @@ class BenchTest(unittest.TestCase):
                           client, clock=Clock())
         self.assertEqual(r.error, 'Kiwix down')
         self.assertFalse(r.top3)
+
+    def test_budget_reaches_retrieval(self):
+        retriever = FakeRetriever([passage('Kettles')])
+        bench.run_one('q', ['Kettle'], retriever, FakeClient('A [1].'), budget=700, clock=Clock())
+        bench.run_one('q', ['Kettle'], retriever, FakeClient(), use_model=False, budget=500,
+                      clock=Clock())
+        self.assertEqual([c[1] for c in retriever.calls], [700, 500])
 
     def test_summary_scores_retrieval_and_honesty(self):
         retriever = TitleRetriever({'cafe?': ['Glossary:Repair Café'],
