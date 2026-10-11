@@ -20,7 +20,7 @@
  {"q": "How do I bake sourdough bread?", "expect": []},
  {"q": "What is the capital of Peru?", "expect": []},
  {"q": "What is the part number of the thermal fuse in a Philips HD7546 coffee maker?", "expect": [], "checked": false},
- {"q": "How much does a replacement kettle heating element cost in pounds?", "expect": [], "checked": false},
- {"q": "What wattage is the Russell Hobbs 23410 toaster?", "expect": [], "checked": false},
+ {"q": "What is the part number of a kettle steam thermostat?", "expect": [], "checked": false},
+ {"q": "What is the part number of a toaster heating element?", "expect": [], "checked": false},
  {"q": "What torque should I use on the pentalobe screws of an iPhone 12?", "expect": [], "checked": false}
 ]
