@@ -20,8 +20,9 @@ The app now opens on **Home**, a launcher for everything else.
   | GIFs | GIF player | |
   | Tools | Tools menu | |
   | Quick | Quick controls | |
-  | Saver | Starts your screensaver now | Its name |
+  | Ask | Ask the offline librarian ([LIBRARIAN.md](LIBRARIAN.md#on-the-panel)) | Answering..., or Backend off |
 
+- **Screensaver:** the Saver tile made way for Ask. The saver still starts on its own after the idle delay, and **OPTIONS → Screensavers → PREVIEW** starts it at once.
 - **Tab bar:** the **APPS** tab is now **HOME**, in the same spot, so the other tabs haven't moved. In portrait, HOME is the top-right tab.
 - **Returning:** leaving the Games menu, Tools, Audio and the other apps now brings you back to Home.
 - **Power:** opening on Home instead of the live camera means the camera sensor rests until you open Camera. It stops 15 s after you leave the Camera page.

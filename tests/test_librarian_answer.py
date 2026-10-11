@@ -6,8 +6,9 @@ import unittest
 from unittest import mock
 
 from core.librarian import answer as answer_module
-from core.librarian.answer import (NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
-                                   check_citations, passage_budget, service_kiwix_settings)
+from core.librarian.answer import (ANSWER_CUE, NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
+                                   check_citations, copied_share, passage_budget,
+                                   service_kiwix_settings)
 from core.librarian.ollama import OllamaError, Reply
 from core.librarian.rank import Passage
 from core.librarian.service import RetrievalError
@@ -67,9 +68,9 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(detail, 'How does a passive sonobuoy work?')
         self.assertIn(NOT_FOUND, messages[0]['content'])
         user = messages[1]['content']
-        self.assertIn('[1] Sonobuoy\nA passive sonobuoy listens', user)
-        self.assertIn('[2] notes.md\nCharge the deck', user)
-        self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?'))
+        self.assertIn('Source [1]: Sonobuoy\nA passive sonobuoy listens', user)
+        self.assertIn('Source [2]: notes.md\nCharge the deck', user)
+        self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?\n\n' + ANSWER_CUE))
 
     def test_model_saying_not_found_is_reported_as_not_found(self):
         for text in ('Not found in the offline sources.', ' not found in the offline sources ', ''):
@@ -113,7 +114,7 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
         self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
         prompt = client.calls[0][0][1]['content']
-        self.assertIn('[2] notes.md', prompt)
+        self.assertIn('Source [2]: notes.md', prompt)
         self.assertNotIn('[3]', prompt)
         self.assertEqual(result.dropped, [3])
 
@@ -206,7 +207,19 @@ class AnswerTest(unittest.TestCase):
     def test_messages_shape(self):
         messages = build_messages('  Why?  ', [NOTES])
         self.assertEqual([m['role'] for m in messages], ['system', 'user'])
-        self.assertTrue(messages[1]['content'].endswith('Question: Why?'))
+        self.assertIn('Question: Why?\n\n', messages[1]['content'])
+        self.assertTrue(messages[1]['content'].endswith(NOT_FOUND))  # The last thing it reads.
+
+    def test_copied_share_spots_pasted_sources(self):
+        lamp = Passage('Seals can leak, and this is often more problematic. Cleaning might resolve '
+                       'the problem, or there might occasionally be an O-ring you can replace.',
+                       'Mixers', 'http://k/Mixers', 'kiwix')
+        pasted = ('[1] Mixers\nSeals can leak, and this is often more problematic. Cleaning '
+                  'might resolve the problem, or there might occasionally be an O-ring you can replace.')
+        own = 'A worn seal is the usual cause [1]. Cleaning it may help, or replace the O-ring [1].'
+        self.assertGreater(copied_share(pasted, [lamp]), .9)
+        self.assertEqual(copied_share(own, [lamp]), 0.0)
+        self.assertEqual(copied_share('Too short [1].', [lamp]), 0.0)
 
 
 if __name__ == '__main__':

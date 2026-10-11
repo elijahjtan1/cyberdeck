@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render sample screens (illustrative data, no hardware) into docs/previews/."""
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -223,6 +224,7 @@ def games_screens(clock):
     save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
     puzzle_screens(clock)
     home_screens(clock)
+    ask_screens(clock)
     bunny_breeds()
 
 
@@ -230,7 +232,7 @@ def home_screens(clock):
     rows = {'temp': '48.2 C', 'disk_free': '18.4 GiB'}
     notes = {'wifi': 'Wi-Fi -58 dBm', 'camera': 'Live view', 'photos': '23 saved',
              'games': '9 games', 'audio': 'Vol 55%', 'album': 'Slideshow', 'gifs': 'Animations',
-             'tools': 'Timers & more', 'quick': 'Shortcuts', 'saver': 'Bunnies'}
+             'tools': 'Timers & more', 'quick': 'Shortcuts', 'ask': 'Offline answers'}
     landscape = app.render('home', None, False, 20, rows, '', wall_time=clock, extra={'home': notes})
     app.set_rotation(90)
     try:
@@ -243,6 +245,43 @@ def home_screens(clock):
     out = ROOT / 'docs/previews/home-preview.png'
     sheet.save(out, optimize=True)
     print(out)
+
+
+def ask_screens(clock):
+    """ASK page: keyboard, waiting for the first word, and a finished answer (sample text)."""
+    from panel_tools.ask import AskApp
+
+    def answer(question, base_url, opener=None, timeout=None):
+        yield {'event': 'passages', 'model': 'qwen3:0.6b', 'passages': [{'n': 1}, {'n': 2}]}
+        yield {'event': 'done', 'found': True, 'uncited': False, 'cited': [1], 'warnings': [],
+               'answer': 'Most leaks come from a worn seal or O-ring around the water tank '
+                         'or the carafe lid [1]. Check the gasket under the filter holder and '
+                         'replace it if it is cracked or hard [1].',
+               'sources': [{'n': 1, 'title': 'Coffee makers', 'source': 'kiwix'}]}
+
+    sheets = []
+    for rotation in (0, 90):
+        app.set_rotation(rotation)
+        try:
+            times = iter((100, 144))
+            page = AskApp(app, 'http://127.0.0.1:8765', events=answer, clock=lambda: next(times))
+            page.question = 'why does my coffee maker leak'
+            typing = page.render(0, clock, ())
+            page.ask('Why does my coffee maker leak?')
+            page.thread.join()
+            done = page.render(0, clock, ())
+            waiting = AskApp(app, 'http://127.0.0.1:8765', clock=lambda: 118)
+            waiting.view, waiting.asked, waiting.stage = 'answer', page.asked, 'reading'
+            waiting.started, waiting.passages, waiting.model = 100, 2, 'qwen3:0.6b'
+            hold = threading.Event()  # A live worker, so the page shows STOP.
+            waiting.thread = threading.Thread(target=hold.wait)
+            waiting.thread.start()
+            sheets.append([typing, waiting.render(0, clock, ()), done])
+            hold.set()
+        finally:
+            app.set_rotation(0)
+    save_sheet(sheets[0], 'ask-landscape-preview.png', cols=3)
+    save_sheet(sheets[1], 'ask-portrait-preview.png', cols=3)
 
 
 def puzzle_screens(clock):
