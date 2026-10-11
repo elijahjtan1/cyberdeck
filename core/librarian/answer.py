@@ -50,8 +50,25 @@ def build_messages(question, passages):
             {'role': 'user', 'content': user}]
 
 
+# Wrapping a small model puts around the not-found sentence: quotes, bold, the full stop.
+DECORATION = ' \t\n.*_"\'`'
+
+
 def said_not_found(text):
-    return text.strip().rstrip('.').casefold() == NOT_FOUND.rstrip('.').casefold()
+    """The not-found sentence, even with the [1], quotes or bold a small model adds.
+
+    Text after it counts as an answer only if it cites a source; uncited remarks such as
+    "The sources only discuss lamps." don't turn "not found" into a found answer.
+    """
+    phrase = NOT_FOUND.rstrip('.').casefold()
+    start = text.casefold().find(phrase)
+    if start < 0 or text[:start].strip(DECORATION):
+        return False
+    rest = text[start + len(phrase):].lstrip(DECORATION)
+    citation = CITATION.match(rest)  # "...sources. [1]" cites the sentence, not a fact.
+    if citation:
+        rest = rest[citation.end():]
+    return not CITATION.search(rest)
 
 
 def ask_events(question, retriever, client, *, budget_tokens=1400):

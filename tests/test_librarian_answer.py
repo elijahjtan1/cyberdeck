@@ -77,6 +77,22 @@ class AnswerTest(unittest.TestCase):
             self.assertFalse(result.found)
             self.assertEqual(result.text, NOT_FOUND)
 
+    def test_not_found_with_a_citation_or_decoration_is_still_not_found(self):
+        # Told to cite every fact, a small model may cite its not-found sentence too.
+        for text in ('Not found in the offline sources. [1]', 'Not found in the offline sources [1].',
+                     '**Not found in the offline sources.**', '"Not found in the offline sources."',
+                     'Not found in the offline sources.\n\nThe sources only discuss notes.'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertFalse(result.found, text)
+            self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
+
+    def test_cited_facts_after_not_found_are_an_answer(self):
+        for text in ('Not found in the offline sources. But charge the deck first [1].',
+                     'The deck is not found in the offline sources list, but charge it [1].'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertTrue(result.found, text)
+            self.assertEqual(result.cited, [1])
+
     def test_budget_leaves_room_for_prompt_and_answer(self):
         client, retriever = FakeClient('ok [1]'), FakeRetriever([NOTES])
         answer('q', retriever, client, budget_tokens=5000)

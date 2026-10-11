@@ -316,7 +316,9 @@ no passage above the relevance gate, it prints `Not found in the offline sources
 and never calls the model. The passages go to the model numbered `[1]`, `[2]`, ... with
 their titles, under instructions to answer only from them, cite source numbers, and reply
 with that exact not-found sentence when the sources don't contain the answer. If the model
-does so, the result is reported as not found too.
+does so, the result is reported as not found too, even when it wraps the sentence in quotes
+or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
+that text cites a source.
 
 ```python
 from core.librarian.answer import answer
