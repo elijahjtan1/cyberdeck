@@ -39,6 +39,14 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(bench.first_match(titles, ['repair cafe']), 2)
         self.assertEqual(bench.first_match(titles, ['Kettle']), 0)
 
+    def test_rank_matches_whole_words(self):
+        self.assertEqual(bench.first_match(['Clamp meter', 'Table lamps'], ['Lamp']), 2)
+        self.assertEqual(bench.first_match(['Diffuser', 'Fuse (electrical)'], ['Fuse']), 2)
+        self.assertEqual(bench.first_match(['Electric kettles'], ['Kettle']), 1)  # Plural.
+        self.assertEqual(bench.first_match(['Headphones'], ['Headphone']), 1)
+        self.assertEqual(bench.first_match(['Hair dryers'], ['Hair dryer']), 1)
+        self.assertEqual(bench.first_match(['Phonograph', 'Smartphone'], ['Phone']), 0)
+
     def test_run_one_with_model(self):
         retriever = FakeRetriever([passage('Glossary:Repair Café'), passage('Glossary:Repair Café'),
                                    passage('Table lamps')])
