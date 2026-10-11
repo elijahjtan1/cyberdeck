@@ -256,7 +256,7 @@ def main(argv=None):
     parser.add_argument('--no-model', action='store_true', help='measure retrieval only; fast')
     parser.add_argument('--limit', type=int, help='run only the first N questions')
     parser.add_argument('--budget', type=int, metavar='TOKENS',
-                        help='passage tokens the model reads (default: CYBERDECK_LIBRARIAN_BUDGET or 1400)')
+                        help='passage tokens the model reads (default: CYBERDECK_LIBRARIAN_BUDGET or 700)')
     parser.add_argument('--json', help='also save the results to this file')
     args = parser.parse_args(argv)
     if args.budget is not None and not 100 <= args.budget <= 10000:

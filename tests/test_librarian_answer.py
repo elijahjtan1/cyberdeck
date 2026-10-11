@@ -107,11 +107,11 @@ class AnswerTest(unittest.TestCase):
 
     def test_budget_from_environment(self):
         retriever = FakeRetriever([NOTES])
-        with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '700'}):
+        with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '5000'}):
             answer('q', retriever, FakeClient('ok [1]'))
         with mock.patch.dict(os.environ, {}, clear=True):
             answer('q', retriever, FakeClient('ok [1]'))
-        self.assertEqual([c[1] for c in retriever.calls], [700, 1398])  # 1400 capped by the context.
+        self.assertEqual([c[1] for c in retriever.calls], [1398, 700])  # 5000 capped by the context.
         for bad in ('lots', '50'):
             with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': bad}):
                 with self.assertRaisesRegex(ValueError, 'CYBERDECK_LIBRARIAN_BUDGET'):

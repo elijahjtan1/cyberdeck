@@ -228,7 +228,7 @@ answering" rather than as Ollama being down.
 | `CYBERDECK_OLLAMA_MODEL` | `qwen3:0.6b` | Model name from `ollama list` |
 | `CYBERDECK_OLLAMA_NUM_CTX` | `2048` | Context size in tokens (256-32768); larger is slower and uses more RAM |
 | `CYBERDECK_OLLAMA_NUM_PREDICT` | `400` | Maximum answer length in tokens (1-4096) |
-| `CYBERDECK_LIBRARIAN_BUDGET` | `1400` | Passage tokens the model reads before answering (100-10000, capped to fit the context). On the Pi most of the wait for the first word is reading these, so a smaller budget answers sooner with less detail. The `cyberdeck-core` service doesn't see a value set in a terminal, so it applies to `deck ask --local` and `deck bench`, not to `deck ask` through the running backend |
+| `CYBERDECK_LIBRARIAN_BUDGET` | `700` | Passage tokens the model reads before answering (100-10000, capped to fit the context). On the Pi most of the wait for the first word is reading these, so a smaller budget answers sooner with less detail. The `cyberdeck-core` service doesn't see a value set in a terminal, so it applies to `deck ask --local` and `deck bench`, not to `deck ask` through the running backend |
 
 The defaults match the Pi, so the boot service needs no extra settings.
 
@@ -308,6 +308,23 @@ process at about 800 MiB. Chromium was also open on the Kiwix page during the ru
 roughly 800 MiB more, which explains most of the low available memory. Remaining misses: hair dryer and cracked phone
 screen (no matching article found in the ZIM), fuse (Glossary:Fuse not reached) and
 multimeter (expected article ranked 4th).
+
+Second run the same day with Chromium closed and a 700-token passage budget
+(`deck bench --budget 700`), which became the default:
+
+| Measure | 1,400 tokens | 700 tokens |
+| --- | --- | --- |
+| Top-3 hit rate | 75% | 75% |
+| Answered (in scope) | 94% | 100%, none uncited |
+| Honest "not found" | 100% | 100% |
+| Time to first word | 69 s median, 111 s max | 45 s median, 56 s max |
+| Total per question | 79 s median, 237 s max | 62 s median, 163 s max |
+| Largest prompt | not measured | 835 tokens |
+| Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB |
+
+Half the passages cut the wait for the first word by about a third and avoided the timeout,
+with no loss in hits or answers. The model reads roughly 18 prompt tokens a second on the Pi,
+so the first word still takes most of a minute.
 
 ## Grounded answers
 

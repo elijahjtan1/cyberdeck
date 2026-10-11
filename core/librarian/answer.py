@@ -14,7 +14,7 @@ CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 PROMPT_OVERHEAD = 250
 # Passage tokens the model reads before answering. On the Pi most of the wait before the
 # first word is spent reading them, so this trades detail for speed.
-DEFAULT_BUDGET = 1400
+DEFAULT_BUDGET = 700  # Measured on the Pi: first word 45 s median vs 69 s at 1,400.
 
 SYSTEM_PROMPT = (
     'You are an offline librarian. Answer the question using only the numbered sources. '
