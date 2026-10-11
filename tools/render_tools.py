@@ -40,16 +40,19 @@ def main():
                     ui.page=page
                     canvas.paste(ui.render(10,datetime(2026,10,10,12,30),()),(i%3*app.W,i//3*app.H))
                 canvas.save(target/f'tools-{rotation}.png')
-            # Sun & moon: no saved location, then a saved one, in both orientations.
+            # Sun & moon: landscape without and with a saved location; portrait with one,
+            # then with the clock not synced.
             ui.page,sheet,x='sky',Image.new('RGB',(320*2+240*2+18,320),'#080e14'),0
             when=datetime(2026,10,21,21,0,tzinfo=timezone(timedelta(hours=1)))  # London summer time
-            for rotation in (0,90):
+            london='{"lat": 51.51, "lon": -0.13}'
+            for rotation,location,sync in ((0,None,'Synchronized'),(0,london,'Synchronized'),
+                                           (90,london,'Synchronized'),(90,london,'Not synchronized')):
                 app.set_rotation(rotation)
-                for location in (None,'{"lat": 51.51, "lon": -0.13}'):
-                    path=data/'location.json'
-                    path.unlink(missing_ok=True)
-                    if location: path.write_text(location)
-                    sheet.paste(ui.render(10,when,()),(x,0)); x+=app.W+6
+                ui.rows={**ui.rows,'sync':sync}
+                path=data/'location.json'
+                path.unlink(missing_ok=True)
+                if location: path.write_text(location)
+                sheet.paste(ui.render(10,when,()),(x,0)); x+=app.W+6
             sheet.save(target/'sky-preview.png')
         finally:
             ui.close(); app.set_rotation(0)

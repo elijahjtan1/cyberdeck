@@ -98,6 +98,12 @@ says **No saved location** and shows no sun times rather than guessing a city.
 
 Times are in the Pi's time zone and good to a minute or two; the moon phase can be
 up to half a day off. Near the poles the page says when the sun stays up or down all day.
+Sun times are for the Pi's local date, so a saved location far from the Pi's time zone
+can show the neighbouring day's sunrise or sunset.
+
+Everything here depends on the Pi's date. Until a real-time clock is fitted, a Pi that
+starts without network keeps the last saved time, so the page shows **Clock not synced:
+check the date** in orange whenever the clock hasn't been set from the network.
 
 ## Photo zoom and sharing
 

@@ -202,13 +202,16 @@ class ToolsUI:
                 line(y,text)
         elif self.page == 'sky':
             # Read on each draw: the file is tiny and editing it takes effect at once.
-            info = sky.sky_lines(wall_time, sky.load_location(self.data/'location.json'))
-            line(38, info['where'], a.MUTED)
+            info = sky.sky_lines(wall_time, sky.load_location(self.data/'location.json'),
+                                 self.rows.get('sync', 'Unknown'))
+            line(38, info['clock'] or info['where'], a.WARN if info['clock'] else a.MUTED)
             rows = info['sun'] or ['Sun times need a position:',
                                    'save it in cyberdeck-data/location.json']
-            for y, text in zip(range(58, 120, 19), rows):
-                line(y, text, None if info['sun'] else a.WARN)
-            moon_y = max(122, (bottom+120)//2-26)
+            if info['clock']:  # The warning takes the top line; the position moves down.
+                rows = [info['where']] + rows
+            for y, text in zip(range(56, 132, 19), rows):
+                line(y, text, a.MUTED if text == info['where'] else None if info['sun'] else a.WARN)
+            moon_y = max(126 if info['clock'] else 122, (bottom+120)//2-26)
             self.draw_moon(d, (a.W//2, moon_y+16), 15, info['lit'], info['waxing'])
             line(moon_y+40, info['moon'])
             line(moon_y+59, info['next'], a.MUTED)

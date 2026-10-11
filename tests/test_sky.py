@@ -95,6 +95,15 @@ class LocationTest(unittest.TestCase):
         self.assertEqual(polar['sun'][0], 'Sunrise sun up all day   Sunset sun up all day')
 
 
+class ClockTest(unittest.TestCase):
+    def test_unsynced_clock_is_flagged(self):
+        moment = datetime(2026, 10, 10, 12, tzinfo=UTC)
+        self.assertIsNone(sky.sky_lines(moment, LONDON, 'Synchronized')['clock'])
+        self.assertEqual(sky.sky_lines(moment, LONDON, 'Not synchronized')['clock'],
+                         'Clock not synced: check the date')
+        self.assertEqual(sky.sky_lines(moment, None)['clock'], 'Clock sync unknown: check the date')
+
+
 class SkyPageTest(unittest.TestCase):
     def tearDown(self):
         app.set_rotation(0)
@@ -111,8 +120,10 @@ class SkyPageTest(unittest.TestCase):
                 sky_button = next(rect for rect, action in ui.rects if action == 'go:sky')
                 ui.tap((sky_button[0]+sky_button[2])/2, (sky_button[1]+sky_button[3])/2, 0)
                 self.assertEqual(ui.page, 'sky')
-                for degrees in (0, 90):
+                for degrees, sync in ((0, 'Synchronized'), (90, 'Synchronized'),
+                                      (0, 'Not synchronized'), (90, 'Unknown')):
                     app.set_rotation(degrees)
+                    ui.rows = {'sync': sync}
                     (data/'location.json').unlink(missing_ok=True)
                     self.assertEqual(ui.render(0, datetime(2026, 10, 10, 12, 30), ()).size, (app.W, app.H))
                     (data/'location.json').write_text('{"lat": 51.5, "lon": -0.13}')

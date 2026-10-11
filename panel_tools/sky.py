@@ -74,10 +74,17 @@ def position_label(lat, lon):
     return f"{abs(lat):.1f}{'N' if lat >= 0 else 'S'} {abs(lon):.1f}{'E' if lon >= 0 else 'W'}"
 
 
-def sky_lines(wall_time, location):
-    """Text rows for the SKY page; the moon needs no position, the sun does."""
+def sky_lines(wall_time, location, sync='Unknown'):
+    """Text rows for the SKY page; the moon needs no position, the sun does.
+
+    sync is the health poller's NTP state. Without an RTC an offline Pi keeps the last
+    saved time, so every answer here is for the wrong day unless the clock is synced.
+    """
     if wall_time.tzinfo is None:
         wall_time = wall_time.astimezone()  # A naive time is the Pi's local time.
+    clock_note = None if sync == 'Synchronized' else (
+        'Clock not synced: check the date' if sync == 'Not synchronized'
+        else 'Clock sync unknown: check the date')
     _, lit, name, to_full, to_new = moon_phase(wall_time)
     moon = f'{name}, {lit*100:.0f}% lit'
     nearer, days = ('Full', to_full) if to_full < to_new else ('New', to_new)
@@ -86,7 +93,7 @@ def sky_lines(wall_time, location):
                 f"{nearer} moon in about {days} day{'s' if days > 1 else ''}")
     if location is None:
         return {'where': 'No saved location', 'sun': [], 'moon': moon, 'next': upcoming, 'lit': lit,
-                'waxing': to_full < to_new}
+                'waxing': to_full < to_new, 'clock': clock_note}
     lat, lon = location
     zone = wall_time.tzinfo
     day = wall_time.date()
@@ -110,4 +117,4 @@ def sky_lines(wall_time, location):
            else 'Civil twilight: ' + ('no full dark' if dawn == 'up' else 'none'),
            daylight]
     return {'where': 'Saved location ' + position_label(lat, lon), 'sun': sun, 'moon': moon,
-            'next': upcoming, 'lit': lit, 'waxing': to_full < to_new}
+            'next': upcoming, 'lit': lit, 'waxing': to_full < to_new, 'clock': clock_note}
