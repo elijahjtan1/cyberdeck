@@ -30,23 +30,7 @@ Your old enabled idle-blank timeout becomes Black with the same timeout. If idle
 
 ## Update
 
-Stop the app with Ctrl+C in the Pi terminal and make a backup:
-
-```bash
-cp ~/panel_app.py ~/panel_app.previous.py
-```
-
-From Windows PowerShell:
-
-```powershell
-scp "C:\Users\Eli\Documents\Codex\2026-10-09\i\outputs\panel_app.py" eli@cyberdeck.local:/home/eli/
-```
-
-Then in the Pi terminal:
-
-```bash
-sudo python3 ~/panel_app.py
-```
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it.
 
 No reboot or additional packages are required. Your prior desktop-touch isolation remains in effect.
 
