@@ -259,8 +259,8 @@ it got instead. The summary gives the **top-3 hit rate** (in-scope questions who
 article was among the first three distinct passage titles), how many in-scope questions were
 answered and how many of those cited nothing, the **honest "not found" rate** for
 out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
-the lowest `MemAvailable` and Ollama's peak resident memory, sampled every half second from
-`/proc` (the model runs in Ollama's process). The full run takes a while (about a minute per
+the lowest `MemAvailable` and the peak resident memory of Ollama and its `llama-server`
+model runner, sampled every half second from `/proc`. The full run takes a while (about a minute per
 answered question on the Pi); run it with nothing else busy, and Ctrl+C stops it.
 
 Questions live in `core/librarian/benchmarks/restarters.json` as
@@ -270,6 +270,30 @@ shouldn't answer. Entries with `"checked": true` use titles seen on the Pi; the 
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
+
+### Baseline
+
+First full run on the Pi 4 (4 GB) with the Restarters ZIM, `qwen3:0.6b`, the default
+2,048-token context and 1,400-token passage budget, 11 October 2026:
+
+| Measure | Result |
+| --- | --- |
+| Top-3 hit rate | 75% (12 of 16 in-scope questions) |
+| Answered (in scope) | 94% (15 of 16; the other timed out), none uncited |
+| Honest "not found" | 100% (4 of 4 out-of-scope questions) |
+| Retrieval | 0.22 s median, 1.28 s max |
+| Time to first word | 69 s median, 111 s max |
+| Total per question | 79 s median, 237 s max |
+| Lowest available memory | 339 MiB |
+
+Retrieval and honesty are good; speed is the problem. Most of the wait is the model reading
+the passages before its first word, and one question hit the 120-second Ollama timeout
+before any text arrived. Ollama's peak memory read 35 MiB because the model runs in a
+separate `llama-server` process the benchmark didn't count (fixed since); `ps` showed that
+process at about 800 MiB. Chromium was also open on the Kiwix page during the run, using
+roughly 800 MiB more, which explains most of the low available memory. Remaining misses: hair dryer and cracked phone
+screen (no matching article found in the ZIM), fuse (Glossary:Fuse not reached) and
+multimeter (expected article ranked 4th).
 
 ## Grounded answers
 
