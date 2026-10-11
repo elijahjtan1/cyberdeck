@@ -35,7 +35,8 @@ The pair searches all run and take their results in turns (each pair's best arti
 each one's second, ...), so a broad first pair such as `test fuse` can't fill all five slots
 before `fuse plug` is tried.
 Translated copies of a wiki page (`Table lamps/fr`) are skipped so they don't use up the
-five slots; `/en` copies count as the page itself.
+five slots; `/en` copies count as the page itself. Main Page is skipped in every language:
+it links to everything, so it matched many searches without answering any.
 
 Search results contain `title`, `url`, `snippet`, and `source`. Article URLs come
 directly from the RSS response, preserving `/content/<book>/...` or `/<book>/A/...`
@@ -45,8 +46,12 @@ a two-megabyte response cap; search returns at most 20 results. A failed server 
 a readable `KiwixError`. Callers should display that error.
 
 `fetch_article(client, url)` returns plain paragraphs using `html.parser`, dropping
-navigation, tables, references and other common Wikipedia page furniture. The parser
-does not execute scripts or load linked assets.
+navigation, tables, references and other common Wikipedia page furniture, and paragraphs
+that are at least 80% link text (lists of links to other pages). The parser does not
+execute scripts or load linked assets. Before ranking, each run of article paragraphs shorter
+than 200 characters is joined onto the next: on the Pi, one-line list items such as
+"Filter coffee makers" were mostly title words, so they outscored the paragraphs that
+explain something and took the model's sources.
 
 ## Known limits and Pi check
 
