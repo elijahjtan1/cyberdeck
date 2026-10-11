@@ -42,9 +42,18 @@ See [LIBRARIAN-RANKING.md](LIBRARIAN-RANKING.md) for keyword rules, BM25 scoring
 the configurable relevance gate.
 
 Recorded XML and article HTML verify the installed search format and extraction; other
-compatibility fixtures are synthetic. With a Wikipedia ZIM installed, search
-for `passive sonobuoy`, verify that the
-result URL opens offline, then check that fetched paragraphs describe hydrophones and
+compatibility fixtures are synthetic.
+
+To check the running service live, start kiwix-serve as above, install the service with
+the `--kiwix-*` options from **Backend configuration**, then:
+
+```bash
+curl 'http://127.0.0.1:8765/api/search?q=repair'
+```
+
+Results with `"source": "kiwix"` and `/content/restarters_en_all_maxi_2026-04/...` URLs mean
+the service reached Kiwix. With a Wikipedia ZIM installed (and `--kiwix-book` set to its
+key), search for `passive sonobuoy`, verify that the result URL opens offline, then check that fetched paragraphs describe hydrophones and
 radio transmission. Stop kiwix-serve and confirm a clear error instead of a hang.
 
 Unusual HTML may need additional cleanup rules. Table-only facts and reference sections
@@ -88,10 +97,21 @@ export CYBERDECK_KIWIX_BOOK=restarters_en_all_maxi_2026-04
 python3 -m core
 ```
 
-The equivalent environment must be set for a boot service; exports in your terminal
-do not change an already-running service.
+Exports in your terminal do not reach the `cyberdeck-core` boot service. Give the service
+the Kiwix settings through its installer instead, which writes them into the unit and
+restarts it:
 
-Set these environment variables for the backend process (or its service environment):
+```bash
+sudo python3 setup_core_service.py --now \
+  --kiwix-url http://127.0.0.1:8080 --kiwix-book restarters_en_all_maxi_2026-04
+```
+
+The installer refuses a non-loopback URL or values with spaces or quotes. Re-running it
+without the `--kiwix-*` options (for example after `git pull`) keeps the saved settings;
+`--no-kiwix` removes them. Add `--kiwix-book-parameter content` only for a legacy Kiwix.
+Check what the service has with `systemctl show cyberdeck-core -p Environment`.
+
+The backend reads these environment variables (the installer sets the Kiwix ones):
 
 | Variable | Meaning |
 | --- | --- |
@@ -103,8 +123,7 @@ Set these environment variables for the backend process (or its service environm
 
 The reindex command uses the same library environment variables, or `--root` and `--db`.
 If the backend runs with a custom `--data` directory, set these two library variables
-explicitly; the librarian does not infer that argument. Restart the backend after changing
-its service environment. No Pi service settings are changed by these PRs.
+explicitly; the librarian does not infer that argument and the installer does not set them.
 
 ## API
 

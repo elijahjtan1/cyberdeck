@@ -1,9 +1,11 @@
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
 import urllib.error
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -273,6 +275,49 @@ class CoreServiceSetupTest(unittest.TestCase):
             path.write_text('someone else\n')
             with self.assertRaises(RuntimeError):
                 setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root, run=commands.append)
+
+    def test_kiwix_settings_reach_the_service_environment(self):
+        kiwix = setup_core_service.kiwix_settings('http://127.0.0.1:8080',
+                                                  'restarters_en_all_maxi_2026-04')
+        text = setup_core_service.unit_text(Path('/r'), 'eli', Path('/d'), env=kiwix)
+        self.assertIn('Environment=CYBERDECK_KIWIX_URL=http://127.0.0.1:8080\n', text)
+        self.assertIn('Environment=CYBERDECK_KIWIX_BOOK=restarters_en_all_maxi_2026-04\n', text)
+        self.assertNotIn('BOOK_PARAMETER', text)  # Unset keeps the librarian's default.
+        self.assertNotIn('CYBERDECK_KIWIX', setup_core_service.unit_text(Path('/r'), 'eli', Path('/d')))
+        # The variables the unit sets are the ones the librarian reads.
+        environ = dict(line.removeprefix('Environment=').split('=', 1)
+                       for line in text.splitlines() if line.startswith('Environment=CYBERDECK'))
+        from core.librarian.service import Retriever
+        with mock.patch.dict(os.environ, environ, clear=True):
+            client = Retriever.from_environment().kiwix
+        self.assertEqual(client.base_url, 'http://127.0.0.1:8080/')
+        self.assertEqual((client.book, client.book_parameter),
+                         ('restarters_en_all_maxi_2026-04', 'books.name'))
+
+    def test_kiwix_settings_are_checked(self):
+        bad = [('http://192.168.1.5:8080', ''), ('https://127.0.0.1:8080', ''),
+               ('http://127.0.0.1:8080', 'two words'), ('http://127.0.0.1:8080', '50%'),
+               ('http://127.0.0.1:8080', 'a"b'), ('', 'book-without-url')]
+        for url, book in bad:
+            with self.subTest(url=url, book=book), self.assertRaises(RuntimeError):
+                setup_core_service.kiwix_settings(url, book)
+        with self.assertRaises(RuntimeError):
+            setup_core_service.kiwix_settings('http://127.0.0.1:8080', book_parameter='pattern')
+        self.assertEqual(setup_core_service.kiwix_settings(), {})
+
+    def test_reinstall_keeps_or_clears_kiwix_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, commands = Path(folder), []
+            kiwix = setup_core_service.kiwix_settings('http://127.0.0.1:8080', 'book', 'content')
+            path = setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                              run=commands.append, kiwix=kiwix)
+            self.assertEqual(setup_core_service.saved_settings(path), kiwix)
+            setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root, run=commands.append)
+            self.assertEqual(setup_core_service.saved_settings(path), kiwix)
+            setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                       run=commands.append, kiwix={})
+            self.assertEqual(setup_core_service.saved_settings(path), {})
+            self.assertNotIn('KIWIX', path.read_text())
 
 
 if __name__ == '__main__':
