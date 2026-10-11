@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -63,7 +64,7 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(ld2450.source_from_spec('serial:/dev/ttyAMA3').baud, 256000)
         self.assertEqual(ld2450.source_from_spec('serial:/dev/ttyUSB0:115200').baud, 115200)
         self.assertTrue(ld2450.source_from_spec('replay:/x.bin').simulated)
-        for bad in ('usb', 'serial:COM3', 'serial:/dev/x:fast', 'replay:'):
+        for bad in ('usb', 'serial:COM3', 'serial:/dev/x:fast', 'serial:/dev/x:0', 'replay:'):
             with self.assertRaises(ValueError, msg=bad):
                 ld2450.source_from_spec(bad)
 
@@ -129,7 +130,45 @@ class RadarTest(unittest.TestCase):
         self.assertNotIn('label', snap)
         self.assertIn('1.88 m at -24 deg, -16 cm/s', ld2450.describe(snap))
         clock.t += ld2450.STALE_S + 1
-        self.assertEqual(radar.snapshot()['targets'], [])
+        snap = radar.snapshot()
+        self.assertEqual((snap['targets'], snap['stale'], snap['movement']), ([], True, False))
+        # A sensor that went silent must not read as "no movement" (review of #36).
+        self.assertEqual(ld2450.describe(snap), 'no data for 3 s (sensor silent or unplugged?)')
+        radar.feed(encode_frame([]))
+        snap = radar.snapshot()
+        self.assertEqual((snap['stale'], ld2450.describe(snap)), (False, 'no movement'))
+
+    def test_port_setup_failure_is_reported_and_retried(self):
+        import termios
+
+        class BadPort(ld2450.SerialSource):
+            def chunks(self, stop):
+                self.attempts = getattr(self, 'attempts', 0) + 1
+                ld2450.set_baud(0, 256000, ioctl=self.ioctl)
+                yield b''
+
+            def ioctl(self, *args):
+                raise termios.error(22, 'Invalid argument')
+        source = BadPort('/dev/null')
+        radar = ld2450.Radar(source, retry_s=0.01).start()
+        self.addCleanup(radar.stop)
+        with mock.patch('tty.setraw'):
+            for _ in range(200):
+                if getattr(source, 'attempts', 0) >= 2:
+                    break
+                threading.Event().wait(0.01)
+        self.assertIn('cannot configure the port', radar.snapshot()['error'])
+        self.assertGreaterEqual(source.attempts, 2)  # Still retrying.
+
+    def test_recording_stops_growing_at_the_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stream, record = Path(tmp) / 'port', Path(tmp) / 'rec.bin'
+            stream.write_bytes(MANUAL_FRAME * 20)
+            source = ld2450.SerialSource('/dev/null', record=str(record))
+            source.device = str(stream)
+            with mock.patch.object(ld2450, 'RECORD_MAX', 100):
+                list(source.chunks(threading.Event()))
+            self.assertLess(record.stat().st_size, 100 + 256)
 
     def test_still_target_is_not_movement(self):
         radar = ld2450.Radar(ld2450.SerialSource('/dev/null'))
@@ -149,7 +188,7 @@ class RadarTest(unittest.TestCase):
             threading.Event().wait(0.01)
         snap = radar.snapshot()
         self.assertEqual((snap['simulated'], snap['label']), (True, 'SIMULATED'))
-        self.assertIn('SIMULATED', ld2450.describe(snap))
+        self.assertTrue(ld2450.describe(snap).startswith('SIMULATED movement'))
 
     def test_errors_are_reported_and_retried(self):
         radar = ld2450.Radar(ld2450.SerialSource('/dev/no-such-radar'), retry_s=0.01).start()
@@ -168,7 +207,7 @@ class RadarTest(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out), redirect_stderr(io.StringIO()):
             ld2450.main([f'replay:{log.name}', '--seconds', '0.7'])
-        self.assertIn('movement SIMULATED', out.getvalue())
+        self.assertIn('SIMULATED movement', out.getvalue())
 
 
 if __name__ == '__main__':

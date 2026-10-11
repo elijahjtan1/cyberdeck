@@ -29,6 +29,7 @@ BAUD = 256000
 STALE_S = 2.0  # Frames arrive every ~0.1 s; after this long the targets aren't reported.
 RETRY_S = 5  # Wait between reconnects, so an unplugged sensor doesn't spin the CPU.
 FRAME_S = 0.1  # Replay pace.
+RECORD_MAX = 50 * 1024 * 1024  # About two days of frames; recordings stop growing past this.
 
 
 class Target(namedtuple('Target', 'x_mm y_mm speed_cms resolution_mm')):
@@ -106,18 +107,22 @@ TERMIOS2 = struct.Struct('IIIIB19sII')
 
 
 def set_baud(fd, baud, ioctl=None):
-    """Raw mode at any baud rate. Raises OSError if the port refuses."""
+    """Raw 8N1 at any baud rate, no flow control. Raises OSError if the port refuses."""
     import termios
     import tty
     if ioctl is None:
         import fcntl
         ioctl = fcntl.ioctl
-    tty.setraw(fd)
-    raw = ioctl(fd, TCGETS2, bytes(TERMIOS2.size))
-    iflag, oflag, cflag, lflag, line, cc, _, _ = TERMIOS2.unpack(raw)
-    cflag = (cflag & ~CBAUD) | BOTHER
-    cflag |= termios.CLOCAL | termios.CREAD
-    ioctl(fd, TCSETS2, TERMIOS2.pack(iflag, oflag, cflag, lflag, line, cc, baud, baud))
+    try:
+        tty.setraw(fd)
+        raw = ioctl(fd, TCGETS2, bytes(TERMIOS2.size))
+        iflag, oflag, cflag, lflag, line, cc, _, _ = TERMIOS2.unpack(raw)
+        # USB adapters can keep hardware flow control or two stop bits from a previous user.
+        cflag &= ~(CBAUD | termios.CRTSCTS | termios.CSTOPB | termios.PARENB | termios.CSIZE)
+        cflag |= BOTHER | termios.CS8 | termios.CLOCAL | termios.CREAD
+        ioctl(fd, TCSETS2, TERMIOS2.pack(iflag, oflag, cflag, lflag, line, cc, baud, baud))
+    except termios.error as exc:  # Not an OSError: convert, so the reader reports and retries.
+        raise OSError(f'cannot configure the port: {exc}') from exc
 
 
 class SerialSource:
@@ -140,7 +145,7 @@ class SerialSource:
                 data = os.read(fd, 256)
                 if not data:
                     return
-                if log:
+                if log and log.tell() < RECORD_MAX:
                     log.write(data)
                 yield data
         finally:
@@ -160,7 +165,7 @@ class ReplaySource:
     def chunks(self, stop):
         sleep = self.sleep or stop.wait
         with open(self.path, 'rb') as log:
-            data = log.read()
+            data = log.read(RECORD_MAX)
         frames = [encode_frame(f) for f in FrameReader().feed(data)]
         if not frames:
             raise ValueError(f'{self.path} has no LD2450 frames')
@@ -180,8 +185,8 @@ def source_from_spec(spec, record=None):
     kind, _, rest = spec.partition(':')
     if kind == 'serial':
         device, _, baud = rest.partition(':')
-        if baud and not baud.isdigit():
-            raise ValueError('radar baud rate must be a number')
+        if baud and (not baud.isdigit() or int(baud) == 0):
+            raise ValueError('radar baud rate must be a positive number')
         return SerialSource(device, int(baud or BAUD), record)
     if kind == 'replay' and rest:
         return ReplaySource(rest)
@@ -226,26 +231,28 @@ class Radar:
 
     def _run(self):
         while not self._stop.is_set():
+            self._reader = FrameReader()  # Don't join bytes across a reconnect.
             try:
                 for data in self.source.chunks(self._stop):
                     self.feed(data)
                 if not self._stop.is_set():
                     self.error = f'{self.source.name}: stream ended'
-            except (OSError, ValueError) as exc:
+            except Exception as exc:  # Anything else would end the thread with no message.
                 self.error = f'{self.source.name}: {exc}'
             self._stop.wait(self.retry_s)
 
     def snapshot(self):
-        """Targets and status; no targets once the last frame is older than STALE_S."""
+        """Targets and status. Once the last frame is older than STALE_S there are no targets
+        and stale is True: a sensor that stopped sending is not "no movement"."""
         if not self.source:
             return {'configured': False, 'source': None, 'simulated': False, 'targets': [],
                     'error': self.error}
         with self._lock:
             age = None if self.updated is None else self.clock() - self.updated
-            fresh = age is not None and age <= STALE_S
-            targets = [t.as_dict() for t in self.targets] if fresh else []
+            stale = age is not None and age > STALE_S
+            targets = [t.as_dict() for t in self.targets] if age is not None and not stale else []
             data = {'configured': True, 'source': self.source.name,
-                    'simulated': self.source.simulated, 'targets': targets,
+                    'simulated': self.source.simulated, 'targets': targets, 'stale': stale,
                     'movement': any(t['moving'] for t in targets),
                     'age_s': None if age is None else round(age, 1), 'frames': self.frames,
                     'error': self.error}
@@ -255,24 +262,27 @@ class Radar:
 
 
 def describe(snapshot):
-    """One line for the terminal."""
+    """One line for the terminal; replays start with SIMULATED."""
+    label = 'SIMULATED ' if snapshot['simulated'] else ''
     if snapshot.get('error'):
-        return f"error: {snapshot['error']}"
-    label = ' SIMULATED' if snapshot['simulated'] else ''
+        return f"{label}error: {snapshot['error']}"
     if snapshot['age_s'] is None:
-        return 'waiting for the first frame'
+        return f'{label}waiting for the first frame'
+    if snapshot['stale']:
+        return f"{label}no data for {snapshot['age_s']:.0f} s (sensor silent or unplugged?)"
     if not snapshot['targets']:
-        return f'no movement{label}'
+        return f'{label}no movement'
     parts = [f"{t['distance_m']:.2f} m at {t['angle_deg']:+.0f} deg, {t['speed_cms']:+d} cm/s"
              for t in snapshot['targets']]
-    return f'movement{label}: ' + '; '.join(parts)
+    return f'{label}movement: ' + '; '.join(parts)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='python3 -m core.hardware.ld2450', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('source', help='serial:/dev/ttyAMA3[:baud] or replay:file')
-    parser.add_argument('--record', help='append the raw bytes to this file (serial only)')
+    parser.add_argument('--record', help='append the raw bytes to this file (serial only; '
+                        'stops growing at 50 MB)')
     parser.add_argument('--seconds', type=float, default=0, help='stop after this long')
     args = parser.parse_args(argv)
     try:
@@ -293,7 +303,8 @@ def main(argv=None):
         pass
     finally:
         radar.stop()
-    print(f'{radar.frames} frames', file=sys.stderr)
+    label = 'SIMULATED ' if radar.source.simulated else ''
+    print(f'{label}{radar.frames} frames', file=sys.stderr)
 
 
 if __name__ == '__main__':
