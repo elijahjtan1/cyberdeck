@@ -99,11 +99,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | in progress | Main Programmer 2: `core/gps.py` and `/api/gps`. Replaces the GNSS placeholder only when a source is configured |
+| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | review | Main Programmer 2: `core/gps.py` and `/api/gps` in [#33](https://github.com/elijahjtan1/cyberdeck/pull/33). Replaces the GNSS placeholder only when a source is configured |
 | 5.2 | Offline maps: a region extract in a local map file shown with a vendored map library | - | todo | Don't bulk-download openstreetmap.org tiles |
 | 5.3 | Waypoints in SQLite, with distance and bearing to a chosen one | - | todo | No routing yet |
-| 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | - | todo | `docs/ESP32-PROTOCOL.md` |
-| 5.5 | Pi side of the protocol, plus a mock ESP32 on a virtual serial port sending simulated battery data | - | todo | Power is cut only after the shutdown ack and the heartbeat stops |
+| 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | Claude | in progress | Main Programmer 2. `docs/ESP32-PROTOCOL.md` |
+| 5.5 | Pi side of the protocol, plus a mock ESP32 on a virtual serial port sending simulated battery data | Claude | todo | Main Programmer 2, after 5.4. Power is cut only after the shutdown ack and the heartbeat stops |
 
 ## Phase 6: new hardware for resilience
 
@@ -115,6 +115,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | 6.1 | Real-time clock: DS3231 on I2C, kept in sync from NTP (and GPS once 5.1 lands); STATUS shows the clock source (network, RTC, GPS or unsynced) | - | todo | About $5. Needs `dtoverlay=i2c-rtc,ds3231` in `/boot/firmware/config.txt`, so Eli applies that step |
 | 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | Claude | in progress | Content Curator: content tool in [#31](https://github.com/elijahjtan1/cyberdeck/pull/31); tiers and SSD size await Eli. Mount and kiwix-serve switch still to do. Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged. Medical answers (WikiMed) show the passages first with a "verify before acting" warning |
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
+| 6.4 | Hardware map: pins, I2C addresses, UARTs, PWM and USB for the incoming radar, GNSS, SDR and screens, with a clash checker | Claude | review | Hardware Integrator: `docs/HARDWARE-MAP.md` and `python3 -m core.hardware` in [#34](https://github.com/elijahjtan1/cyberdeck/pull/34) |
 
 ## Phase 7: software for an offline world
 
@@ -124,7 +125,7 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | --- | --- | --- | --- | --- |
 | 7.1 | Library manifest: sha256 of every ZIM and library file, checked weekly at low priority, result on STATUS | - | todo | Detects silent SD or SSD corruption |
 | 7.2 | Quick cards: short plain-text sheets (first aid, water purification, fire, knots, radio frequencies) readable on the panel with no model | - | todo | Sources must be cited on each card; content reviewed by Eli |
-| 7.3 | Panel ASK page: on-screen keyboard that calls `/api/ask` and streams the answer with citations | - | todo | Shows "backend not running" instead of failing. Preset questions or a full-screen answer view, since the keyboard leaves little room on 320x240. First word takes about a minute on the Pi, so show progress and the passages event from `/api/ask?stream=1` while waiting |
+| 7.3 | Panel ASK page: on-screen keyboard that calls `/api/ask` and streams the answer with citations | Claude | in progress | Main Programmer 1. Shows "backend not running" instead of failing. Preset questions or a full-screen answer view, since the keyboard leaves little room on 320x240. First word takes about a minute on the Pi, so show progress and the passages event from `/api/ask?stream=1` while waiting |
 | 7.4 | Deck hotspot: the Pi as a Wi-Fi access point so phones nearby reach Kiwix, the librarian and the browser UI (4.1) | - | todo | Changes network config; Eli approves before it is installed |
 | 7.5 | Hardware watchdog for the panel and core services | - | todo | `bcm2835_wdt`; systemd `WatchdogSec`, which needs the panel and core to send `sd_notify` keep-alives |
 | 7.6 | Survival power profile: Wi-Fi, Bluetooth and HDMI off, powersave governor, Ollama unloaded when idle, backlight low; one switch on the panel | - | todo | Measure the saving with 6.3 |
