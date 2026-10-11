@@ -63,17 +63,17 @@ def passage_budget(client, budget_tokens=DEFAULT_BUDGET):
 
 
 def by_article(passages):
-    """One source per article, best first: eleven paragraphs of one page numbered [1]-[11]
-    led a small model to describe its sources instead of answering."""
-    merged, order = {}, []
+    """One source per article, best article first, its paragraphs in page order: eleven
+    paragraphs of one page numbered [1]-[11] led a small model to describe its sources
+    instead of answering."""
+    pieces = {}
     for passage in passages:
-        if passage.url in merged:
-            first = merged[passage.url]
-            merged[passage.url] = replace(first, text=f'{first.text}\n\n{passage.text}')
-        else:
-            merged[passage.url] = passage
-            order.append(passage.url)
-    return [merged[url] for url in order]
+        pieces.setdefault(passage.url, []).append(passage)
+    merged = []
+    for group in pieces.values():
+        text = '\n\n'.join(p.text for p in sorted(group, key=lambda p: p.order))
+        merged.append(replace(group[0], text=text))
+    return merged
 
 
 def build_messages(question, passages):

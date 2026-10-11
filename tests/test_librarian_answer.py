@@ -117,6 +117,13 @@ class AnswerTest(unittest.TestCase):
         self.assertNotIn('[3]', prompt)
         self.assertEqual(result.dropped, [3])
 
+    def test_merged_paragraphs_keep_page_order(self):
+        later = Passage('It radios the sound back.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 3.0, order=7)
+        earlier = Passage('A sonobuoy is a small buoy.', 'Sonobuoy', SONOBUOY.url, 'kiwix', 1.0, order=2)
+        result = answer('q', FakeRetriever([later, earlier]), FakeClient('ok [1]'))
+        self.assertEqual(result.sources[0].text, f'{earlier.text}\n\n{later.text}')
+        self.assertEqual(result.sources[0].score, 3.0)
+
     def test_budget_from_environment(self):
         retriever = FakeRetriever([NOTES])
         with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': '5000'}):
