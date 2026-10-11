@@ -93,7 +93,8 @@ class AnswerTest(unittest.TestCase):
         for text in ('The sources do not provide information about the torque required for pentalobe '
                      'screwdrivers on an iPhone 12. Therefore, the answer is not found in the offline sources.',
                      'The part number of a toaster heating element is not provided in the sources. [1]',
-                     'No information about this is given in the sources [1].'):
+                     'No information about this is given in the sources [1].',
+                     "The sources don't mention the torque for these screws."):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
@@ -115,7 +116,12 @@ class AnswerTest(unittest.TestCase):
                      'whole toaster [1].',
                      'Do not open the microwave: the capacitor holds a charge and no information on '
                      'safe discharge is given [2].',
-                     'The sources do not mention a reset button. Unplug it for ten minutes and try again [1].'):
+                     'The sources do not mention a reset button. Unplug it for ten minutes and try again [1].',
+                     # A fact joined by a comma or "and" is still a fact.
+                     'The sources do not specify a torque, which is usually 0.1 Nm for these screws [1].',
+                     'The sources do not mention gloves, and the capacitor can hold a lethal charge [2].',
+                     'The sources do not cover it, which means the heating element must be replaced '
+                     'as a unit [1].'):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertTrue(result.found, text)
 

@@ -117,20 +117,25 @@ DECORATION = ' \t\n.*_"\'`'
 # "The part number ... is not provided in the sources." or "The sources do not provide ...".
 # Only the sources lacking the answer counts: "Kettles do not contain..." is a fact.
 SOURCES_LACK = re.compile(
-    r'\b(?:the |these |offline )?sources? (?:do|does) not (?:provide|contain|mention|include|give|'
+    r'\b(?:the |these |offline )?sources? (?:do|does)(?: not|n\'t) (?:provide|contain|mention|include|give|'
     r'state|specify|list|say|cover)\b'
     r'|\bnot (?:found|provided|mentioned|given|included|stated|specified|listed|covered) in the '
     r'(?:offline )?sources?\b'
     r'|\bno (?:information|mention|details?)\b.*\bin the (?:offline )?sources?\b', re.IGNORECASE)
-# A second clause may carry the answer: "..., so check the label", "If ..., use a 3 A fuse".
-CLAUSE = re.compile(r'[;:]|^if\b|\b(?:so|but|however|although|though|instead|use|check|try|test|'
-                    r'replace|unplug)\b', re.IGNORECASE)
+# A second clause may carry the answer: "..., so check the label", "If ..., use a 3 A fuse",
+# "..., which is usually 0.1 Nm", "... and the capacitor can hold a lethal charge".
+CLAUSE = re.compile(r'[,;:]|^if\b|\b(?:so|but|however|although|though|instead|use|check|try|test|'
+                    r'replace|unplug|and|which|because|while|usually|typically|should|must|can)\b',
+                    re.IGNORECASE)
+# A linking word that opens a sentence adds nothing: "Therefore, the answer is not found...".
+LEAD = re.compile(r'^(?:therefore|thus|so|hence|unfortunately|sorry),\s*', re.IGNORECASE)
 
 
 def only_says_missing(text):
     """Every sentence says the sources lack the answer, and nothing more. Hiding a real
     answer is worse than showing an honest reply as unverified, so any doubt keeps it."""
-    sentences = [CITATION.sub('', s).strip(DECORATION) for s in re.split(r'(?<=[.!?])\s+', text)]
+    sentences = [LEAD.sub('', CITATION.sub('', s).strip(DECORATION))
+                 for s in re.split(r'(?<=[.!?])\s+', text)]
     sentences = [s for s in sentences if s]
     return bool(sentences) and all(SOURCES_LACK.search(s) and not CLAUSE.search(s)
                                    for s in sentences)
