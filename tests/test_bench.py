@@ -1,0 +1,118 @@
+import io
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from core.librarian import bench
+from core.librarian.rank import Passage
+from tests.test_librarian_answer import FakeClient, FakeRetriever
+
+
+def passage(title, score=1.0):
+    return Passage(f'{title} text', title, f'http://k/{title}', 'kiwix', score)
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        self.now += 0.5
+        return self.now
+
+
+class TitleRetriever(FakeRetriever):
+    """Returns passages for questions it knows, nothing otherwise."""
+
+    def __init__(self, table):
+        super().__init__()
+        self.table = table
+
+    def run(self, question, budget_tokens=1400):
+        return [passage(t) for t in self.table.get(question, [])], []
+
+
+class BenchTest(unittest.TestCase):
+    def test_rank_ignores_case_and_accents(self):
+        titles = ['Coffee makers', 'Glossary:Repair Café', 'Table lamps']
+        self.assertEqual(bench.first_match(titles, ['repair cafe']), 2)
+        self.assertEqual(bench.first_match(titles, ['Kettle']), 0)
+
+    def test_run_one_with_model(self):
+        retriever = FakeRetriever([passage('Glossary:Repair Café'), passage('Glossary:Repair Café'),
+                                   passage('Table lamps')])
+        r = bench.run_one('What is a repair cafe?', ['Repair Café'], retriever,
+                          FakeClient('Volunteers fix things [1].'), clock=Clock())
+        self.assertEqual(r.titles, ['Glossary:Repair Café', 'Table lamps'])  # Deduplicated.
+        self.assertEqual((r.rank, r.top3, r.found, r.uncited, r.error), (1, True, True, False, ''))
+        self.assertEqual((r.retrieval_s, r.first_word_s, r.total_s), (0.5, 1.0, 1.5))
+
+    def test_retrieval_only_and_errors(self):
+        client = FakeClient('unused')
+        r = bench.run_one('q', ['Kettle'], FakeRetriever([passage('Kettles')]), client,
+                          use_model=False, clock=Clock())
+        self.assertEqual((r.rank, r.first_word_s, client.calls), (1, None, []))
+        summary = bench.summarize([r])
+        self.assertEqual((summary['top3_hit_rate'], summary['answered_rate']), (1.0, None))
+        r = bench.run_one('q', ['Kettle'], FakeRetriever(error=RuntimeError('Kiwix down')),
+                          client, clock=Clock())
+        self.assertEqual(r.error, 'Kiwix down')
+        self.assertFalse(r.top3)
+
+    def test_summary_scores_retrieval_and_honesty(self):
+        retriever = TitleRetriever({'cafe?': ['Glossary:Repair Café'],
+                                    'kettle?': ['Toasters', 'Coffee makers', 'Irons', 'Kettles'],
+                                    'world cup?': ['Football']})
+        questions = [('cafe?', ['Repair Café']), ('kettle?', ['Kettle']),
+                     ('peru?', []), ('world cup?', [])]
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'bench.json'
+            summary = bench.run(questions, retriever, FakeClient('An answer [1].'), out=out,
+                                json_path=str(path))
+            saved = json.loads(path.read_text())
+        self.assertEqual(summary['top3_hit_rate'], 0.5)  # Kettles ranked 4th.
+        self.assertEqual(summary['answered_rate'], 1.0)
+        self.assertEqual(summary['honest_not_found_rate'], 0.5)  # Answered the World Cup one.
+        self.assertEqual(saved['summary'], summary)
+        self.assertEqual(len(saved['results']), 4)
+        text = out.getvalue()
+        self.assertIn('top-3 hit (#1)', text)
+        self.assertIn('hit #4', text)
+        self.assertIn('got: Toasters, Coffee makers, Irons', text)
+        self.assertIn('honest: not found', text)
+        self.assertIn('ANSWERED an out-of-scope question', text)
+        self.assertIn('Top-3 hit rate:        50%', text)
+
+    def test_memory_watch_reads_proc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp)
+            (proc / 'meminfo').write_text('MemTotal: 3900000 kB\nMemAvailable: 2048000 kB\n')
+            for pid, comm, rss in (('10', 'ollama\n', 400 * 1024), ('11', 'bash\n', 9 * 1024),
+                                   ('12', 'ollama_llama_se\n', 100 * 1024)):
+                (proc / pid).mkdir()
+                (proc / pid / 'comm').write_text(comm)
+                (proc / pid / 'status').write_text(f'Name: x\nVmRSS: {rss} kB\n')
+            (proc / 'self').mkdir()
+            watch = bench.MemoryWatch(proc=proc)
+            watch.sample()
+            self.assertEqual((watch.min_available_mib, watch.max_ollama_mib), (2000, 500))
+            missing = bench.MemoryWatch(proc=proc / 'nope')
+            with missing:
+                pass
+            self.assertIsNone(missing.min_available_mib)
+
+    def test_default_questions_load(self):
+        questions = bench.load_questions()
+        self.assertGreaterEqual(len(questions), 20)
+        self.assertTrue(any(not expect for _, expect in questions))  # Honesty checks included.
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / 'bad.json'
+            bad.write_text('[{"expect": []}]')
+            with self.assertRaises(ValueError):
+                bench.load_questions(bad)
+
+
+if __name__ == '__main__':
+    unittest.main()

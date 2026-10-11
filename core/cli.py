@@ -1,4 +1,4 @@
-"""`deck` command line: deck ask "question" [--explain] [--local]
+"""`deck` command line: deck ask "question" [--explain] [--local], deck bench [--no-model]
 
 Asks the running cyberdeck-core backend, so the panel's AI badge and the one-question-at-a-time
 limit apply. If the backend isn't running, it answers in this process instead.
@@ -182,8 +182,13 @@ def _prepend(first, rest):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ['bench']:
+        from .librarian.bench import main as bench
+        return bench(argv[1:])
     parser = argparse.ArgumentParser(prog='deck', description='Cyberdeck commands.')
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('bench', help='benchmark the librarian (deck bench --help)')
     ask_parser = commands.add_parser('ask', help='answer a question from the offline sources')
     ask_parser.add_argument('question', nargs='+')
     ask_parser.add_argument('--explain', action='store_true',
