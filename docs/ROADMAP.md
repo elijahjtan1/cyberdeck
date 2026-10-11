@@ -132,8 +132,8 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | 7.8 | Backup to a USB stick or second SD from the panel, with verify | - | todo | |
 | 7.9 | Self-rebuild kit: cached apt packages, a repo bundle and a restore guide on the SSD | - | todo | After 6.2 |
 | 7.10 | Night mode: red-on-black palette on every page | - | todo | Large diff: colours are hard-coded throughout `panel_app.py`. Night previews for a few key pages only |
-| 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | - | todo | Uses GPS when present, otherwise a saved location |
-| 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | - | todo | Backlight beacon needs the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)); otherwise it flashes the whole screen white and black |
+| 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | Claude | review | [#26](https://github.com/elijahjtan1/cyberdeck/pull/26). Uses GPS when present, otherwise a saved location; warns when the clock isn't synced |
+| 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | Claude | in progress | Prototype (slow SOS, at most 2 flashes per second, plus a torch screen) waiting for Eli's approval to push. Backlight beacon needs the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)); otherwise it flashes the whole screen white and black |
 | 7.13 | Field journal: timestamped notes with optional photo and position | - | todo | |
 | 7.14 | Supplies tracker: food, water and medicine with quantities, expiry dates and days remaining | - | todo | |
 | 7.15 | Survival calculators: water disinfection doses, calorie and water needs, unit conversions | - | todo | Formulas cited from the offline sources |
