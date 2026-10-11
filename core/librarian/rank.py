@@ -32,6 +32,9 @@ def chunks(text, max_chars=1600):
         yield text
 
 
+TITLE_WEIGHT = 3  # A title word counts like this many mentions in the text.
+
+
 def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
                   min_coverage=0.5):
     """Return positive evidence only; score is relevance, not answer confidence.
@@ -46,7 +49,7 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
     terms = {match_key(word) for word in keywords(question)}
     if not terms or not budget_tokens:
         return []
-    candidates, counts, seen = [], [], set()
+    candidates, counts, lengths, seen = [], [], [], set()
     for passage in passages:
         for part, text in enumerate(chunks(passage.text, min(1600, budget_tokens * 4))):
             key = text.casefold()
@@ -54,16 +57,20 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
                 continue
             seen.add(key)
             candidates.append(replace(passage, text=text, order=passage.order * 1000 + part))
-            # The title counts as part of every chunk: a "Table lamps" paragraph rarely says
-            # "table lamp" itself, but it is still about one.
-            counts.append(Counter(match_key(word) for word in tokens(f'{passage.title} {text}')))
+            # The title counts toward every chunk, and more than a passing mention: a "Table
+            # lamps" paragraph rarely says "table lamp", and "How to use a multimeter" should
+            # beat a Toasters paragraph that mentions a multimeter once.
+            text_count = Counter(match_key(word) for word in tokens(text))
+            lengths.append(sum(text_count.values()))
+            for word in set(match_key(word) for word in tokens(passage.title)):
+                text_count[word] += TITLE_WEIGHT
+            counts.append(text_count)
             if len(candidates) >= 1000:
                 break
         if len(candidates) >= 1000:
             break
     if not candidates:
         return []
-    lengths = [sum(count.values()) for count in counts]
     average = sum(lengths) / len(lengths) or 1
     frequencies = {term: sum(term in count for count in counts) for term in terms}
     scored = []

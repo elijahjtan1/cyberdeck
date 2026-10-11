@@ -88,6 +88,45 @@ class AnswerTest(unittest.TestCase):
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
 
+    def test_not_found_in_the_models_own_words_is_not_found(self):
+        # Both from the Pi, for questions the Restarters wiki can't answer.
+        for text in ('The sources do not provide information about the torque required for pentalobe '
+                     'screwdrivers on an iPhone 12. Therefore, the answer is not found in the offline sources.',
+                     'The part number of a toaster heating element is not provided in the sources. [1]',
+                     'No information about this is given in the sources [1].',
+                     "The sources don't mention the torque for these screws."):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertFalse(result.found, text)
+            self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
+
+    def test_answers_that_mention_missing_details_are_still_answers(self):
+        for text in ('The sources do not give a part number, but the element is a nichrome coil [1].',
+                     'Charge the deck before use [1]. The sources do not mention the voltage.',
+                     'Do not use the deck in rain [1].',
+                     'The fuse is not provided with the kit.',
+                     # Found in review: each gives an instruction or fact besides the gap.
+                     'The manual does not provide a part number, so check the label on the base for '
+                     'that information [1].',
+                     'This information is not listed on the plug; test the fuse with a multimeter set '
+                     'to continuity [1].',
+                     'Kettles do not contain user-serviceable heating elements, according to the sources [1].',
+                     'If the fuse rating is not given in the sources, use a 3 A fuse for appliances '
+                     'under 700 W [1].',
+                     'The element is not available separately, so the sources suggest replacing the '
+                     'whole toaster [1].',
+                     'Do not open the microwave: the capacitor holds a charge and no information on '
+                     'safe discharge is given [2].',
+                     'The sources do not mention a reset button. Unplug it for ten minutes and try again [1].',
+                     # A fact joined by a comma or "and" is still a fact.
+                     'The sources do not specify a torque, which is usually 0.1 Nm for these screws [1].',
+                     'The sources do not mention gloves, and the capacitor can hold a lethal charge [2].',
+                     'The sources do not cover it, which means the heating element must be replaced '
+                     'as a unit [1].',
+                     'The sources do not mention the voltage (it is 230 V) [1].',
+                     'The sources do not mention the voltage - it is 230 V [1].'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertTrue(result.found, text)
+
     def test_cited_facts_after_not_found_are_an_answer(self):
         for text in ('Not found in the offline sources. But charge the deck first [1].',
                      'The deck is not found in the offline sources list, but charge it [1].'):
