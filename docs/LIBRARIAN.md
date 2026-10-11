@@ -203,3 +203,32 @@ stream, or an error reported mid-answer.
 | `CYBERDECK_OLLAMA_NUM_PREDICT` | `400` | Maximum answer length in tokens (1-4096) |
 
 The defaults match the Pi, so the boot service needs no extra settings.
+
+## Grounded answers
+
+`core/librarian/answer.py` puts retrieval and the model together. Try it on the Pi with
+Kiwix and Ollama running (and the Kiwix variables exported as in **Backend configuration**):
+
+```bash
+python3 -m core.librarian.answer "How does a passive sonobuoy work?"
+```
+
+The answer streams, followed by the numbered sources it was given. When retrieval finds
+no passage above the relevance gate, it prints `Not found in the offline sources.` at once
+and never calls the model. The passages go to the model numbered `[1]`, `[2]`, ... with
+their titles, under instructions to answer only from them, cite source numbers, and reply
+with that exact not-found sentence when the sources don't contain the answer. If the model
+does so, the result is reported as not found too.
+
+```python
+from core.librarian.answer import answer
+result = answer(question, retriever, client, on_text=print)
+result.found, result.text, result.sources   # source [n] is result.sources[n - 1]
+```
+
+The passage budget is shrunk so passages, about 250 tokens of instructions and the answer
+all fit in the model's context: with the defaults (2,048 context, 400 answer tokens) that
+is 1,398 passage tokens. A failed source or model raises `RetrievalError` or `OllamaError`
+rather than returning "not found", because an outage is not evidence that the answer is
+absent. Citations are not checked yet (roadmap 3.3), and the panel and `/api/ask` do not
+call this yet (3.4).
