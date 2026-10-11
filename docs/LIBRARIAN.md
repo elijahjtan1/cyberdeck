@@ -25,6 +25,12 @@ for versions that require the legacy parameter. The base URL must be loopback HT
 (for example `http://127.0.0.1:8080` if that is your configured port). A URL prefix
 is supported. An empty book searches all books supported by that server.
 
+kiwix-serve only returns articles that contain every search word, so one word the wiki
+doesn't use (for example "leak" in "Why does my coffee maker leak?") would find nothing. When
+the all-words search returns fewer than five articles, the librarian tops it up with an
+any-word search (`coffee OR maker OR leak`), which Kiwix ranks by how many words match;
+passage ranking then drops articles that don't cover enough of the question.
+
 Search results contain `title`, `url`, `snippet`, and `source`. Article URLs come
 directly from the RSS response, preserving `/content/<book>/...` or `/<book>/A/...`
 paths rather than guessing a layout. Cross-origin links and redirects are refused.

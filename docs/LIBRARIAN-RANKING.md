@@ -1,7 +1,7 @@
 # Keywords and passage ranking
 
 `core.librarian.query.keywords(question)` removes English stopwords and question
-boilerplate without a model. It keeps names, numbers, hyphenated terms, C++ and C#,
+boilerplate without a model, including contractions such as "won't" and "doesn't". It keeps names, numbers, hyphenated terms, C++ and C#,
 deduplicates case-insensitively, and limits work to 1,000 characters / 24 keywords.
 `search_query(question)` joins those terms for Kiwix. There is no synonym expansion,
 stemming, translation, or semantic understanding.
@@ -9,7 +9,8 @@ stemming, translation, or semantic understanding.
 `core.librarian.rank.Passage` has `text`, `title`, `url`, `source` (`kiwix` or `local`),
 and `score`. `rank_passages(question, passages, budget_tokens=1400)` compares paragraphs
 from all sources using BM25 (k1=1.2, b=0.75). Matching ignores case and accents, so
-"cafe" matches "Café". It splits long paragraphs at sentence or
+"cafe" matches "Café", and applies a light plural rule ("lamps" matches "lamp", "batteries"
+matches "battery"). It is not a full stemmer: "flickering" does not match "flicker". It splits long paragraphs at sentence or
 word boundaries, deduplicates text, and considers at most 1,000 chunks. It returns
 passages in decreasing score order whose combined estimated token cost fits the budget.
 The estimate is `ceil(len(text)/4)` per passage. Prompt text, titles and URLs need a

@@ -10,6 +10,8 @@ could shall should will would may might must i me my we our you your he him his 
 her it its they them their this that these those there here what which who whom whose
 where when why how please tell explain describe give find show know work works working
 some any each every all both many much more most such also just really not no so
+won't don't doesn't didn't can't isn't aren't wasn't weren't shouldn't couldn't wouldn't
+out
 '''.split())
 
 
@@ -23,11 +25,21 @@ def fold(word):
     return ''.join(c for c in decomposed if not unicodedata.combining(c))
 
 
+def match_key(word):
+    """fold() plus a light plural rule, so "lamps" matches "lamp" and "batteries" "battery"."""
+    word = fold(word)
+    if len(word) > 4 and word.endswith('ies'):
+        return word[:-3] + 'y'
+    if len(word) > 3 and word.endswith('s') and not word.endswith(('ss', 'us', 'is')):
+        return word[:-1]
+    return word
+
+
 def keywords(question, limit=24):
     """Preserve spelling of names, numbers, hyphens, C++ and C#; deduplicate."""
     found, seen = [], set()
     for word in tokens(question[:1000]):
-        key = word.casefold()
+        key = word.casefold().replace('’', "'")
         if key in STOPWORDS or key in seen:
             continue
         seen.add(key)

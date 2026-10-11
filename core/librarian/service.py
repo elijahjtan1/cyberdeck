@@ -53,7 +53,7 @@ class Retriever:
                         break
             if self.kiwix:
                 try:
-                    found = self.kiwix.search(query, limit=5)
+                    found = self.kiwix_search(query)
                     if search_only:
                         results.extend(found)
                     else:
@@ -78,6 +78,27 @@ class Retriever:
             if errors and not results:
                 raise RetrievalError('; '.join(dict.fromkeys(errors)))
             return results, list(dict.fromkeys(errors))
+
+    def kiwix_search(self, query, limit=5):
+        """kiwix-serve only returns articles containing every word, so a question with one
+        word the wiki doesn't use finds nothing. Top up with an any-word search, which Kiwix
+        ranks by how many words match; passage ranking then filters the extra articles."""
+        found = self.kiwix.search(query, limit=limit)
+        terms = query.split()
+        if len(found) >= limit or len(terms) < 2:
+            return found
+        try:
+            extra = self.kiwix.search(' OR '.join(terms), limit=limit)
+        except KiwixError:
+            if found:
+                return found
+            raise
+        seen = {row.url for row in found}
+        for row in extra:
+            if row.url not in seen and len(found) < limit:
+                seen.add(row.url)
+                found.append(row)
+        return found
 
     def retrieve(self, question, budget_tokens=1400):
         return self.run(question, budget_tokens)[0]

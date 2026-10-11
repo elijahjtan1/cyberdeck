@@ -83,7 +83,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 3.2 | Grounded prompt with numbered passages; "not found in offline sources" without calling the model when nothing scores well | Claude | done | `core/librarian/answer.py`; merged in [#10](https://github.com/elijahjtan1/cyberdeck/pull/10) |
 | 3.3 | Citation check: drop citations that match no passage; flag answers with none | Claude | done | `check_citations` in `core/librarian/answer.py`; merged in [#11](https://github.com/elijahjtan1/cyberdeck/pull/11), checked on the Pi with Restarters |
 | 3.4 | `deck ask "..."` command and `/api/ask` endpoint | Claude | done | `deck`, `core/cli.py`, `/api/ask` (JSON or streamed); merged in [#12](https://github.com/elijahjtan1/cyberdeck/pull/12), checked on the Pi |
-| 3.5 | Benchmark: ~20 questions with expected articles; measure top-3 hit rate, time to first word, total time, peak memory | Claude | review | `deck bench`; Restarters starter set needs a Pi run and title fixes |
+| 3.5 | Benchmark: ~20 questions with expected articles; measure top-3 hit rate, time to first word, total time, peak memory | Claude | in progress | `deck bench` merged in [#13](https://github.com/elijahjtan1/cyberdeck/pull/13); first `--no-model` run found all-words Kiwix search misses, fixed with an any-word top-up. Full baseline run still to record |
 
 ## Phase 4: interfaces and camera
 
