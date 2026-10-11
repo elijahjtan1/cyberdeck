@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
+import re
 import statistics
 import threading
 import time
@@ -59,9 +60,12 @@ def load_questions(path=DEFAULT_QUESTIONS):
 
 
 def first_match(titles, expect):
-    wanted = [fold(t) for t in expect]
+    """Rank of the first title containing an expected title as whole words. A plain
+    substring let "Lamp" match "Clamp meter" and "Fuse" "Diffuser"; a plural ending is
+    still allowed, so "Kettle" matches "Kettles"."""
+    wanted = [re.compile(rf'(?<!\w){re.escape(fold(t))}(?:e?s)?(?!\w)') for t in expect]
     for rank, title in enumerate(titles, 1):
-        if any(w in fold(title) for w in wanted):
+        if any(w.search(fold(title)) for w in wanted):
             return rank
     return 0
 

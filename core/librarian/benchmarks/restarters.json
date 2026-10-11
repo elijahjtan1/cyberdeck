@@ -14,9 +14,13 @@
  {"q": "My printer will not feed paper. How do I fix it?", "expect": ["Printer"]},
  {"q": "How do I test a fuse in a plug?", "expect": ["Fuse"]},
  {"q": "How do I use a multimeter to check continuity?", "expect": ["Multimeter", "Continuity"]},
- {"q": "How do I fix a cracked phone screen?", "expect": ["Screen", "Phone", "Smartphone"]},
+ {"q": "How do I fix a cracked phone screen?", "expect": ["Screen", "Touchscreen", "Phone", "Smartphone", "iPhone"]},
  {"q": "Who won the 1998 FIFA World Cup?", "expect": []},
  {"q": "What is the boiling point of mercury?", "expect": []},
  {"q": "How do I bake sourdough bread?", "expect": []},
- {"q": "What is the capital of Peru?", "expect": []}
+ {"q": "What is the capital of Peru?", "expect": []},
+ {"q": "What is the part number of the thermal fuse in a Philips HD7546 coffee maker?", "expect": [], "checked": false},
+ {"q": "What is the part number of a kettle steam thermostat?", "expect": [], "checked": false},
+ {"q": "What is the part number of a toaster heating element?", "expect": [], "checked": false},
+ {"q": "What torque should I use on the pentalobe screws of an iPhone 12?", "expect": [], "checked": false}
 ]
