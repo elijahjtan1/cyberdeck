@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
+import re
 import statistics
 import threading
 import time
@@ -59,9 +60,12 @@ def load_questions(path=DEFAULT_QUESTIONS):
 
 
 def first_match(titles, expect):
-    wanted = [fold(t) for t in expect]
+    """Rank of the first title containing an expected title as whole words. A plain
+    substring let "Lamp" match "Clamp meter" and "Fuse" "Diffuser"; a plural ending is
+    still allowed, so "Kettle" matches "Kettles"."""
+    wanted = [re.compile(rf'(?<!\w){re.escape(fold(t))}(?:e?s)?(?!\w)') for t in expect]
     for rank, title in enumerate(titles, 1):
-        if any(w in fold(title) for w in wanted):
+        if any(w.search(fold(title)) for w in wanted):
             return rank
     return 0
 
@@ -256,7 +260,7 @@ def main(argv=None):
     parser.add_argument('--no-model', action='store_true', help='measure retrieval only; fast')
     parser.add_argument('--limit', type=int, help='run only the first N questions')
     parser.add_argument('--budget', type=int, metavar='TOKENS',
-                        help='passage tokens the model reads (default: CYBERDECK_LIBRARIAN_BUDGET or 700)')
+                        help='passage tokens the model reads (default: CYBERDECK_LIBRARIAN_BUDGET or 400)')
     parser.add_argument('--json', help='also save the results to this file')
     args = parser.parse_args(argv)
     if args.budget is not None and not 100 <= args.budget <= 10000:

@@ -84,7 +84,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 3.3 | Citation check: drop citations that match no passage; flag answers with none | Claude | done | `check_citations` in `core/librarian/answer.py`; merged in [#11](https://github.com/elijahjtan1/cyberdeck/pull/11), checked on the Pi with Restarters |
 | 3.4 | `deck ask "..."` command and `/api/ask` endpoint | Claude | done | `deck`, `core/cli.py`, `/api/ask` (JSON or streamed); merged in [#12](https://github.com/elijahjtan1/cyberdeck/pull/12), checked on the Pi |
 | 3.5 | Benchmark: ~20 questions with expected articles; measure top-3 hit rate, time to first word, total time, peak memory | Claude | done | `deck bench` merged in [#13](https://github.com/elijahjtan1/cyberdeck/pull/13); recall fixes in [#14](https://github.com/elijahjtan1/cyberdeck/pull/14)-[#16](https://github.com/elijahjtan1/cyberdeck/pull/16) (6/16 to 12/16 top-3). Baseline on the Pi with Restarters and `qwen3:0.6b`, see [Benchmark baseline](LIBRARIAN.md#baseline) |
-| 3.6 | Faster first word: make the passage budget configurable (CYBERDECK_LIBRARIAN_BUDGET, deck bench --budget), measure on the Pi, then pick the default | Claude | done | Setting in [#18](https://github.com/elijahjtan1/cyberdeck/pull/18); default 700 in [#23](https://github.com/elijahjtan1/cyberdeck/pull/23). On the Pi, first word 45 s median vs 69 s at 1,400, with the same hits and answers |
+| 3.6 | Faster first word: make the passage budget configurable (CYBERDECK_LIBRARIAN_BUDGET, deck bench --budget), measure on the Pi, then pick the default | Claude | done | Setting in [#18](https://github.com/elijahjtan1/cyberdeck/pull/18); default 700 in [#23](https://github.com/elijahjtan1/cyberdeck/pull/23), then 400 with one source per article in [#28](https://github.com/elijahjtan1/cyberdeck/pull/28). On the Pi, first word 28 s median at 400, vs 45 s at 700 and 69 s at 1,400 |
 
 ## Phase 4: interfaces and camera
 
@@ -99,7 +99,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | - | todo | Replaces the GNSS placeholder only when a source is configured |
+| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | in progress | Main Programmer 2: `core/gps.py` and `/api/gps`. Replaces the GNSS placeholder only when a source is configured |
 | 5.2 | Offline maps: a region extract in a local map file shown with a vendored map library | - | todo | Don't bulk-download openstreetmap.org tiles |
 | 5.3 | Waypoints in SQLite, with distance and bearing to a chosen one | - | todo | No routing yet |
 | 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | - | todo | `docs/ESP32-PROTOCOL.md` |
@@ -113,7 +113,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 6.1 | Real-time clock: DS3231 on I2C, kept in sync from NTP (and GPS once 5.1 lands); STATUS shows the clock source (network, RTC, GPS or unsynced) | - | todo | About $5. Needs `dtoverlay=i2c-rtc,ds3231` in `/boot/firmware/config.txt`, so Eli applies that step |
-| 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | - | todo | Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged. Medical answers (WikiMed) show the passages first with a "verify before acting" warning |
+| 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | Claude | in progress | Content Curator: content tool in [#31](https://github.com/elijahjtan1/cyberdeck/pull/31); tiers and SSD size await Eli. Mount and kiwix-serve switch still to do. Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged. Medical answers (WikiMed) show the passages first with a "verify before acting" warning |
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
 
 ## Phase 7: software for an offline world
@@ -132,7 +132,7 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | 7.8 | Backup to a USB stick or second SD from the panel, with verify | - | todo | |
 | 7.9 | Self-rebuild kit: cached apt packages, a repo bundle and a restore guide on the SSD | - | todo | After 6.2 |
 | 7.10 | Night mode: red-on-black palette on every page | - | todo | Large diff: colours are hard-coded throughout `panel_app.py`. Night previews for a few key pages only |
-| 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | Claude | review | [#26](https://github.com/elijahjtan1/cyberdeck/pull/26). Uses GPS when present, otherwise a saved location; warns when the clock isn't synced |
+| 7.11 | Sun and moon page: sunrise, sunset, twilight and moon phase computed offline | Claude | review | [#26](https://github.com/elijahjtan1/cyberdeck/pull/26), approved; waiting to merge. Uses GPS when present, otherwise a saved location; warns when the clock isn't synced |
 | 7.12 | SOS and signal page: Morse beacon on the backlight, strobe, Morse trainer | Claude | in progress | Prototype (slow SOS, at most 2 flashes per second, plus a torch screen) waiting for Eli's approval to push. Backlight beacon needs the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)); otherwise it flashes the whole screen white and black |
 | 7.13 | Field journal: timestamped notes with optional photo and position | - | todo | |
 | 7.14 | Supplies tracker: food, water and medicine with quantities, expiry dates and days remaining | - | todo | |

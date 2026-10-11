@@ -3,7 +3,7 @@
 When retrieval finds nothing, the answer is NOT_FOUND and the model is never called.
 Citations to sources that weren't given are removed; an answer citing nothing is flagged.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
 import re
 
@@ -14,11 +14,12 @@ CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 PROMPT_OVERHEAD = 250
 # Passage tokens the model reads before answering. On the Pi most of the wait before the
 # first word is spent reading them, so this trades detail for speed.
-DEFAULT_BUDGET = 700  # Measured on the Pi: first word 45 s median vs 69 s at 1,400.
+DEFAULT_BUDGET = 400  # On the Pi: first word 28 s median, vs 45 s at 700 and 69 s at 1,400.
 
 SYSTEM_PROMPT = (
     'You are an offline librarian. Answer the question using only the numbered sources. '
     'Cite every fact with its source number in square brackets, like [1]. '
+    'Answer the question itself; do not describe or list the sources. '
     'Be brief: a few sentences. '
     f'If the sources do not contain the answer, reply exactly: {NOT_FOUND}'
 )
@@ -59,6 +60,20 @@ def passage_budget(client, budget_tokens=DEFAULT_BUDGET):
     """Fit passages, prompt and answer inside the model's context window."""
     room = client.num_ctx - client.num_predict - PROMPT_OVERHEAD
     return max(0, min(budget_tokens, room))
+
+
+def by_article(passages):
+    """One source per article, best article first, its paragraphs in page order: eleven
+    paragraphs of one page numbered [1]-[11] led a small model to describe its sources
+    instead of answering."""
+    pieces = {}
+    for passage in passages:
+        pieces.setdefault(passage.url, []).append(passage)
+    merged = []
+    for group in pieces.values():
+        text = '\n\n'.join(p.text for p in sorted(group, key=lambda p: p.order))
+        merged.append(replace(group[0], text=text))
+    return merged
 
 
 def build_messages(question, passages):
@@ -102,6 +117,7 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
     if not budget:
         raise ValueError('The model context is too small for any passages; raise num_ctx')
     passages, warnings = retriever.run(question, budget)
+    passages = by_article(passages)
     yield 'passages', (passages, warnings)
     if not passages:
         yield 'done', Answer(question, NOT_FOUND, False, [], warnings)

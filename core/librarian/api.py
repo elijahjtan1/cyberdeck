@@ -12,6 +12,13 @@ from .query import keywords
 from .service import RetrievalError, Retriever
 
 
+def result_json(row):
+    """A search result or passage, without the internal page-order sort key."""
+    data = asdict(row)
+    data.pop('order', None)
+    return data
+
+
 def create_blueprint(telemetry=None, retriever=None, client=None):
     api = Blueprint('librarian', __name__)
     lock = Lock()
@@ -35,7 +42,7 @@ def create_blueprint(telemetry=None, retriever=None, client=None):
         try:
             rows, warnings = service().run(question, budget, search_only=search_only)
             return jsonify(query=question, keywords=keywords(question),
-                           results=[asdict(row) for row in rows], warnings=warnings,
+                           results=[result_json(row) for row in rows], warnings=warnings,
                            partial=bool(warnings))
         except (RetrievalError, ValueError) as exc:
             return jsonify(error=str(exc)), 503

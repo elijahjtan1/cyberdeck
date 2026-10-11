@@ -23,6 +23,7 @@ layouts rebuilt for 240x320. See [ROTATION.md](docs/ROTATION.md).
 - [LIBRARIAN.md](docs/LIBRARIAN.md): offline source retrieval and Kiwix configuration.
 - `panel_app.py` and `panel_tools/`: the app. Keep the repository together; run `sudo python3 ~/cyberdeck-repo/panel_app.py`.
 - `core/` and `setup_core_service.py`: the local backend (telemetry log, offline retrieval and AI answers, GPS position). See [CORE.md](docs/CORE.md) and [LIBRARIAN.md](docs/LIBRARIAN.md).
+- `python3 -m core.hardware`: checks the wiring plan for the incoming hardware against `config.txt` (pin, I2C address, UART, PWM and USB clashes). See [HARDWARE-MAP.md](docs/HARDWARE-MAP.md).
 - `deck`: terminal commands; `deck ask "..."` answers from the offline sources and `deck bench` measures the librarian. See [LIBRARIAN.md](docs/LIBRARIAN.md#asking-questions).
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
