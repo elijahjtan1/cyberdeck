@@ -213,6 +213,13 @@ Kiwix and Ollama running (and the Kiwix variables exported as in **Backend confi
 python3 -m core.librarian.answer "How does a passive sonobuoy work?"
 ```
 
+If `CYBERDECK_KIWIX_URL` isn't set in your terminal, the command uses the Kiwix settings
+the `cyberdeck-core` service was installed with (and says so); if neither has them it warns
+that Kiwix is off, so only local documents are searched. Add `--explain` to see each step:
+the keywords sent to Kiwix, the articles Kiwix returned, and the passages that passed the
+relevance gate with their scores. That tells apart a ZIM without the topic (no articles),
+keywords that miss (articles but no passages), and a model problem (passages but a poor answer).
+
 The answer streams, followed by the numbered sources it was given. When retrieval finds
 no passage above the relevance gate, it prints `Not found in the offline sources.` at once
 and never calls the model. The passages go to the model numbered `[1]`, `[2]`, ... with
@@ -230,5 +237,18 @@ The passage budget is shrunk so passages, about 250 tokens of instructions and t
 all fit in the model's context: with the defaults (2,048 context, 400 answer tokens) that
 is 1,398 passage tokens. A failed source or model raises `RetrievalError` or `OllamaError`
 rather than returning "not found", because an outage is not evidence that the answer is
-absent. Citations are not checked yet (roadmap 3.3), and the panel and `/api/ask` do not
-call this yet (3.4).
+absent. The panel and `/api/ask` do not call this yet (roadmap 3.4).
+
+### Citation check
+
+After the model finishes, `[n]` and `[n, m]` citations are checked against the sources it
+was given. A number with no matching source (for example `[5]` when there were three) is
+removed from `result.text` and listed in `result.dropped`; the valid ones are in
+`result.cited`, in order of first use. A found answer with no valid citation has
+`result.uncited` set and must be shown as unverified. The command prints
+`UNVERIFIED: the answer cites no source.` and lists every searched passage instead of
+the cited ones.
+
+The check is by number only: it proves each citation points at a real passage, not that
+the passage supports the sentence. Text already streamed through `on_text` is the raw model
+output; show `result.text` once the answer is complete.
