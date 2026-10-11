@@ -164,3 +164,42 @@ An empty list means Phase 3 should answer "not found in the offline sources" wit
 calling a model. `RetrievalError` means a source failed; display the error instead.
 Use `Retriever.run()` when the caller needs warnings about partial results as well.
 Nothing here invokes Ollama. Context token estimates cover passage text only.
+
+## Ollama client
+
+`core/librarian/ollama.py` talks to the local Ollama server's `/api/chat`. It is the
+model step for Phase 3; nothing calls it automatically yet. Check it on the Pi from the
+repository (Ollama must be running and `qwen3:0.6b` pulled):
+
+```bash
+python3 -m core.librarian.ollama "Say hello in five words"
+```
+
+The answer streams to the terminal, then a line with the model, token count, time and
+stop reason. Without Ollama it prints a readable error instead of a traceback; a missing
+model names the `ollama pull` command to run.
+
+```python
+from core.librarian.ollama import OllamaClient, OllamaError
+client = OllamaClient.from_environment(telemetry)
+for piece in client.stream([{'role': 'user', 'content': prompt}]):
+    ...                      # or: reply = client.chat(messages, on_text=print)
+```
+
+Requests use `stream: true` and `think: false`. Any `<think>...</think>` text an older
+Ollama still produces is removed before it is shown, and a separate `thinking` field is
+ignored. Every request runs inside `telemetry.activity('ai', detail)` when telemetry is
+given, so the panel's AI badge lights while the model works. The URL must be loopback
+HTTP, and proxies are disabled. Each socket read may wait up to 120 s (the first word on
+the Pi can be slow while the model loads), and a reply is capped at one megabyte.
+Failures raise `OllamaError`: server down, timeout, missing model, a dropped or truncated
+stream, or an error reported mid-answer.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CYBERDECK_OLLAMA_URL` | `http://127.0.0.1:11434` | Loopback HTTP address of Ollama |
+| `CYBERDECK_OLLAMA_MODEL` | `qwen3:0.6b` | Model name from `ollama list` |
+| `CYBERDECK_OLLAMA_NUM_CTX` | `2048` | Context size in tokens (256-32768); larger is slower and uses more RAM |
+| `CYBERDECK_OLLAMA_NUM_PREDICT` | `400` | Maximum answer length in tokens (1-4096) |
+
+The defaults match the Pi, so the boot service needs no extra settings.
