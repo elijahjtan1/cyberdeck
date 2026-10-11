@@ -68,11 +68,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Codex | done | Merged in [#5](https://github.com/elijahjtan1/cyberdeck/pull/5); recorded Pi 3.7.0/14.0.0 XML + HTML pass; Wikipedia archive still needed for the sonobuoy check |
-| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Codex | done | Merged in [#5](https://github.com/elijahjtan1/cyberdeck/pull/5); parser and failure tests |
-| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Codex | done | Merged in [#7](https://github.com/elijahjtan1/cyberdeck/pull/7), with `/api/search` and `/api/retrieve`. No vector database |
-| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Codex | done | Merged in [#3](https://github.com/elijahjtan1/cyberdeck/pull/3); no model calls |
-| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Codex | done | Merged in [#3](https://github.com/elijahjtan1/cyberdeck/pull/3); budget and empty-result tests |
+| 2.1 | Kiwix client: full-text search through kiwix-serve, returning titles and offline URLs | Claude | done | Merged in [#5](https://github.com/elijahjtan1/cyberdeck/pull/5); recorded Pi 3.7.0/14.0.0 XML + HTML pass; Restarters archive checked on the Pi with `deck bench`; a Wikipedia archive is still needed for the sonobuoy check |
+| 2.2 | Fetch an article and turn its HTML into clean paragraphs | Claude | done | Merged in [#5](https://github.com/elijahjtan1/cyberdeck/pull/5); parser and failure tests |
+| 2.3 | Local documents: `~/cyberdeck-data/library/` (txt, md, html; pdf later) indexed with SQLite FTS5 | Claude | done | Merged in [#7](https://github.com/elijahjtan1/cyberdeck/pull/7), with `/api/search` and `/api/retrieve`. No vector database |
+| 2.4 | Question to keywords without the model (drop stopwords, keep names and terms) | Claude | done | Merged in [#3](https://github.com/elijahjtan1/cyberdeck/pull/3); no model calls |
+| 2.5 | Passage ranking: BM25 over paragraphs, keep the best ~1,200-1,500 tokens | Claude | done | Merged in [#3](https://github.com/elijahjtan1/cyberdeck/pull/3); budget and empty-result tests. Recall fixes in #14-#16 and [#19](https://github.com/elijahjtan1/cyberdeck/pull/19); the model now reads 700 tokens by default (3.6) |
 | 2.6 | Backend service passes Kiwix settings to the librarian (`setup_core_service.py --kiwix-*`) | Claude | done | Merged in [#8](https://github.com/elijahjtan1/cyberdeck/pull/8) |
 
 ## Phase 3: AI answers (librarian, part 2)
