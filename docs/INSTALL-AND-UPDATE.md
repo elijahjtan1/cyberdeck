@@ -33,8 +33,9 @@ Optional extras:
 | --- | --- | --- |
 | Start at boot | **OPTIONS → Start at boot**, or `sudo python3 setup_panel_service.py --now` | [HOME-AND-STARTUP.md](HOME-AND-STARTUP.md) |
 | Media keys and the "what is playing" visualizer | `sudo apt install playerctl pulseaudio-utils` | [APPS-AND-SAVERS.md](APPS-AND-SAVERS.md) |
-| Real backlight dimming | Rewire the LED pin, then `sudo python3 setup_backlight.py` | [BACKLIGHT-PWM.md](BACKLIGHT-PWM.md) |
-| Backend: history, offline search, AI answers | `sudo apt install python3-flask`, then `sudo python3 setup_core_service.py --now` | [CORE.md](CORE.md), [LIBRARIAN.md](LIBRARIAN.md) |
+| Real backlight dimming | Rewire the LED pin, then `sudo python3 setup_backlight.py` and reboot | [BACKLIGHT-PWM.md](BACKLIGHT-PWM.md) |
+| Backend: history page and the ASK page's link | `sudo apt install python3-flask`, then `sudo python3 setup_core_service.py --now`; offline search also needs `--kiwix-url` and `--kiwix-book` | [CORE.md](CORE.md), [LIBRARIAN.md](LIBRARIAN.md#backend-configuration) |
+| Offline content for ASK: Wikipedia and other ZIMs, served by kiwix-serve, with answers from Ollama | `python3 tools/content.py` to choose and download ZIMs, then set up kiwix-serve and Ollama | [CONTENT.md](CONTENT.md), [LIBRARIAN.md](LIBRARIAN.md#kiwix-setup) |
 
 ## Updating
 
@@ -49,8 +50,16 @@ sudo systemctl restart cyberdeck-core    # Only if the backend is installed
 ```
 
 If Git reports local changes, stop and keep them (`git stash`) rather than resetting.
-No update so far has needed a reboot, an SPI or GPIO change, or a new touch setup;
-when one does, its guide says so.
+No routine update needs a reboot, an SPI or GPIO change, or a new touch setup. The
+one-off setups above (touch isolation, PWM backlight) do, and their guides say so.
+
+If boot start was set up from an older copy in `~` (the old `scp` guides), the service
+still runs `~/panel_app.py`, so a `git pull` changes nothing on screen. Run this once to
+point it at the checkout:
+
+```bash
+sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now
+```
 
 ## Running by hand
 

@@ -45,9 +45,11 @@ Full-screen apps are objects in the `apps` dict in `main()`, keyed by page name.
 | `delay` | Seconds until the next redraw is needed; keep it as long as possible (rule 6) |
 | `hold` (optional) | Touch-and-hold support, used by some games |
 
-Apps use their own `rects()`/`index_at()` for taps rather than `HOTSPOTS`. To add one:
-write the class, add it to `apps` in `main()`, add a tile to `APP_TILES`, a note in
-`app_notes()`, and exclude it from `saver_due()` if a screensaver must never cover it.
+Apps use their own `rects()` and the module function `index_at()` for taps rather than
+`HOTSPOTS`. To add one: write the class, add it to `apps` in `main()`, add a tile to
+`APP_TILES` (and to `HOME_TILES` if it belongs on the Home page), a note in `app_notes()`,
+and exclude it from `saver_due()` if a screensaver must never cover it.
+`panel_tools/ask.py` (`AskApp`) is a complete example that lives outside `panel_app.py`.
 Games share `GameBase`, `game_header()` and `draw_game_dialog()`; their rules live in
 `panel_tools/games.py` so tests can drive them without drawing.
 
@@ -74,7 +76,7 @@ folder and are validated where they're read.
 ## Background work and hardware
 
 - `Stats.read()` samples CPU, RAM and temperature (through `core/sysinfo.py`) and merges
-  in `HealthPoller`, a thread that reads Wi-Fi, clock sync and throttling every 10 s.
+  in `HealthPoller`, a thread that reads Wi-Fi and throttling every 10 s and clock sync about once a minute.
   The result is the `rows` dict that pages draw from.
 - `CameraWorker` (`panel_tools/runtime.py`) owns the camera on its own thread; only one
   process can hold it. `Job` runs one slow task (decode, update, save) off the UI thread.
