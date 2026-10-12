@@ -159,5 +159,56 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.client.get('/api/search?q=sonobuoy').status_code, 200)
 
 
+class MissingOpener(FakeOpener):
+    def open(self, request, timeout):
+        from urllib.error import HTTPError
+        raise HTTPError(request.full_url, 404, 'Not Found', {}, None)
+
+
+@unittest.skipIf(Flask is None, 'Flask not installed')
+class ArticleApiTest(unittest.TestCase):
+    """GET /api/article: the panel reader's plain-text pages."""
+    def client(self, opener=None, kiwix=True):
+        self.opener = opener or FakeOpener()
+        retriever = Retriever(KiwixClient('http://localhost:8080', self.opener) if kiwix else None)
+        app = Flask(__name__)
+        app.register_blueprint(create_blueprint(retriever=retriever))
+        return app.test_client()
+
+    def test_article_paragraphs_from_a_search_link(self):
+        client = self.client()
+        data = client.get('/api/article?url=/content/wikipedia_en_test/Sonobuoy').get_json()
+        self.assertEqual(data['url'], 'http://localhost:8080/content/wikipedia_en_test/Sonobuoy')
+        self.assertTrue(any('hydrophone' in p for p in data['paragraphs']))
+        self.assertFalse(data['truncated'])
+        with patch('core.librarian.api.ARTICLE_PARAGRAPHS', 1):
+            data = client.get('/api/article?url=http://localhost:8080/content/x/Sonobuoy').get_json()
+        self.assertEqual(len(data['paragraphs']), 1)
+        self.assertTrue(data['truncated'])
+        with patch('core.librarian.api.ARTICLE_CHARS', 10):  # One paragraph longer than the cap.
+            data = client.get('/api/article?url=http://localhost:8080/content/x/Sonobuoy').get_json()
+        self.assertEqual([len(p) for p in data['paragraphs']], [10])
+        self.assertTrue(data['truncated'])
+        with patch('core.librarian.api.fetch_article', return_value=['y' * 50]), \
+                patch('core.librarian.api.ARTICLE_CHARS', 10):  # The only paragraph, cut.
+            data = client.get('/api/article?url=http://localhost:8080/content/x/One').get_json()
+        self.assertEqual((data['paragraphs'], data['truncated']), (['y' * 10], True))
+
+    def test_only_the_local_kiwix_is_fetched(self):
+        client = self.client()
+        for url in ('', 'x' * 2001, 'http://example.com/content/a', 'http://127.0.0.2:8080/a',
+                    'https://localhost:8080/a', '//example.com/a', 'http://localhost:9999/a'):
+            response = client.get('/api/article', query_string={'url': url})
+            self.assertEqual(response.status_code, 400, url)
+        self.assertEqual(self.opener.calls, [])
+
+    def test_down_missing_and_unconfigured(self):
+        self.assertEqual(self.client(FakeOpener(down=True)).get('/api/article?url=/content/a').status_code, 502)
+        response = self.client(MissingOpener()).get('/api/article?url=/content/a')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('error', response.get_json())
+        self.assertEqual(self.client(kiwix=False).get('/api/article?url=/content/a').status_code, 503)
+
+
 if __name__ == '__main__':
     unittest.main()

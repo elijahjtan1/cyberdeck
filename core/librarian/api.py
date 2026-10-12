@@ -2,14 +2,22 @@
 from dataclasses import asdict
 import json
 from threading import Lock
+from urllib.error import HTTPError
 
 from flask import Blueprint, Response, jsonify, request
 
 from .answer import ask_events, passage_json, to_json
+from .extract import fetch_article
+from .kiwix import KiwixError
 from .library import LibraryError
 from .ollama import OllamaClient, OllamaError
 from .query import keywords
 from .service import RetrievalError, Retriever
+
+
+# The panel reader pages through these; a long article is cut rather than stalling it.
+ARTICLE_PARAGRAPHS = 400
+ARTICLE_CHARS = 120_000
 
 
 def result_json(row):
@@ -113,6 +121,41 @@ def create_blueprint(telemetry=None, retriever=None, client=None):
                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
         response.call_on_close(done)
         return response
+
+    @api.get('/api/article')
+    def article():
+        """Plain-text paragraphs of one Kiwix article, for reading on the panel. Only URLs on
+        the configured loopback kiwix-serve are fetched; nothing touches the model."""
+        url = request.args.get('url', '').strip()
+        if not url or len(url) > 2000:
+            return jsonify(error='url must contain 1-2000 characters'), 400
+        kiwix = service().kiwix
+        if kiwix is None:
+            return jsonify(error='Kiwix is not configured'), 503
+        try:
+            url = kiwix.offline_url(url)
+        except KiwixError as exc:
+            return jsonify(error=str(exc)), 400
+        if not lock.acquire(blocking=False):
+            return jsonify(error='A search is already running; try again shortly'), 503
+        try:
+            rows = fetch_article(kiwix, url)
+        except KiwixError as exc:
+            if isinstance(exc.__cause__, HTTPError) and exc.__cause__.code == 404:
+                return jsonify(error='Kiwix has no such article'), 404
+            return jsonify(error=str(exc)), 502
+        finally:
+            lock.release()
+        kept, size, cut = [], 0, len(rows) > ARTICLE_PARAGRAPHS
+        for row in rows[:ARTICLE_PARAGRAPHS]:
+            if size + len(row) > ARTICLE_CHARS:
+                if not kept:  # One giant paragraph: show its start rather than nothing.
+                    kept.append(row[:ARTICLE_CHARS])
+                cut = True
+                break
+            kept.append(row)
+            size += len(row)
+        return jsonify(url=url, paragraphs=kept, truncated=cut)
 
     @api.get('/api/library/<path:relative>')
     def document(relative):
