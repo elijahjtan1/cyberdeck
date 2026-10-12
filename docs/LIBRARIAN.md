@@ -410,8 +410,8 @@ no passage above the relevance gate, it prints `Not found in the offline sources
 and never calls the model. Passages from the same article are joined into one source, best
 article first and its paragraphs in page order, so a page that supplied eleven paragraphs is
 one `[1]` rather than eleven numbers (with eleven, the small model tended to describe its
-sources instead of answering). The sources go to the model numbered `[1]`, `[2]`, ... with
-their titles, under instructions to answer only from them, cite source numbers, and reply
+sources instead of answering). The sources go to the model labelled `Source 1: Title`,
+`Source 2: Title`, ..., under instructions to answer only from them, cite them as `[1]`, and reply
 with that exact not-found sentence when the sources don't contain the answer. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
