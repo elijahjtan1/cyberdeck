@@ -110,7 +110,7 @@ class UpdatesTest(unittest.TestCase):
         updates=Updates.__new__(Updates)
         updates.target='new'; updates.branch='main'
         def git(*args, **kwargs):
-            if args == ('status','--porcelain'): return ''
+            if args[0] == 'status': return ''
             if args[0] == 'symbolic-ref': return 'main'
             if args[0] in ('rev-parse','merge-base'): return 'old'
             if args[0] == 'ls-tree': return 'panel_app.py'
@@ -140,6 +140,25 @@ class UpdatesTest(unittest.TestCase):
             self.assertEqual(git(local,'rev-parse','HEAD'),old)
             self.assertEqual((local/'app.txt').read_text(),'one')
             self.assertNotEqual(git(local,'rev-parse','main'),old) # Branch history kept.
+
+    def test_untracked_files_do_not_block_and_edits_are_named(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); source=root/'source'; local=root/'local'; data=root/'data'
+            source.mkdir(); data.mkdir()
+            def git(folder,*args):
+                return subprocess.check_output(['git','-C',str(folder),*args],text=True,stderr=subprocess.DEVNULL).strip()
+            git(source,'init','-b','main'); git(source,'config','user.email','test@example.invalid')
+            git(source,'config','user.name','Test')
+            (source/'app.txt').write_text('one'); (source/'b.txt').write_text('b')
+            git(source,'add','.'); git(source,'commit','-m','one')
+            git(root,'clone',str(source),str(local))
+            (source/'app.txt').write_text('two'); git(source,'commit','-am','two')
+            (local/'stray.log').write_text('not part of the repo')
+            updates=Updates(local,data)
+            self.assertIn('Available',updates.check())
+            (local/'app.txt').write_text('edited'); (local/'b.txt').write_text('edited')
+            with self.assertRaises(RuntimeError) as error: updates.check()
+            self.assertEqual(str(error.exception),'Edited on the Pi: app.txt and 1 more. Commit or stash it first.')
 
 
 class ToolsLayoutTest(unittest.TestCase):

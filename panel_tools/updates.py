@@ -33,8 +33,13 @@ class Updates:
             raise
 
     def clean(self):
-        if self.git('status', '--porcelain'):
-            raise RuntimeError('Local changes found. Commit/stash them in a terminal first.')
+        # Untracked files are left out: a fast-forward or switch refuses to overwrite one, so
+        # a stray log or download in the checkout is harmless and shouldn't block updates.
+        changed = self.git('status', '--porcelain', '--untracked-files=no').splitlines()
+        if changed:
+            first = changed[0].split(None, 1)[-1]
+            more = f' and {len(changed)-1} more' if len(changed) > 1 else ''
+            raise RuntimeError(f'Edited on the Pi: {first}{more}. Commit or stash it first.')
 
     def check(self):
         self.target = None
