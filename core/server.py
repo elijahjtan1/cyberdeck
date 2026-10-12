@@ -6,13 +6,15 @@ from flask import Flask, jsonify, request
 from . import VERSION
 from .sysinfo import decode_flags, health_alerts
 from .telemetry import ACTIVITY_KINDS
+from .gps import Gps
 from .librarian.api import create_blueprint
 
 HISTORY_LIMIT = 7 * 86400
 
 
-def create_app(telemetry, started=None):
+def create_app(telemetry, started=None, gps=None):
     app = Flask('cyberdeck-core')
+    gps = gps or Gps()
     app.register_blueprint(create_blueprint(telemetry=telemetry))
     started = time.time() if started is None else started
 
@@ -43,6 +45,10 @@ def create_app(telemetry, started=None):
         if not 60 <= seconds <= HISTORY_LIMIT or not 10 <= points <= 1000:
             return bad('seconds must be 60-604800 and points 10-1000')
         return jsonify(telemetry.history(seconds, points))
+
+    @app.get('/api/gps')
+    def gps_now():
+        return jsonify(gps.snapshot())
 
     def body():
         data = request.get_json(silent=True)

@@ -2,23 +2,7 @@
 
 ## Install this update
 
-Stop the running app with Ctrl+C in its Pi terminal. Make a backup there:
-
-```bash
-cp ~/panel_app.py ~/panel_app.previous.py
-```
-
-In Windows PowerShell:
-
-```powershell
-scp "C:\Users\Eli\Documents\Codex\2026-10-09\i\outputs\panel_app.py" eli@cyberdeck.local:/home/eli/
-```
-
-Back in the Pi terminal:
-
-```bash
-sudo python3 ~/panel_app.py
-```
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it.
 
 No reboot, dependency change, GPIO change, or reinstallation of the touchscreen-isolation setup is needed for this update. Previously saved photos and calibration remain in `~/cyberdeck-data/`.
 

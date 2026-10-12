@@ -11,7 +11,7 @@ Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.
 import argparse
 import sys
 import queue
-from panel_tools.runtime import CameraWorker, Job, data_home
+from panel_tools.runtime import CameraWorker, Job, atomic_json, data_home
 from panel_tools.backend import Backend
 from core.sysinfo import (SystemSampler, command_output, decode_throttle, health_alerts,
                           undervoltage_seen, wireless_signal)
@@ -44,6 +44,12 @@ W, H = PW, PH      # Logical canvas every screen is drawn on; 240x320 when rotat
 ROTATION = 0       # Degrees clockwise the whole UI is turned on the panel.
 BG, PANEL, TEXT, MUTED, ACCENT = '#101923', '#253747', '#eef5fa', '#a9bbc9', '#44d4ad'
 DANGER, WARN = '#d8443c', '#f0b347'
+# Named colours for everything that isn't one-off artwork (sprites, cards, birds), so a
+# palette change such as night mode (roadmap 7.10) edits these lines, not a hundred literals.
+RED, ORANGE, YELLOW, GREEN = '#f0605a', '#f29b42', '#f2d24b', '#5fd36b'
+CYAN, BLUE, INDIGO, PURPLE = '#4fd8e8', '#67bfff', '#4f86f0', '#b07cf0'
+SCREEN, DEEP = '#0b1218', '#070d12'  # Full-screen app and game backgrounds
+INSET, SHADE, GRID = '#15232f', '#18252f', '#2a3a46'  # Graph wells, disabled fills, grid lines
 SERVICE = 'cyberdeck-panel'
 SAVER_STYLES = ('radar', 'stars', 'bunnies', 'clock', 'album', 'gif', 'black', 'off')
 SAVER_NAMES = {'radar': 'Radar', 'stars': 'Starfield', 'bunnies': 'Bunnies', 'clock': 'Clock',
@@ -138,10 +144,7 @@ def load_options(path):
 
 
 def save_options(path, options):
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(options))
-    user_owns(temporary)
-    temporary.replace(path)
+    atomic_json(path, options, user_owns)
 
 
 class HealthPoller:
@@ -694,7 +697,7 @@ def draw_banner(d, alerts, clock):
 def graph(d, rect, history, channel, now, colour, seconds=60):
     """Time-based x axis and fixed 0..100% y axis; gaps stay gaps."""
     x0, y0, x1, y1 = rect
-    d.rectangle(rect, fill='#15232f')
+    d.rectangle(rect, fill=INSET)
     for fraction in (0, .5, 1):
         y = round(y1-fraction*(y1-y0))
         d.line((x0, y, x1, y), fill=PANEL)
@@ -1764,7 +1767,7 @@ class SnakeApp:
     def render(self, now, wall_time, alerts):
         self.fit_board()
         self.update(now)
-        image = Image.new('RGB', (W, H), '#0b1218')
+        image = Image.new('RGB', (W, H), SCREEN)
         d = ImageDraw.Draw(image)
         score = f'SNAKE  {self.game.score}'
         d.text((8, 4), score, font=FONT, fill=ACCENT)
@@ -1952,10 +1955,10 @@ class TetrisApp:
         self.update(now)
         game = self.game
         cell, (x0, y0), board, panel, buttons = tetris_layout()
-        image = Image.new('RGB', (W, H), '#0b1218')
+        image = Image.new('RGB', (W, H), SCREEN)
         d = ImageDraw.Draw(image)
         game_header(d, 'TETRIS', wall_time, False)
-        d.rectangle((board[0]-1, board[1]-1, board[2], board[3]), outline=PANEL, fill='#070d12')
+        d.rectangle((board[0]-1, board[1]-1, board[2], board[3]), outline=PANEL, fill=DEEP)
 
         def block(cx, cy, colour, outline_only=False, ox=x0, oy=y0, size=cell):
             rect = (ox+cx*size, oy+cy*size, ox+cx*size+size-2, oy+cy*size+size-2)
@@ -2090,7 +2093,7 @@ class PongApp:
         for i in range(0, int(width), 12):  # Dashed centre line across the court.
             a = pong_to_screen(i, length/2)
             b = pong_to_screen(min(width, i+6), length/2)
-            d.line((a, b), fill='#2a3a46', width=2)
+            d.line((a, b), fill=GRID, width=2)
         for score, along in ((game.player_score, length*.25), (game.cpu_score, length*.75)):
             d.text(pong_to_screen(width/2, along), str(score), font=BIG_PORTRAIT, fill='#16242e',
                    anchor='mm')
@@ -2126,7 +2129,7 @@ def court_rect():
 
 class BrickApp:
     """Brick breaker: drag to move the paddle, tap to launch. 3 lives, levels speed up."""
-    COLOURS = ('#f0605a', '#f29b42', '#f2d24b', '#5fd36b', '#4fd8e8', '#4f86f0')
+    COLOURS = (RED, ORANGE, YELLOW, GREEN, CYAN, INDIGO)
 
     def __init__(self, best=0, save_best=lambda best: None, seed=None):
         _, width, height = court_rect()
@@ -2185,7 +2188,7 @@ class BrickApp:
         self.update(now)
         game = self.game
         (cx0, cy0, _, _), _, _ = court_rect()
-        image = Image.new('RGB', (W, H), '#070d12')
+        image = Image.new('RGB', (W, H), DEEP)
         d = ImageDraw.Draw(image)
         game_header(d, f'BRICKS  {game.score}', wall_time, self.running)
         d.text((W-84 if self.running else W-56, 7), '\u2665'*game.lives, font=SMALL,
@@ -2272,7 +2275,7 @@ class FlappyApp:
         self.update(now)
         game = self.game
         (_, cy0, _, cy1), _, _ = court_rect()
-        image = Image.new('RGB', (W, H), '#0b1218')
+        image = Image.new('RGB', (W, H), SCREEN)
         d = ImageDraw.Draw(image)
         for y in range(cy0, cy1+1, 4):  # Dusk sky in bands (cheap, and tiny over SPI).
             t = (y-cy0)/max(1, cy1-cy0)
@@ -2286,10 +2289,10 @@ class FlappyApp:
             d.rectangle((left-3, gap_bottom, right+3, gap_bottom+8), fill='#5fc35a', outline='#2c6a2a')
         bx, by, r = game.x, cy0+game.y, game.RADIUS
         tilt = max(-3, min(3, game.vy/80))
-        d.ellipse((bx-r-1, by-r, bx+r+1, by+r), fill='#f2d24b', outline='#7a5a10')
+        d.ellipse((bx-r-1, by-r, bx+r+1, by+r), fill=YELLOW, outline='#7a5a10')
         d.ellipse((bx+2, by-4+tilt/2, bx+5, by-1+tilt/2), fill='white')
-        d.polygon([(bx+r, by), (bx+r+5, by+1+tilt), (bx+r, by+3)], fill='#f29b42')
-        d.rectangle((0, 0, W, 25), fill='#0b1218')
+        d.polygon([(bx+r, by), (bx+r+5, by+1+tilt), (bx+r, by+3)], fill=ORANGE)
+        d.rectangle((0, 0, W, 25), fill=SCREEN)
         game_header(d, f'FLAPPY  {game.score}', wall_time, self.running)
         if self.state != 'running':
             title, left, right = {
@@ -2363,11 +2366,11 @@ def clock_text(seconds):
 
 ALIEN_SPRITES = (
     (["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", ".X.XX.X."],
-     ["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", "X.X..X.X"], '#f0605a'),
+     ["...XX...", "..XXXX..", ".XX..XX.", "XXXXXXXX", "X.X..X.X"], RED),
     (["X......X", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", ".X....X."],
-     [".X....X.", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", "X......X"], '#f2d24b'),
+     [".X....X.", ".XXXXXX.", "XX.XX.XX", "XXXXXXXX", "X......X"], YELLOW),
     (["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", ".XX..XX."],
-     ["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", "XX....XX"], '#5fd36b'),
+     ["..XXXX..", "XXXXXXXX", "XX.XX.XX", "XXXXXXXX", "XX....XX"], GREEN),
 )
 _ALIEN_CACHE = {}
 
@@ -2468,8 +2471,8 @@ def mines_layout():
     return cell, cols, rows, mines, origin, toolbar
 
 
-MINE_COLOURS = {1: '#67bfff', 2: '#5fd36b', 3: '#f0605a', 4: '#b07cf0', 5: '#f29b42',
-                6: '#4fd8e8', 7: TEXT, 8: MUTED}
+MINE_COLOURS = {1: BLUE, 2: GREEN, 3: RED, 4: PURPLE, 5: ORANGE,
+                6: CYAN, 7: TEXT, 8: MUTED}
 
 
 class MinesApp(GameBase):
@@ -2564,7 +2567,7 @@ class MinesApp(GameBase):
                 spot = (x, y)
                 centre = ((rect[0]+rect[2])//2, (rect[1]+rect[3])//2)
                 if spot in game.revealed:
-                    d.rectangle(rect, fill='#0b1218')  # Dug: dark and flat.
+                    d.rectangle(rect, fill=SCREEN)  # Dug: dark and flat.
                     count = game.count(spot)
                     if count:
                         d.text(centre, str(count), font=number_font, fill=MINE_COLOURS[count], anchor='mm')
@@ -2832,7 +2835,7 @@ class SudokuApp(GameBase):
                     fill = '#23445a'
                 if i == sel:
                     fill = '#2f6f63'
-            d.rectangle(rect, fill=fill, outline='#2a3a46')
+            d.rectangle(rect, fill=fill, outline=GRID)
             value = game.entries[i]
             if value:
                 colour = TEXT if game.given(i) else DANGER if game.wrong(i) else ACCENT
@@ -2845,7 +2848,7 @@ class SudokuApp(GameBase):
             complete = value and game.entries.count(value) == 9 and all(
                 game.entries[i] == value for i in range(81) if game.solution[i] == value)
             button(d, rect, str(value) if value else 'ERASE',
-                   fill='#18252f' if complete else None)
+                   fill=SHADE if complete else None)
         if not self.running:
             best = clock_text(self.best) if self.best else '--'
             self.draw_dialog(d, f'Time {clock_text(self.elapsed)}   Best {best}', 'SOLVED!')
@@ -3195,7 +3198,7 @@ class VisualApp:
         draw_bars(d, (4, 28, W-4, H-50), self.capture.bands)
         wave = self.capture.wave
         points = [(4+i*(W-8)/(len(wave)-1), H-26+v*40) for i, v in enumerate(wave)]
-        d.line(points, fill='#67bfff', width=1)
+        d.line(points, fill=BLUE, width=1)
         saver_header(d, fit_text(d, self.audio.state.get('title') or self.capture.status, 240, SMALL),
                      MUTED, wall_time, alerts)
         return image
@@ -3280,10 +3283,10 @@ TAB_PARENT = {'health': 'status', 'history': 'status', 'savers': 'options', 'sav
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
               'audio': 'home', 'apps': 'home'}
 # Home page launcher: (label, key, accent colour).
-HOME_TILES = (('CAMERA', 'camera', '#44d4ad'), ('PHOTOS', 'photos', '#67bfff'),
-              ('GAMES', 'games', '#f2d24b'), ('AUDIO', 'audio', '#b07cf0'),
-              ('ALBUM', 'album', '#f29b42'), ('GIFS', 'gifs', '#f0605a'),
-              ('TOOLS', 'tools', '#5fd36b'), ('QUICK', 'quick', '#4fd8e8'),
+HOME_TILES = (('CAMERA', 'camera', ACCENT), ('PHOTOS', 'photos', BLUE),
+              ('GAMES', 'games', YELLOW), ('AUDIO', 'audio', PURPLE),
+              ('ALBUM', 'album', ORANGE), ('GIFS', 'gifs', RED),
+              ('TOOLS', 'tools', GREEN), ('QUICK', 'quick', CYAN),
               ('ASK', 'ask', '#ff8fb8'))
 
 
@@ -3406,17 +3409,17 @@ def draw_camera_live(image, d, frame, box, cam):
         d.text((centre[0], centre[1]+12), cam['saved'], font=SMALL, fill=BG, anchor='mm')
 
 
-AI_COLOUR = '#b07cf0'
+AI_COLOUR = PURPLE
 HISTORY_RANGES = ((3600, '1H'), (6*3600, '6H'), (86400, '24H'), (7*86400, '7D'))
 EVENT_COLOURS = {'undervoltage': DANGER, 'throttled': WARN, 'ai': AI_COLOUR,
-                 'search': '#67bfff', 'camera': ACCENT}
+                 'search': BLUE, 'camera': ACCENT}
 
 
 def trend(d, rect, points, low, high, colour, start, seconds, gap):
     """Line chart of (time, value) over [start, start+seconds]; gaps longer than `gap`
     seconds (backend stopped, Pi off) stay gaps."""
     x0, y0, x1, y1 = rect
-    d.rectangle(rect, fill='#15232f')
+    d.rectangle(rect, fill=INSET)
     d.line((x0, (y0+y1)//2, x1, (y0+y1)//2), fill=PANEL)
     previous = None
     for t, value in points:
@@ -3454,13 +3457,13 @@ def draw_history(d, rows, bottom):
     temps = [(s[0], s[2]) for s in samples]
     latest = next((v for _, v in reversed(temps) if v is not None), None)
     top = 54
-    d.text((8, top), 'TEMP C (max)', font=TINY, fill='#f29b42')
+    d.text((8, top), 'TEMP C (max)', font=TINY, fill=ORANGE)
     d.text((W-10, top), '--' if latest is None else f'{latest:.1f} C', font=TINY, fill=TEXT, anchor='ra')
     rect = (28, top+12, W-10, top+12+tall)
     d.text((2, rect[1]-2), '90', font=TINY, fill=MUTED)
     d.text((2, rect[3]-8), '30', font=TINY, fill=MUTED)
     warm = rect[3] - (rect[3]-rect[1])*(80-30)/60
-    trend(d, rect, temps, 30, 90, '#f29b42', start, seconds, gap)
+    trend(d, rect, temps, 30, 90, ORANGE, start, seconds, gap)
     d.line((rect[0], warm, rect[2], warm), fill='#7a2e2e')  # 80 C: the Pi starts to slow down.
     top = rect[3] + 6
     cpu = [(s[0], s[1]) for s in samples]
@@ -3471,7 +3474,7 @@ def draw_history(d, rows, bottom):
     trend(d, rect, cpu, 0, 100, ACCENT, start, seconds, gap)
     # Event strip: one lane, coloured ticks or spans; undervoltage drawn last so it shows.
     strip = (28, rect[3]+6, W-10, rect[3]+16)
-    d.rectangle(strip, fill='#15232f')
+    d.rectangle(strip, fill=INSET)
     order = ('camera', 'search', 'ai', 'throttled', 'undervoltage')
     for event in sorted(events, key=lambda e: order.index(e['kind']) if e['kind'] in order else -1):
         colour = EVENT_COLOURS.get(event['kind'], MUTED)
@@ -3676,7 +3679,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
                                                   else ('< OLDER', 'NEWER >', 'FULL', 'DELETE'))):
                 enabled = not ((i == 0 and photo['index'] == 0) or
                                (i == 1 and photo['index'] == count-1))
-                button(d, rect, label if enabled else '', fill=None if enabled else '#18252f',
+                button(d, rect, label if enabled else '', fill=None if enabled else SHADE,
                        action=actions[i] if enabled else None)
     elif page == 'status':
         now = time.monotonic() if now is None else now
@@ -3686,10 +3689,10 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         d.text((W-12, 25), rows.get('temp', '--'), font=SMALL, fill=TEXT, anchor='ra')
         graph(d, (28, 43, W-10, 43+tall), history, 1, now, ACCENT, options['history_seconds'])
         ram_y = 43+tall+7
-        d.text((8, ram_y), 'RAM', font=SMALL, fill='#67bfff')
+        d.text((8, ram_y), 'RAM', font=SMALL, fill=BLUE)
         d.text((W-12, ram_y), f"{rows.get('ram', '--')}   {rows.get('ram_percent', 0):.0f}%",
                font=SMALL, fill=TEXT, anchor='ra')
-        graph(d, (28, ram_y+18, W-10, ram_y+18+tall), history, 2, now, '#67bfff',
+        graph(d, (28, ram_y+18, W-10, ram_y+18+tall), history, 2, now, BLUE,
               options['history_seconds'])
         disk_y = ram_y+18+tall+8
         d.text((8, disk_y), 'Disk free  ' + rows.get('disk_free', '--'), font=SMALL, fill=TEXT)
@@ -3697,7 +3700,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         d.rounded_rectangle((bar, disk_y+5, W-10, disk_y+12), radius=3, fill=PANEL)
         used_width = round(.75*max(0, min(100, rows.get('disk_used_percent',0))))
         if used_width:
-            d.rectangle((bar, disk_y+5, bar+used_width, disk_y+12), fill='#67bfff')
+            d.rectangle((bar, disk_y+5, bar+used_width, disk_y+12), fill=BLUE)
         d.text((8, disk_y+17), 'Up ' + rows.get('uptime', '--'), font=SMALL, fill=TEXT)
         d.text((W-12, disk_y+18), 'bar = disk used', font=TINY, fill=MUTED, anchor='ra')
         hint = f"{options['history_seconds']}s history | 0-100%"
@@ -3804,7 +3807,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
     elif page == 'audio':
         state, capture = extra.get('audio', {}), extra.get('capture')
         vis_bottom = 104 + (bottom-204)
-        d.rectangle((8, 27, W-8, vis_bottom), fill='#0b1218')
+        d.rectangle((8, 27, W-8, vis_bottom), fill=SCREEN)
         if capture is not None and capture.source:
             draw_bars(d, (10, 30, W-10, vis_bottom-1), capture.bands)
         status = capture.status if capture is not None else 'Visualizer off'
