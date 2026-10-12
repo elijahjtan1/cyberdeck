@@ -31,7 +31,7 @@ it there and in this page.
 | 7" screen | 1024x600 IPS, capacitive | HDMI0 + USB (touch and power) | |
 | 5" screen | 1024x600, capacitive | HDMI1 + USB (touch and power) | Check whether it mounts on the pin header (see Open questions) |
 | Keyboard | iPazzPort 2.4 GHz | USB dongle | |
-| ESP32 | - | USB serial | Roadmap 5.4 |
+| ESP32 | - | USB serial + GPIO26 power-off signal | Roadmap 5.4, see [ESP32-PROTOCOL.md](ESP32-PROTOCOL.md) |
 | SSD | - | USB 3 port | Roadmap 6.2 |
 | RTC | DS3231 module | I2C1 0x68 (+ EEPROM 0x57) | Roadmap 6.1, not ordered yet |
 | Power sensor | INA226 or INA219 | I2C1 0x40 | Roadmap 6.3, not ordered yet |
@@ -58,7 +58,7 @@ Physical pin numbers are in brackets. Pins marked *from config* are confirmed on
 | 17 | 11 | Touch IRQ (usual wiring, *from config*) |
 | 18 | 12 | Backlight PWM |
 | 24, 25 | 18, 22 | TFT DC and RESET (usual wiring, *from config*) |
-| 26 | 37 | Power-off signal to the ESP32 |
+| 26 | 37 | Power-off signal to the ESP32 (output, high once halted) |
 | 16, 19-23, 27 | | Free |
 
 5 V is on pins 2 and 4, ground on 6, 9, 14, 20, 25, 30, 34 and 39.
@@ -115,7 +115,7 @@ planned. The same overlay on different pins is still reported, so a typo shows u
 | RTC | `dtoverlay=i2c-rtc,ds3231` |
 | Temperature probes | `dtoverlay=w1-gpio,gpiopin=6` |
 | GNSS PPS | `dtoverlay=pps-gpio,gpiopin=12` |
-| Power-off signal | `dtoverlay=gpio-poweroff,gpiopin=26,active_low` |
+| Power-off signal | `dtoverlay=gpio-poweroff,gpiopin=26` (active-high: don't add `active_low`) |
 | Fan PWM | `dtoverlay=pwm-2chan,pin=18,func=2,pin2=13,func2=4` in place of the backlight's `pwm` line |
 
 The fan line replaces the backlight's own line, and `setup_backlight.py --undo` deletes any

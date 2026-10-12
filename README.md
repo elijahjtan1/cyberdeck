@@ -58,6 +58,7 @@ Install, update and run options: [INSTALL-AND-UPDATE.md](docs/INSTALL-AND-UPDATE
 | [CONTENT.md](docs/CONTENT.md) | Choosing, downloading and checking the offline library ZIMs |
 | [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md) | Model-free keywords and passage ranking |
 | [HARDWARE-MAP.md](docs/HARDWARE-MAP.md) | Which pins, buses and ports each part uses, and the wiring checker |
+| [ESP32-PROTOCOL.md](docs/ESP32-PROTOCOL.md) | The planned serial protocol between the Pi and an ESP32 power and button board |
 | [PI-BASELINE.md](docs/PI-BASELINE.md) | Recorded facts about the Pi this runs on |
 | [PANEL-DEVELOPMENT.md](docs/PANEL-DEVELOPMENT.md) | How the panel code fits together, for contributors |
 | [ROADMAP.md](docs/ROADMAP.md) | The shared task list |

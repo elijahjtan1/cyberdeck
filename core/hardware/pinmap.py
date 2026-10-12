@@ -107,13 +107,13 @@ PLAN = [
            'PWM0 channel 1; the backlight has channel 0. Needs dtoverlay=pwm-2chan',
            overlay='pwm-2chan'),
     Device('Power-off signal', gpio(26), 'To an ESP32 input (power draft)',
-           'dtoverlay=gpio-poweroff,gpiopin=26,active_low: tells the ESP32 shutdown finished',
+           'dtoverlay=gpio-poweroff,gpiopin=26 (active-high): tells the ESP32 shutdown finished',
            overlay='gpio-poweroff'),
     Device('7" screen', hdmi(0) + usb(), '1024x600 IPS, HDMI with USB touch'),
     Device('5" screen', hdmi(1) + usb(), '1024x600, HDMI with USB touch'),
     Device('SDR', usb(), 'RTL-SDR Blog V4', 'A USB 2 port, away from the GNSS antenna'),
     Device('SSD', usb(), 'USB 3 SSD (roadmap 6.2)'),
-    Device('ESP32', usb(), 'USB serial (roadmap 5.4)'),
+    Device('ESP32', usb(), 'USB serial (roadmap 5.4)', 'Plus the power-off signal above'),
     Device('Keyboard', usb(), 'iPazzPort 2.4 GHz, USB dongle'),
 ]
 

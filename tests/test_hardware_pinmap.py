@@ -118,7 +118,7 @@ dtparam=i2c_arm=on
 dtoverlay=i2c-rtc,ds3231
 dtoverlay=w1-gpio,gpiopin=6
 dtoverlay=pps-gpio,gpiopin=12
-dtoverlay=gpio-poweroff,gpiopin=26,active_low
+dtoverlay=gpio-poweroff,gpiopin=26
 dtoverlay=pwm-2chan,pin=18,func=2,pin2=13,func2=4
 '''
 
