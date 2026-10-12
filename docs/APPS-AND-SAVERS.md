@@ -153,6 +153,21 @@ APPS -> **SOS & LIGHT** turns the panel into a signal lamp.
 - With the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)) the LEDs switch off in the dark parts, so the beacon is easier to see and uses less power. Without it the backlight stays on and only the pixels flash.
 - Any tap stops the light and returns to the menu. Screensavers never start on this page, and leaving it restores your brightness.
 
+## 8. Planner
+
+APPS -> **PLANNER** is a month calendar with a list of entries for each day.
+
+- The month view marks today with a green outline and days with entries with a yellow dot. `<` and `>` change month, **TODAY** opens today, and tapping a day opens it.
+- The day view lists that day's entries, untimed ("all day") ones first, then by time. `<` and `>` move a day; **MONTH** goes back.
+- **ADD** opens the on-screen keyboard. Type the entry (up to 60 characters), tap **NEXT**, then set the time with -1h, -15m, +15m and +1h, or tap **ALL DAY**. **SAVE** stores it. For today the time starts at the next whole hour, for other days at 09:00.
+- Tap an entry, then **DELETE**, to remove it. Any other tap cancels.
+- The APPS tile shows the next timed entry in the coming week.
+- Entries are saved in `~/cyberdeck-data/planner.json`, only when you add or delete one. A day holds up to 20 entries.
+- "Today" comes from the Pi's clock. Without a network or RTC the clock can be wrong after a reboot, so the planner shows **Clock not synced: check today** (or **Clock sync unknown**) until the clock is synchronised.
+
+![Planner, landscape](previews/planner-landscape-preview.png)
+![Planner, portrait](previews/planner-portrait-preview.png)
+
 ## Screensaver settings changes
 
 **OPTIONS -> Screensavers** now has:

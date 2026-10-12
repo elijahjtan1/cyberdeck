@@ -118,7 +118,7 @@ class SignalAppTest(unittest.TestCase):
         notes = {'audio': 'Volume, media, visualizer', 'games': '9 games: arcade and puzzles',
                  'album': '12 pictures | slideshow', 'gifs': 'Copy GIFs to cyberdeck-data/gifs',
                  'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
-                 'sos': 'SOS beacon and torch'}
+                 'sos': 'SOS beacon and torch', 'planner': 'Next: Fri 19:30 Check the antenna mast'}
         d = ImageDraw.Draw(Image.new('RGB', (8, 8)))
         for rotation in (0, 90):
             app.set_rotation(rotation)

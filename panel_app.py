@@ -22,6 +22,7 @@ from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, Inva
 from panel_tools.ui import ToolsUI
 from panel_tools import beacon
 from panel_tools.ask import AskApp
+from panel_tools.planner import PlannerApp
 import json
 import os
 from pathlib import Path
@@ -3266,7 +3267,7 @@ class SignalApp:
 GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
               'sudoku')
 APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'),
-             ('SOS & LIGHT', 'sos'))
+             ('SOS & LIGHT', 'sos'), ('PLANNER', 'planner'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
@@ -4181,6 +4182,7 @@ def main():
                     'audio': 'Volume, media, visualizer',
                     'games': '9 games: arcade and puzzles',
                     'sos': 'SOS beacon and torch',
+                    'planner': apps['planner'].note(datetime.now().astimezone()),
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -4313,6 +4315,8 @@ def main():
                             'fps': lambda: fps, 'preset': apply_preset, 'retry': retry_camera})
         apps['tools'] = tools_ui
         apps['ask'] = AskApp(sys.modules[__name__], backend.base if backend is not None else None)
+        apps['planner'] = PlannerApp(sys.modules[__name__], data, lambda: tools_ui.rows.get('sync', 'Unknown'),
+                                     user_owns)
         apps['games'] = GamesMenu(lambda: {
             'snake': f"Best score: {apps['snake'].best}",
             'tetris': f"Best score: {apps['tetris'].best}",
