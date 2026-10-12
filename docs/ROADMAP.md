@@ -102,8 +102,8 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | done | Main Programmer 2: `core/gps.py` and `/api/gps` merged in [#33](https://github.com/elijahjtan1/cyberdeck/pull/33). Replaces the GNSS placeholder only when a source is configured |
 | 5.2 | Offline maps: a region extract in a local map file shown with a vendored map library | - | todo | Don't bulk-download openstreetmap.org tiles |
 | 5.3 | Waypoints in SQLite, with distance and bearing to a chosen one | - | todo | No routing yet |
-| 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | Claude | done | Main Programmer 2: `docs/ESP32-PROTOCOL.md` merged in [#39](https://github.com/elijahjtan1/cyberdeck/pull/39). The critical-battery hard cut awaits Eli's decision |
-| 5.5 | Pi side of the protocol, plus a mock ESP32 on a virtual serial port sending simulated battery data | Claude | todo | Main Programmer 2, after 5.4. Power is cut only as the spec's Shutdown section allows (ack plus stopped heartbeat, halt signal, 10 s button hold, or the critical-battery cut if approved) |
+| 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | Claude | done | Main Programmer 2: `docs/ESP32-PROTOCOL.md` merged in [#39](https://github.com/elijahjtan1/cyberdeck/pull/39). Eli approved the critical-battery hard cut ([#50](https://github.com/elijahjtan1/cyberdeck/pull/50)) |
+| 5.5 | Pi side of the protocol, plus a mock ESP32 on a virtual serial port sending simulated battery data | Claude | todo | Main Programmer 2, after 5.4. Power is cut only as the spec's Shutdown section allows (ack plus stopped heartbeat, halt signal, 10 s button hold, or the critical-battery cut) |
 
 ## Phase 6: new hardware for resilience
 
