@@ -272,7 +272,8 @@ always answers in the terminal; `--explain` adds the keywords and passage scores
 - **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
   stopped while it is still reading, it finishes reading first and a new question waits that long.
 - **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
-  in the offline sources* and *UNVERIFIED* (no citations) are shown as they are, never hidden.
+  in the offline sources*, *UNVERIFIED* (no citations) and *QUOTED* (mostly copied word for
+  word from the sources) are shown as they are, never hidden.
 - **Scrolling:** **UP** and **DOWN** scroll a long answer.
 - **Editing:** **EDIT** brings the question back to change it.
 - **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
@@ -369,6 +370,8 @@ first word, but two answers (iPhone, table lamp) cited nothing, and the coffee m
 was its three sources pasted back in the `[1] Title` form the prompt showed them in. The
 prompt now labels them `Source [1]: Title` and ends with the instruction to answer in a few
 sentences of the model's own words with citations, and the benchmark counts copied answers.
+After the next run, all five copied answers still began "[1] <source text> [2] ...", the
+bracket-first layout of the source labels, so the labels became `Source 1: Title`.
 
 The own-words prompt
 ([#40](https://github.com/elijahjtan1/cyberdeck/pull/40)) left no answer uncited. The copied
@@ -407,8 +410,8 @@ no passage above the relevance gate, it prints `Not found in the offline sources
 and never calls the model. Passages from the same article are joined into one source, best
 article first and its paragraphs in page order, so a page that supplied eleven paragraphs is
 one `[1]` rather than eleven numbers (with eleven, the small model tended to describe its
-sources instead of answering). The sources go to the model numbered `[1]`, `[2]`, ... with
-their titles, under instructions to answer only from them, cite source numbers, and reply
+sources instead of answering). The sources go to the model labelled `Source 1: Title`,
+`Source 2: Title`, ..., under instructions to answer only from them, cite them as `[1]`, and reply
 with that exact not-found sentence when the sources don't contain the answer. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
@@ -442,7 +445,11 @@ removed from `result.text` and listed in `result.dropped`; the valid ones are in
 `result.cited`, in order of first use. A found answer with no valid citation has
 `result.uncited` set and must be shown as unverified. The command prints
 `UNVERIFIED: the answer cites no source.` and lists every searched passage instead of
-the cited ones.
+the cited ones. When at least 60% of a found answer's words are runs of eight or more words
+copied from the sources, `result.copied` is set and the command prints
+`QUOTED: mostly copied word for word from the sources.` The text is still real source text
+with its citations, so it is shown rather than hidden; a short answer that lifts the one
+sentence holding the fact is flagged too, so the note says how it was written, not that it is wrong.
 
 The check is by number only: it proves each citation points at a real passage, not that
 the passage supports the sentence. Text already streamed through `on_text` is the raw model

@@ -152,6 +152,9 @@ class DeckCommandTest(unittest.TestCase):
         self.assertIn('Removed citations to sources that were not given: [4]', out)
         self.assertIn('UNVERIFIED', out)
         self.assertIn('Searched:\n[1] Sonobuoy', out)
+        self.assertNotIn('QUOTED', out)
+        _, out, _ = self.run_show([PASSAGES, {'event': 'text', 'text': 'Pasted [1].'}, dict(DONE, copied=True)])
+        self.assertIn('QUOTED: mostly copied word for word from the sources.', out)
 
     def test_show_errors_and_ctrl_c(self):
         status, _, err = self.run_show([PASSAGES, {'event': 'error', 'error': 'Ollama is down'}])

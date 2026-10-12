@@ -35,6 +35,7 @@ class Answer:
     reply: object = None  # The model's Reply, or None when the model was not called.
     cited: list = field(default_factory=list)  # Valid source numbers, in order of first use.
     dropped: list = field(default_factory=list)  # Cited numbers with no matching source.
+    copied: bool = False  # Mostly source text pasted back rather than an answer.
 
     @property
     def uncited(self):
@@ -76,6 +77,10 @@ def by_article(passages):
     return merged
 
 
+# Share of an answer's words pasted from the sources that counts as copied.
+COPIED = .6
+
+
 # Last in the prompt, where a small model heeds it most. On the Pi, the coffee maker question
 # came back as the "[1] Title" source blocks copied out, the format the prompt showed it.
 ANSWER_CUE = ('Answer the question in two to four sentences of your own, using only the sources '
@@ -84,7 +89,9 @@ ANSWER_CUE = ('Answer the question in two to four sentences of your own, using o
 
 
 def build_messages(question, passages):
-    blocks = [f'Source [{n}]: {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
+    # No [n] at the start of a block: on the Pi, answers copied that layout as "[1] <source
+    # text> [2] <source text>" in 5 of 16 answers.
+    blocks = [f'Source {n}: {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
     user = '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}\n\n{ANSWER_CUE}'
     return [{'role': 'system', 'content': SYSTEM_PROMPT},
             {'role': 'user', 'content': user}]
@@ -205,7 +212,8 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
             yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
         else:
             text, cited, dropped = check_citations(item.text, len(passages))
-            yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped)
+            copied = copied_share(text, passages) >= COPIED
+            yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped, copied)
 
 
 def answer(question, retriever, client, *, budget_tokens=None, on_text=None, on_passages=None):
@@ -224,7 +232,8 @@ def to_json(result):
     reply = result.reply
     return {
         'question': result.question, 'answer': result.text, 'found': result.found,
-        'uncited': result.uncited, 'cited': result.cited, 'dropped': result.dropped,
+        'uncited': result.uncited, 'copied': result.copied, 'cited': result.cited,
+        'dropped': result.dropped,
         'sources': [passage_json(n, p) for n, p in enumerate(result.sources, 1)],
         'warnings': result.warnings, 'partial': bool(result.warnings),
         'model': reply.model if reply else None,

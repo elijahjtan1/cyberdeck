@@ -8,7 +8,7 @@ from unittest import mock
 from core.librarian import answer as answer_module
 from core.librarian.answer import (ANSWER_CUE, NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
                                    check_citations, copied_share, passage_budget,
-                                   service_kiwix_settings)
+                                   service_kiwix_settings, to_json)
 from core.librarian.ollama import OllamaError, Reply
 from core.librarian.rank import Passage
 from core.librarian.service import RetrievalError
@@ -68,8 +68,8 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(detail, 'How does a passive sonobuoy work?')
         self.assertIn(NOT_FOUND, messages[0]['content'])
         user = messages[1]['content']
-        self.assertIn('Source [1]: Sonobuoy\nA passive sonobuoy listens', user)
-        self.assertIn('Source [2]: notes.md\nCharge the deck', user)
+        self.assertIn('Source 1: Sonobuoy\nA passive sonobuoy listens', user)
+        self.assertIn('Source 2: notes.md\nCharge the deck', user)
         self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?\n\n' + ANSWER_CUE))
 
     def test_model_saying_not_found_is_reported_as_not_found(self):
@@ -167,7 +167,7 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
         self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
         prompt = client.calls[0][0][1]['content']
-        self.assertIn('Source [2]: notes.md', prompt)
+        self.assertIn('Source 2: notes.md', prompt)
         self.assertNotIn('[3]', prompt)
         self.assertEqual(result.dropped, [3])
 
@@ -273,6 +273,11 @@ class AnswerTest(unittest.TestCase):
         self.assertGreater(copied_share(pasted, [lamp]), .9)
         self.assertEqual(copied_share(own, [lamp]), 0.0)
         self.assertEqual(copied_share('Too short [1].', [lamp]), 0.0)
+        # The answer carries the verdict, so deck ask and the panel can say so.
+        self.assertTrue(answer('q', FakeRetriever([lamp]), FakeClient(pasted)).copied)
+        result = answer('q', FakeRetriever([lamp]), FakeClient(own))
+        self.assertFalse(result.copied)
+        self.assertFalse(to_json(result)['copied'])
 
 
 if __name__ == '__main__':
