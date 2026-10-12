@@ -3287,7 +3287,7 @@ TAB_PARENT = {'health': 'status', 'history': 'status', 'savers': 'options', 'sav
 # Home page launcher: (label, key, accent colour).
 HOME_TILES = (('CAMERA', 'camera', ACCENT), ('PHOTOS', 'photos', BLUE),
               ('GAMES', 'games', YELLOW), ('AUDIO', 'audio', PURPLE),
-              ('ALBUM', 'album', ORANGE), ('GIFS', 'gifs', RED),
+              ('ALBUM', 'album', ORANGE), ('APPS', 'apps', RED),
               ('TOOLS', 'tools', GREEN), ('QUICK', 'quick', CYAN),
               ('ASK', 'ask', '#ff8fb8'))
 
@@ -4223,7 +4223,7 @@ def main():
                     'games': f'{len(GAME_PAGES)} games',
                     'audio': (f"Vol {audio.state['volume']}%"
                               if audio.state.get('volume') is not None else 'Music, volume'),
-                    'album': 'Slideshow', 'gifs': 'Animations', 'tools': 'Timers & more',
+                    'album': 'Slideshow', 'apps': f'{len(APP_TILES)} apps', 'tools': 'Timers & more',
                     'quick': 'Shortcuts', 'ask': apps['ask'].note()}}
             elif page == 'apps':
                 extra = {'notes': app_notes()}
