@@ -102,7 +102,8 @@ PLAN = [
     Device('5" screen', hdmi(1) + usb(), '1024x600, HDMI with USB touch'),
     Device('SDR', usb(), 'RTL-SDR Blog V4', 'A USB 2 port, away from the GNSS antenna'),
     Device('SSD', usb(), 'USB 3 SSD (roadmap 6.2)'),
-    Device('ESP32', usb(), 'USB serial (roadmap 5.4)'),
+    Device('ESP32', usb() + gpio(26), 'USB serial (roadmap 5.4)',
+           'GPIO26 is the power-off signal: dtoverlay=gpio-poweroff,gpiopin=26'),
     Device('Keyboard', usb(), 'iPazzPort 2.4 GHz, USB dongle'),
 ]
 

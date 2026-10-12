@@ -6,8 +6,10 @@ down cleanly when asked. This file is the contract both sides are written agains
 side lives in `core/esp32.py` (roadmap 5.5), and until the board exists a mock ESP32 sends
 **SIMULATED** data.
 
-The one rule that matters most: **the ESP32 cuts the Pi's power only after a shutdown has
-been acknowledged and the Pi's heartbeat has stopped** (see [Shutdown](#shutdown)).
+The one rule that matters most: **the ESP32 cuts the Pi's power only after a poweroff has
+been acknowledged and the Pi's heartbeat has stopped soon after**, or when the Pi has
+provably halted, or (as a last resort) when a cell is critically low (see
+[Shutdown](#shutdown)).
 
 ## Transport
 
@@ -15,13 +17,29 @@ been acknowledged and the Pi's heartbeat has stopped** (see [Shutdown](#shutdown
   Pi USB port. It appears on the Pi as `/dev/ttyACM0` or `/dev/ttyUSB0`; a udev rule can
   give it a stable name later. USB only: the Pi's GPIO UART (GPIO 14/15) is taken by the
   GPS receiver in the wiring map.
-- **Settings:** 115200 baud, 8 data bits, no parity, 1 stop bit, no flow control.
+- **Settings:** 115200 baud, 8 data bits, no parity, 1 stop bit, no flow control. On
+  native USB CDC the baud rate is ignored.
 - **Framing:** one JSON object per line, UTF-8, ending in `\n` (a `\r` before it is
-  ignored). At most 512 bytes per line including the newline.
+  ignored). At most 512 bytes per line including the newline. The firmware's own log output
+  goes to another UART, not this port.
 - **Robustness:** a receiver skips lines that are too long, aren't valid JSON, aren't an
-  object, or lack `v` or `type`, and keeps reading. Boot messages from the ESP32 ROM and
-  stray bytes after a reset are therefore harmless. Unknown `type`s and unknown fields are
-  ignored, so either side can add fields without breaking the other.
+  object, or lack `v` or `type`, and keeps reading. After a reset or reconnect it drops any
+  partial line it was holding. Boot messages from the ESP32 ROM and stray bytes after a
+  reset are therefore harmless. Unknown `type`s and unknown fields are ignored, so either
+  side can add fields without breaking the other.
+
+### A reset must never cut power
+
+The ESP32 can reset at any time: a brownout when a rail switches, its watchdog, flashing,
+or the auto-reset circuit on boards with a USB-to-UART chip, which pulses DTR/RTS when the
+port is opened. So:
+
+- **Hardware:** the `pi` rail's load switch is ON by default (pulled on) while the ESP32 is
+  in reset or unpowered. The ESP32 must drive it actively to turn it off.
+- **Opening the port:** the Pi opens it without toggling DTR or RTS (HUPCL off), or the
+  board has no auto-reset circuit.
+- **State of charge:** the ESP32 keeps its charge count in NVS or RTC memory, so a reset
+  doesn't lose it.
 
 ## Common fields
 
@@ -66,8 +84,9 @@ Direction: **E->P** is ESP32 to Pi, **P->E** Pi to ESP32.
 | `role` | `esp32` or `pi` |
 | `fw` / `sw` | Firmware or software version, free text |
 | `board` | ESP32 board, free text (optional) |
-| `features` | What the ESP32 can do: `battery`, `buttons`, `power_switch`. The Pi doesn't expect telemetry from a board without `battery` |
+| `features` | What the ESP32 can do: `battery`, `buttons`, `power_switch`, `halt_signal` (the power-off signal is wired; a firmware setting, see [Shutdown](#shutdown)). The Pi doesn't expect telemetry from a board without `battery` |
 | `simulated` | `true` when the sender is the mock. Everything from a simulated board is labelled **SIMULATED** |
+| `last_cut` | Optional, ESP32 only: why the ESP32 last cut the Pi's power, kept in NVS (`acked`, `halted`, `critical`), so the Pi can log a hard cut after it powers back on |
 | `reply` | `true` when this `hello` answers the other side's |
 
 A side that receives `hello` answers with its own `hello` carrying `"reply": true`; a
@@ -83,9 +102,10 @@ last telemetry.
 ```
 
 Each side sends one every **2 s**. The Pi's heartbeat carries `cpu_temp_c` (the SoC
-temperature, or null if it can't be read), because the ESP32 runs the fan curve.
- The other side counts as **gone** after **6 s** (three
-missed beats) without any message from it. The Pi sends heartbeats from `cyberdeck-core`,
+temperature, or null if it can't be read) for a fan the ESP32 drives, if it drives one.
+The switchable fan reserved on GPIO13 in [HARDWARE-MAP.md](HARDWARE-MAP.md) is driven by the
+Pi; a given fan is run by one side only. The other side counts as **gone** after **6 s**
+(three missed beats) without any message from it. The Pi sends heartbeats from `cyberdeck-core`,
 so they stop when the backend stops, including during shutdown.
 
 ### telemetry
@@ -111,7 +131,7 @@ so they stop when the backend stops, including during shutdown.
 | `board_temp_c` | number or null | ESP32 board or enclosure temperature, degrees Celsius |
 | `fan_pct` | integer 0-100 or null | Fan speed the ESP32 is driving; null without a fan it controls |
 | `rails` | object or null | Load switches, each true (on), false (off) or null (no switch): `pi`, `hub` (powered USB hub: SDR, SSD), `screens` (large screens) |
-| `shed_tier` | integer 0-3 or null | Load-shedding step in force: 0 none, 3 non-essential apps off, 2 hub and large screens off as well (see [Low battery](#low-battery)) |
+| `shed_tier` | integer 0-2 or null | Load-shedding step in force: 0 none, 1 non-essential apps off, 2 hub and large screens off as well (see [Low battery](#low-battery)) |
 
 A field is `null` (or missing) when the board has no sensor for it. The Pi never fills one
 in: a missing reading is shown as missing. Readers ignore fields they don't know, so a board
@@ -120,13 +140,14 @@ with fewer sensors simply sends fewer.
 ### button
 
 ```json
-{"v": 1, "type": "button", "seq": 12, "id": "power", "action": "long"}
+{"v": 1, "type": "button", "seq": 12, "id": "power", "action": "long", "simulated": false}
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `id` | `power`, or `user1`, `user2`, ... for other buttons |
 | `action` | `press` (pressed and released quickly), `long` (held 2 s), `down`, `up` |
+| `simulated` | `true` when the mock invented the press |
 
 The ESP32 decides `press` and `long`; `down` and `up` are optional extras for buttons the
 Pi wants to track itself. A `long` press on `power` means "shut down": the ESP32 follows the
@@ -135,7 +156,7 @@ Pi wants to track itself. A `long` press on `power` means "shut down": the ESP32
 ### shutdown_request and shutdown_ack
 
 ```json
-{"v": 1, "type": "shutdown_request", "seq": 30, "reason": "battery_low", "id": 3}
+{"v": 1, "type": "shutdown_request", "seq": 30, "reason": "battery_low", "id": 3, "simulated": false}
 {"v": 1, "type": "shutdown_ack", "seq": 88, "id": 3, "accept": true}
 ```
 
@@ -143,61 +164,113 @@ Pi wants to track itself. A `long` press on `power` means "shut down": the ESP32
 | --- | --- |
 | `reason` | `battery_low`, `battery_critical`, `button`, `user` (chosen on the Pi), `temperature` (pack too hot) |
 | `id` | Request number chosen by the requester; the ack repeats it |
+| `simulated` | In a request from the ESP32: `true` when it comes from the mock |
 | `accept` | In the ack: `true`, or `false` with a `detail` string (for example "camera is recording") |
 
 ## Shutdown
 
-Only the ESP32 can cut the Pi's power, and it does so only when **both** are true:
+Shutdown requests and acks are for **poweroff only**. A reboot sends neither: it shows up
+as missing heartbeats and then a new `hello`, and with no ack the ESP32 keeps power on.
+
+The ESP32 cuts the Pi's power in exactly three cases.
+
+**1. An acknowledged poweroff.** All three must hold:
 
 1. **A shutdown was acknowledged.** Either the ESP32 sent `shutdown_request` and the Pi
    answered `shutdown_ack` with `accept: true`, or the Pi sent `shutdown_request` and the
    ESP32 answered `shutdown_ack` with `accept: true`.
-2. **The Pi's heartbeat has stopped:** no message from the Pi for 6 s after the ack.
+2. **The heartbeat stopped soon after:** 6 s with no message from the Pi, starting within
+   **60 s** of the ack. If the Pi is still sending 60 s after the ack (poweroff failed or
+   was held off), the shutdown is dropped: power stays on, and the ESP32 asks again with a
+   new `id` if it still wants a shutdown. An ack never stays armed beyond that window.
+3. **The wait passed** with no Pi message, because the backend stops early in the shutdown
+   and the SD card may still be writing:
+   - **With the power-off signal** (feature `halt_signal`), the ESP32 waits for the signal
+     and then **10 s** more. There is no timed fallback: if the signal never comes, the Pi
+     hasn't halted and power stays on.
+   - **Without it,** the ESP32 waits a fixed **30 s** after the heartbeat stopped.
 
-It then waits before cutting power, because the backend stops early in the shutdown and
-the SD card may still be writing:
+   Any Pi message during the wait (a heartbeat, or a `hello` after a reboot) cancels the
+   shutdown and power stays on.
 
-- If the board has the **power-off signal** (GPIO 26, physical pin 37, driven by
-  `dtoverlay=gpio-poweroff`, which sets it only once the Pi has halted, wired to an ESP32
-  input), it waits for that signal and then
-  **10 s** more. If the signal hasn't come 60 s after the heartbeat stopped, it falls back
-  to the rule below. This is the preferred wiring: a missing heartbeat alone could be a
-  hang, not a halt. It needs a line in `/boot/firmware/config.txt`, which Eli applies.
-- Without the signal it waits a fixed **30 s** after the heartbeat stopped.
+**2. A halted Pi.** With the power-off signal wired, the signal asserted and 6 s with no Pi
+message prove the Pi has halted, so the ESP32 cuts power 10 s later without an ack. This
+covers a Pi halted from the command line without an ack, and an ESP32 that reset
+mid-shutdown and lost the ack.
 
-Everything else follows from those two conditions:
+**3. A critical battery** (last resort, pending Eli's approval). When any cell stays below
+**2.9 V** for 10 s (the pack below 11.6 V on a board without cell readings), the ESP32 sends
+`shutdown_request` with reason `battery_critical` and handles an ack as in case 1. If power
+is still on **120 s** after the first request and the cell is still below 2.9 V, it cuts
+power without an ack, stores `last_cut: "critical"` in NVS and reports it in its next
+`hello`. This protects the pack from a hung or crashed Pi, a version mismatch, or an ESP32
+reset mid-shutdown, all of which would otherwise drain it until the BMS trips at a damaging
+2.0-2.5 V per cell.
 
-- **No ack, no cut.** A Pi whose heartbeat stops without an ack has crashed, hung or is
-  rebooting; the ESP32 keeps power on. A reboot shows up as heartbeats and a new `hello`
-  coming back.
-- **Heartbeats came back.** If Pi messages resume during the wait (a `hello` after a
-  reboot, or a heartbeat), the shutdown is cancelled and power stays on.
+### The power-off signal
+
+GPIO 26 (physical pin 37) driven by `dtoverlay=gpio-poweroff,gpiopin=26`, which sets it
+**high** only once the Pi has halted. It is **active-high**: don't add `active_low`. The
+ESP32 input has a **pull-down**, so an unpowered or booting Pi reads low, never "halted".
+Whether it is wired is a firmware setting on the ESP32, reported as the `halt_signal`
+feature. It needs the line in `/boot/firmware/config.txt`, which Eli applies. It is the
+preferred wiring: a missing heartbeat alone could be a hang, not a halt.
+
+### Requests, acks and ids
+
+- **Unanswered request.** The requester repeats `shutdown_request` with the same `id` every
+  5 s until it gets an ack or the link drops.
+- **Repeats.** The receiver answers every repeat of an `id` it has already acked with the
+  same ack, and doesn't start poweroff twice.
+- **Ids.** Each new request, including a re-ask after a decline or a dropped shutdown, uses
+  a new `id`. An ack whose `id` doesn't match the pending request is ignored. A restart of
+  either side is detected by its `hello`, not by `seq` going back to 0.
 - **Declined.** After `accept: false` the ESP32 keeps power on. For `battery_low` it may ask
-  again after 60 s; for `battery_critical` it asks again every 10 s.
-- **Unanswered request.** The requester repeats `shutdown_request` (same `id`) every 5 s
-  until it gets an ack or the link drops.
-- **The Pi asks first.** When the user shuts down from the panel or the command line, the
-  Pi sends `shutdown_request` with reason `user`, waits up to 5 s for the ack, then shuts
-  down either way. Without the ack the ESP32 won't cut power, so the Pi simply halts and
-  stays powered, which is safe.
-- **Last resort.** Protecting a cell from deep discharge is the battery protection
-  circuit's job, not this protocol's. The ESP32 never cuts power early to save the battery.
+  again after 60 s; for `battery_critical` it asks again every 10 s, and the hard cut above
+  still applies.
+- **The Pi asks first.** When the user powers off from the panel or the command line, the Pi
+  sends `shutdown_request` with reason `user`, waits up to 5 s for the ack, then powers off
+  either way. Without the ack the ESP32 cuts power only once the power-off signal shows the
+  Pi has halted (case 2); without the signal the Pi stays powered.
+- **Charger plugged in.** An acknowledged shutdown still completes if a charger is plugged
+  in during it.
 
-On the Pi, accepting a request means: send `shutdown_ack`, show "Shutting down (battery
-low)" or similar on the panel, then run the normal shutdown (`systemctl poweroff`).
+### On the Pi
+
+Accepting a real request means: send `shutdown_ack`, show "Shutting down (battery low)" or
+similar on the panel, then run the normal poweroff (`systemctl poweroff`).
+
+A request from a **simulated** board never powers the Pi off. It counts as simulated if
+either the board's `hello` or the request carries `"simulated": true`. The Pi shows
+"SIMULATED shutdown request (battery low)", logs it, and answers `accept: false` with
+`detail` "simulated". Simulated button presses are labelled **SIMULATED** too, and a long
+press on a simulated `power` button does not shut down.
+
+### Power on
+
+The ESP32 switches the `pi` rail back on:
+
+- when it boots (the rail is on by default);
+- on a `press` of the `power` button, unless the pack is below the `battery_low` level;
+- after a `battery_low` or `battery_critical` shutdown, also on its own once the charge is
+  above 20% and the charger is charging;
+- after a `temperature` shutdown, only on a button press once `battery_temp_c` is below
+  45;
+- after a `user` or `button` shutdown, only on a button press.
 
 ### Low battery
 
 The ESP32 decides when to shed load and when to ask for a shutdown. Starting thresholds,
-all set in the firmware, with hysteresis so they don't flap (from the power and thermal
-draft; the battery isn't chosen yet, so they will be tuned from measurements):
+all set in the firmware, with hysteresis so they don't flap (proposed by the Power &
+Thermal Engineer; the battery isn't chosen yet, so they will be tuned from measurements):
 
 | Charge | Action | Undone at |
 | --- | --- | --- |
-| below 40% | `shed_tier` 3: the Pi turns off non-essential apps (games, camera, timelapse) and switches to its low-power profile | above 45% |
+| below 40% | `shed_tier` 1: the Pi turns off non-essential apps (games, camera, timelapse) and switches to its low-power profile | above 45% |
 | below 25% | `shed_tier` 2: the ESP32 also switches off the `hub` and `screens` rails | above 30% |
-| below 10%, or pack below 12.0 V at light load | `shutdown_request` with reason `battery_low` | Power back on above 20% and charging |
-| `battery_temp_c` above 60 | `shutdown_request` with reason `temperature` | |
+| below 10%, or pack below 12.0 V at light load | `shutdown_request` with reason `battery_low` | See [Power on](#power-on) |
+| any cell below 2.9 V for 10 s (pack below 11.6 V without cell readings) | `shutdown_request` with reason `battery_critical`, then the hard cut in [Shutdown](#shutdown) | See [Power on](#power-on) |
+| `battery_temp_c` above 60 | `shutdown_request` with reason `temperature` | See [Power on](#power-on) |
 
 Before switching a rail off, the ESP32 sends `telemetry` with the new `shed_tier` (and
 `rails` still showing the rail on), then waits **5 s**, so the Pi can stop whatever uses it
@@ -211,19 +284,22 @@ E->P {"v":1,"type":"shutdown_request","seq":121,"reason":"battery_low","id":1}
 P->E {"v":1,"type":"shutdown_ack","seq":310,"id":1,"accept":true}
 P->E {"v":1,"type":"heartbeat","seq":311}
      (backend stops: no more Pi messages)
-     ESP32: 6 s without a Pi message -> power-off signal + 10 s (or 30 s without it) -> cut power
+     ESP32: 6 s without a Pi message (within 60 s of the ack) -> power-off signal + 10 s (or 30 s without it) -> cut power
 ```
 
 ## Mock ESP32
 
 For testing without the board, roadmap 5.5 adds a mock that opens a pseudo-terminal and
 speaks this protocol: `hello` with `"simulated": true`, heartbeats, telemetry with
-`"simulated": true` and a slowly draining battery, and on request a `shutdown_request`. It
-never touches real power. The Pi side is then pointed at the pty instead of
+`"simulated": true` and a slowly draining battery, and on request a `shutdown_request`
+with `"simulated": true`. It never touches real power, and the Pi never shuts down for it
+(see [Shutdown](#shutdown)). The Pi side is then pointed at the pty instead of
 `/dev/ttyACM0`.
 
 ## Open questions
 
-- The thresholds above assume the 4S LiFePO4 pack in the power and thermal draft, which
-  Eli hasn't approved yet; they move with the pack. `battery_critical` is kept for a
-  pack that falls fast under load.
+- The thresholds above assume a 4S LiFePO4 pack, proposed in the Power & Thermal
+  Engineer's design notes (not yet in the repo) and not yet approved by Eli; they move
+  with the pack.
+- The critical-battery hard cut is Eli's decision. If Eli declines it, the BMS alone guards
+  against deep discharge, and a hung or halted Pi can drain the pack to its cutoff.
