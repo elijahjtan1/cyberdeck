@@ -143,14 +143,20 @@ def only_says_missing(text):
 
 # On the Pi, asked for a part number the sources don't give, the model wrote "The thermal fuse
 # in a Philips HD7546 coffee maker is [1]." and padded on: the citation stands in for the value.
-BLANK_VALUE = re.compile(r'\b(?:is|are|was|were|be)\s*:?(?:\s*\[\d+(?:\s*,\s*\d+)*\])+\s*[.!?]?$',
+# "Yes, it is [1]." or "they are [2]" answers a yes/no question, so a pronoun before the verb,
+# a leading yes or no, or a comma keeps the reply an answer.
+BLANK_VALUE = re.compile(r'(\w+)\s+(?:is|are|was|were|be)\s*:?(?:\s*\[\d+(?:\s*,\s*\d+)*\])+\s*[.!?]?$',
                          re.IGNORECASE)
+PRONOUN = {'it', 'they', 'this', 'that', 'these', 'those', 'he', 'she', 'so', 'we', 'you'}
 
 
 def blank_answer(text):
     """The first sentence, the direct answer, has a citation where its value should be."""
     first = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text.strip(), maxsplit=1)[0]
-    return bool(BLANK_VALUE.search(first.strip(DECORATION.replace('.', ''))))
+    first = first.strip(DECORATION.replace('.', ''))
+    match = BLANK_VALUE.search(first)
+    return bool(match and match.group(1).casefold() not in PRONOUN and ',' not in CITATION.sub('', first)
+                and not re.match(r'(?:yes|no)\b', first, re.IGNORECASE))
 
 
 def said_not_found(text):

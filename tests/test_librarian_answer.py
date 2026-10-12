@@ -103,10 +103,14 @@ class AnswerTest(unittest.TestCase):
         # From the Pi: asked for a part number the sources don't give.
         for text in ('The thermal fuse in a Philips HD7546 coffee maker is [1]. It is a safety interlock '
                      'preventing operation with exposed blades or moving parts [1].',
-                     'The part number is: [1][2].'):
+                     'The part number is: [1][2].', 'The part number is [1, 2]. Check the label too.'):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertEqual((result.found, result.text), (False, NOT_FOUND), text)
-        for text in ('The fuse rating is 13 A [1]. The cause is [2].', 'Seals can leak [1].'):
+        for text in ('The fuse rating is 13 A [1]. The cause is [2].', 'Seals can leak [1].',
+                     # Found in review: yes/no answers.
+                     'Yes, it is [1]. Unplug it before opening the case [1].', 'Yes, they are [2].',
+                     'It is safe to descale with vinegar, as most manuals say it is [1].',
+                     'No, it is not [1].'):
             self.assertTrue(answer('q', FakeRetriever([NOTES]), FakeClient(text)).found, text)
 
     def test_answers_that_mention_missing_details_are_still_answers(self):
