@@ -144,8 +144,8 @@ Software-only features that need no new hardware. Unclaimed; Eli chooses which t
 | 7.18 | Camera motion watch: low-rate frame differencing that saves snapshots | - | todo | Low CPU; holds the camera only while armed |
 | 7.19 | Offline place-name search from a GeoNames extract, for maps and waypoints (5.2, 5.3) | - | todo | |
 | 7.20 | Survival dashboard, a page of its own opened from HOME (HOME is already full): time and clock source, power, last journal entry | - | todo | After 6.1, 6.3 and 7.13. Shows only fields with a real source; weather or messages need new hardware first |
-| 7.21 | Day planner: month calendar and a per-day list of timed entries, stored in `~/cyberdeck-data/planner.json`, warns when the clock isn't synced | Claude | in progress | QOL Programmer; requested by Eli. Its PR comes first |
-| 7.22 | ZIM reader: search Kiwix through the backend and page through article text on the panel (text only) | Claude | in progress | QOL Programmer; requested by Eli. Needs a small `/api/article` endpoint from Main Programmer 1; after 7.21 |
+| 7.21 | Day planner: month calendar and a per-day list of timed entries, stored in `~/cyberdeck-data/planner.json`, warns when the clock isn't synced | Claude | done | QOL Programmer; requested by Eli. Merged in [#57](https://github.com/elijahjtan1/cyberdeck/pull/57); check on the Pi still to do |
+| 7.22 | ZIM reader: search Kiwix through the backend and page through article text on the panel (text only) | Claude | done | QOL Programmer; requested by Eli. Panel app and `/api/article` merged in [#58](https://github.com/elijahjtan1/cyberdeck/pull/58); check on the Pi still to do |
 
 ## Deferred until hardware is chosen
 
