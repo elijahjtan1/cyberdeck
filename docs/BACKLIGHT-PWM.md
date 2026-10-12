@@ -6,8 +6,6 @@ This update does three things:
 - **Black screensaver:** the Black screensaver can switch the backlight off.
 - **Power and CPU:** the app now does less work when nothing on screen is changing.
 
-It builds on the Tools update (`feature/panel-tools`).
-
 ## 1. Rewire the backlight to PWM
 
 **Do this with the Pi powered off.**
@@ -68,7 +66,7 @@ sudo python3 setup_backlight.py --invert
 
 ## 2. Turn it on
 
-1. Copy the update and stop the running app, as in [TOOLS.md](TOOLS.md).
+1. Update the checkout and stop the running app, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md).
 2. Configure the backlight, choosing the command for your wiring:
 
    ```bash
@@ -79,7 +77,7 @@ sudo python3 setup_backlight.py --invert
    ```
 
 3. Check the wiring: `sudo python3 setup_backlight.py --test`. The backlight steps through 100 → 70 → 40 → 15 → 5 → 0 → 100%.
-4. Start the app: `sudo systemctl start cyberdeck-panel`, or `sudo python3 panel_app.py`.
+4. Start the app: `sudo systemctl start cyberdeck-panel`, or `sudo python3 ~/cyberdeck-repo/panel_app.py`.
 
 The script does four things:
 

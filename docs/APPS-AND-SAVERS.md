@@ -8,26 +8,13 @@
 
 ## Install this update
 
-1. Stop the panel app. If you set up the boot service, run `sudo systemctl stop cyberdeck-panel`; otherwise press Ctrl+C in its terminal.
-2. Back up the current version:
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it.
 
-```bash
-cp ~/panel_app.py ~/panel_app.previous.py
-```
-
-3. From Windows PowerShell, copy the new version:
-
-```powershell
-scp panel_app.py eli@cyberdeck.local:/home/eli/
-```
-
-4. Optional: install the extra audio tools. Without them, the app still runs, but media keys and the "what is playing" visualizer stay unavailable:
+Optional: install the extra audio tools. Without them, the app still runs, but media keys and the "what is playing" visualizer stay unavailable:
 
 ```bash
 sudo apt install playerctl pulseaudio-utils
 ```
-
-5. Start the app again: `sudo systemctl start cyberdeck-panel` (or `sudo python3 ~/panel_app.py`).
 
 No reboot is needed. Photos, calibration, options and the boot service carry over. The app creates three new folders the first time it runs:
 

@@ -6,29 +6,7 @@
 
 ## Install this update
 
-1. Stop the running app with Ctrl+C in its Pi terminal and make a backup:
-
-```bash
-cp ~/panel_app.py ~/panel_app.previous.py
-```
-
-2. From Windows PowerShell, copy the app and the new boot-service installer (use the Pi's IP if `cyberdeck.local` doesn't resolve):
-
-```powershell
-scp panel_app.py setup_panel_service.py eli@cyberdeck.local:/home/eli/
-```
-
-3. Try it by hand first:
-
-```bash
-sudo python3 ~/panel_app.py
-```
-
-4. Once you're happy with it, have it start at boot (see "Start automatically at boot" below):
-
-```bash
-sudo python3 ~/setup_panel_service.py --now
-```
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it. To start the app at boot, see "Start automatically at boot" below.
 
 No new packages, no reboot, and no change to SPI, colour order, GPIO or touch isolation. Photos, calibration and options in `~/cyberdeck-data/` are kept. Existing photos appear in the new Photos tab.
 
@@ -84,18 +62,18 @@ Tap the banner to open the Status details page. **OPTIONS -> Alert banner: Off**
 - The app now finds the ILI9341 framebuffer even if it isn't `/dev/fb0` (for example, if the boot order changes).
 
 ```bash
-sudo python3 ~/setup_panel_service.py          # enable for next boot
-sudo python3 ~/setup_panel_service.py --now    # enable and start now
+sudo python3 ~/cyberdeck-repo/setup_panel_service.py          # enable for next boot
+sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now    # enable and start now
 sudo systemctl status cyberdeck-panel          # is it running?
 journalctl -u cyberdeck-panel -f               # live log (replaces the terminal output)
 sudo systemctl stop cyberdeck-panel            # stop it, e.g. to run by hand or recalibrate
 sudo systemctl start cyberdeck-panel           # start it again
-sudo python3 ~/setup_panel_service.py --undo   # remove boot start entirely
+sudo python3 ~/cyberdeck-repo/setup_panel_service.py --undo   # remove boot start entirely
 ```
 
-Only one copy can own the camera and touchscreen. While the service is running, starting `sudo python3 ~/panel_app.py` by hand stops with a message telling you to stop the service first. For `--calibrate`, stop the service, run the app by hand with `--calibrate`, then start the service again (or use **OPTIONS -> Calibrate touch**).
+Only one copy can own the camera and touchscreen. While the service is running, starting `sudo python3 ~/cyberdeck-repo/panel_app.py` by hand stops with a message telling you to stop the service first. For `--calibrate`, stop the service, run the app by hand with `--calibrate`, then start the service again (or use **OPTIONS -> Calibrate touch**).
 
-The installer only manages `/etc/systemd/system/cyberdeck-panel.service`. It refuses to overwrite a file with that name that it didn't create. Keep `panel_app.py` in a path without spaces (`/home/eli/` is fine). If you move it, re-run the installer.
+The installer only manages `/etc/systemd/system/cyberdeck-panel.service`. It refuses to overwrite a file with that name that it didn't create. Keep the checkout in a path without spaces (`~/cyberdeck-repo` is fine). If you move it, re-run the installer.
 
 ### Safe shutdown
 

@@ -34,10 +34,7 @@ The camera feeds the same image whichever way the screen is turned. If the previ
 
 ## Install
 
-1. Stop the app: `sudo systemctl stop cyberdeck-panel`, or Ctrl+C if you started it by hand.
-2. Back it up: `cp ~/panel_app.py ~/panel_app.previous.py`
-3. Copy the new file from Windows: `scp panel_app.py eli@cyberdeck.local:/home/eli/`
-4. Start it: `sudo systemctl start cyberdeck-panel`, or `sudo python3 ~/panel_app.py`.
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it.
 
 You don't need to change `config.txt`, the `rotate=` overlay setting, SPI, or the touch-isolation setup. The framebuffer stays 320×240; the app turns the picture itself.
 
@@ -48,7 +45,7 @@ You don't need to change `config.txt`, the `rotate=` overlay setting, SPI, or th
 
   ```bash
   sudo systemctl stop cyberdeck-panel
-  sudo python3 ~/panel_app.py --rotation 0
+  sudo python3 ~/cyberdeck-repo/panel_app.py --rotation 0
   ```
 
   Then set **OPTIONS → Screen** as you like, close the app and start the service again.

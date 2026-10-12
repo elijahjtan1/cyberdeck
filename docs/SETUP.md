@@ -1,4 +1,7 @@
-# Cyberdeck camera and status monitor
+# Cyberdeck camera and status monitor (legacy `cyberdeck.py`)
+
+> This guide is for `cyberdeck.py`, the first version, kept as a fallback. The current
+> app is `panel_app.py`; see [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md).
 
 Built for your Pi 4, ILI9341 on `/dev/fb0`, 320x240 RGB565, ADS7846-compatible touch, and ribbon camera working with `rpicam-hello`.
 
