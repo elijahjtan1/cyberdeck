@@ -13,7 +13,7 @@ import statistics
 import threading
 import time
 
-from .answer import ask_events, budget_from_environment, passage_budget
+from .answer import ask_events, budget_from_environment, opens_with_missing, passage_budget
 from .query import fold
 
 DEFAULT_QUESTIONS = Path(__file__).with_name('benchmarks') / 'restarters.json'
@@ -33,6 +33,7 @@ class Result:
     uncited: bool = False
     copied: bool = False  # Most of the answer is source text pasted back, not an answer.
     answer: str = ''  # The checked answer, so a wrong one can be read back from the JSON.
+    says_missing: bool = False  # Opens by saying the sources lack the answer.
     prompt_tokens: int = 0  # As counted by the model; over num_ctx means the prompt was cut.
     error: str = ''
     model: bool = True  # False for retrieval-only runs; found then means "had passages".
@@ -47,8 +48,9 @@ class Result:
 
     @property
     def honest(self):
-        """Out-of-scope questions should end as "not found" (or with no passages)."""
-        return not self.answerable and not self.error and not self.found
+        """Out-of-scope questions should end as "not found" (or with no passages), or open by
+        saying the sources don't have it before adding anything related."""
+        return not self.answerable and not self.error and (not self.found or self.says_missing)
 
 
 def load_questions(path=DEFAULT_QUESTIONS):
@@ -148,6 +150,7 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
                     result.answer = value.text
+                    result.says_missing = value.found and opens_with_missing(value.text)
                     result.copied = value.copied
                     result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.
@@ -203,7 +206,8 @@ def show_result(n, r, out):
     elif not r.model:
         verdict = 'no passages' if not r.found else 'passages found (model would decide)'
     else:
-        verdict = 'honest: not found' if r.honest else 'ANSWERED an out-of-scope question'
+        verdict = ('ANSWERED an out-of-scope question' if not r.honest else
+                   'honest: says the sources lack it' if r.found else 'honest: not found')
     first = f'{r.first_word_s:.1f}s' if r.first_word_s is not None else '-'
     print(f'{n:2}. {verdict} | first word {first}, total {r.total_s:.1f}s | {r.question}', file=out)
     if r.answerable and not r.top3 and r.titles:

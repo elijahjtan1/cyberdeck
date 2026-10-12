@@ -304,7 +304,8 @@ article was among the first three distinct passage titles), how many in-scope qu
 answered and how many of those cited nothing or were **copied** (at least 60% of the answer's
 words pasted from the sources in runs of eight or more, which reads as the sources rather
 than an answer; marked COPIED on its line), the **honest "not found" rate** for
-out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
+out-of-scope questions (a reply that opens by saying the sources don't have it, then adds
+something related, counts as honest: *honest: says the sources lack it*), median and maximum retrieval, first-word and total times, and memory:
 the lowest `MemAvailable` and the peak resident memory of Ollama and its `llama-server`
 model runner, sampled every half second from `/proc`. The full run takes a while (about a minute per
 answered question on the Pi); run it with nothing else busy, and Ctrl+C stops it.
@@ -412,7 +413,12 @@ article first and its paragraphs in page order, so a page that supplied eleven p
 one `[1]` rather than eleven numbers (with eleven, the small model tended to describe its
 sources instead of answering). The sources go to the model labelled `Source 1: Title`,
 `Source 2: Title`, ..., under instructions to answer only from them, cite them as `[1]`, and reply
-with that exact not-found sentence when the sources don't contain the answer. If the model
+with that exact not-found sentence when the sources don't contain the answer. One worked
+exchange about a bike chain comes first, showing a short answer in the model's own words
+with a citation after each fact; instructions alone left about a third of the Pi's answers as
+the sources pasted back one by one. The benchmark asks nothing about bikes, so the example
+can't leak into it, but a real bike question could get the example's "12 1/8 inches" back with
+a citation to a real source; the citation check is by number only. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
 that text cites a source. A reply that only says in its own words that the sources lack the

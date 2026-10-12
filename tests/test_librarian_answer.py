@@ -6,7 +6,8 @@ import unittest
 from unittest import mock
 
 from core.librarian import answer as answer_module
-from core.librarian.answer import (ANSWER_CUE, NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
+from core.librarian.answer import (ANSWER_CUE, EXAMPLE_SOURCES, NOT_FOUND, PROMPT_OVERHEAD, answer,
+                                   build_messages,
                                    check_citations, copied_share, passage_budget,
                                    service_kiwix_settings, to_json)
 from core.librarian.ollama import OllamaError, Reply
@@ -67,7 +68,7 @@ class AnswerTest(unittest.TestCase):
         messages, detail = client.calls[0]
         self.assertEqual(detail, 'How does a passive sonobuoy work?')
         self.assertIn(NOT_FOUND, messages[0]['content'])
-        user = messages[1]['content']
+        user = messages[-1]['content']
         self.assertIn('Source 1: Sonobuoy\nA passive sonobuoy listens', user)
         self.assertIn('Source 2: notes.md\nCharge the deck', user)
         self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?\n\n' + ANSWER_CUE))
@@ -166,7 +167,7 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual([p.title for p in result.sources], ['Sonobuoy', 'notes.md'])
         self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
         self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
-        prompt = client.calls[0][0][1]['content']
+        prompt = client.calls[0][0][-1]['content']
         self.assertIn('Source 2: notes.md', prompt)
         self.assertNotIn('[3]', prompt)
         self.assertEqual(result.dropped, [3])
@@ -184,7 +185,7 @@ class AnswerTest(unittest.TestCase):
             answer('q', retriever, FakeClient('ok [1]'))
         with mock.patch.dict(os.environ, {}, clear=True):
             answer('q', retriever, FakeClient('ok [1]'))
-        self.assertEqual([c[1] for c in retriever.calls], [1398, 400])  # 5000 capped by the context.
+        self.assertEqual([c[1] for c in retriever.calls], [2048 - 400 - PROMPT_OVERHEAD, 400])  # 5000 capped by the context.
         for bad in ('lots', '50'):
             with mock.patch.dict(os.environ, {'CYBERDECK_LIBRARIAN_BUDGET': bad}):
                 with self.assertRaisesRegex(ValueError, 'CYBERDECK_LIBRARIAN_BUDGET'):
@@ -259,9 +260,17 @@ class AnswerTest(unittest.TestCase):
 
     def test_messages_shape(self):
         messages = build_messages('  Why?  ', [NOTES])
-        self.assertEqual([m['role'] for m in messages], ['system', 'user'])
-        self.assertIn('Question: Why?\n\n', messages[1]['content'])
-        self.assertTrue(messages[1]['content'].endswith(NOT_FOUND))  # The last thing it reads.
+        self.assertEqual([m['role'] for m in messages], ['system', 'user', 'assistant', 'user'])
+        self.assertIn('Question: Why?\n\n', messages[-1]['content'])
+        self.assertTrue(messages[-1]['content'].endswith(NOT_FOUND))  # The last thing it reads.
+        # The worked example answers in its own words, with a citation after each fact.
+        example = messages[2]['content']
+        self.assertEqual(copied_share(example, [Passage(x, t, '', '', 0) for t, x in EXAMPLE_SOURCES]), 0.0)
+        self.assertFalse(example.startswith('['))
+        self.assertEqual(check_citations(example, len(EXAMPLE_SOURCES))[1], [1, 2])
+        # Fits the room the passage budget leaves for the prompt (about 4 characters a token).
+        overhead = sum(len(m['content']) for m in messages) - len(NOTES.title + NOTES.text)
+        self.assertLess(overhead / 4, PROMPT_OVERHEAD)
 
     def test_copied_share_spots_pasted_sources(self):
         lamp = Passage('Seals can leak, and this is often more problematic. Cleaning might resolve '

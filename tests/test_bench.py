@@ -58,6 +58,28 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(r.prompt_tokens, 300)  # From the model's reply.
         self.assertEqual(bench.summarize([r])['max_prompt_tokens'], 300)
 
+    def test_saying_the_sources_lack_it_first_is_honest(self):
+        # From the Pi: honest about the gap, then something related.
+        said = ('The part number of a toaster heating element is not mentioned in the provided '
+                'sources. However, each section of the element should read a few tens of ohms [1].')
+        r = bench.run_one('q', [], FakeRetriever([passage('Toasters')]), FakeClient(said), clock=Clock())
+        self.assertEqual((r.found, r.says_missing, r.honest), (True, True, True))
+        guess = bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
+                              FakeClient('Use a 0.1 Nm setting [1]. The sources do not say.'), clock=Clock())
+        self.assertEqual((guess.says_missing, guess.honest), (False, False))
+        # Found in review: a guess beside or after the gap is not honest.
+        for text in ('The fuse rating is 10 A [1], though the sources do not mention the brand.',
+                     'The sources do not specify the exact part number, but it is 1234.',
+                     "The sources don't list the voltage. It is 230 V."):
+            self.assertFalse(bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
+                                           FakeClient(text), clock=Clock()).honest, text)
+        out = io.StringIO()
+        bench.show_result(1, r, out)
+        bench.show_result(2, guess, out)
+        self.assertIn('1. honest: says the sources lack it', out.getvalue())
+        self.assertIn('2. ANSWERED an out-of-scope question', out.getvalue())
+        self.assertEqual(bench.summarize([r, guess])['honest_not_found_rate'], 0.5)
+
     def test_answers_that_paste_the_sources_back_are_marked_copied(self):
         source = Passage('Seals can leak, and this is often more problematic than a worn hose.',
                          'Coffee makers', 'http://k/Coffee_makers', 'kiwix', 1.0)
