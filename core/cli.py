@@ -130,7 +130,7 @@ def show(events, explain=False, out=None, err=None):
                 if event.get('uncited'):
                     print('UNVERIFIED: the answer cites no source.', file=out)
                 if event.get('copied'):
-                    print('QUOTED: this repeats the sources instead of answering.', file=out)
+                    print('QUOTED: mostly copied word for word from the sources.', file=out)
                 cited = event.get('cited') or []
                 sources = [s for s in event.get('sources', []) if s['n'] in cited or not cited]
                 if sources:

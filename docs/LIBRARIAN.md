@@ -272,8 +272,8 @@ always answers in the terminal; `--explain` adds the keywords and passage scores
 - **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
   stopped while it is still reading, it finishes reading first and a new question waits that long.
 - **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
-  in the offline sources*, *UNVERIFIED* (no citations) and *QUOTED* (the sources pasted back
-  instead of an answer) are shown as they are, never hidden.
+  in the offline sources*, *UNVERIFIED* (no citations) and *QUOTED* (mostly copied word for
+  word from the sources) are shown as they are, never hidden.
 - **Scrolling:** **UP** and **DOWN** scroll a long answer.
 - **Editing:** **EDIT** brings the question back to change it.
 - **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
@@ -447,8 +447,9 @@ removed from `result.text` and listed in `result.dropped`; the valid ones are in
 `UNVERIFIED: the answer cites no source.` and lists every searched passage instead of
 the cited ones. When at least 60% of a found answer's words are runs of eight or more words
 copied from the sources, `result.copied` is set and the command prints
-`QUOTED: this repeats the sources instead of answering.` The text is still real source text
-with its citations, so it is shown rather than hidden.
+`QUOTED: mostly copied word for word from the sources.` The text is still real source text
+with its citations, so it is shown rather than hidden; a short answer that lifts the one
+sentence holding the fact is flagged too, so the note says how it was written, not that it is wrong.
 
 The check is by number only: it proves each citation points at a real passage, not that
 the passage supports the sentence. Text already streamed through `on_text` is the raw model

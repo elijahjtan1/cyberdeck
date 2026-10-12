@@ -185,7 +185,7 @@ class AskApp:
         if event.get('uncited'):
             self.notes.append('UNVERIFIED: the answer cites no source.')
         if event.get('copied'):
-            self.notes.append('QUOTED: this repeats the sources instead of answering.')
+            self.notes.append('QUOTED: mostly copied word for word from the sources.')
         self.notes.extend(f'Warning: {w}' for w in event.get('warnings') or [])
         self.stage = 'done'
 
