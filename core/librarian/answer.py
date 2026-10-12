@@ -141,6 +141,24 @@ def only_says_missing(text):
                                    for s in sentences)
 
 
+# On the Pi, asked for a part number the sources don't give, the model wrote "The thermal fuse
+# in a Philips HD7546 coffee maker is [1]." and padded on: the citation stands in for the value.
+# "Yes, it is [1]." or "they are [2]" answers a yes/no question, so a pronoun before the verb,
+# a leading yes or no, or a comma keeps the reply an answer.
+BLANK_VALUE = re.compile(r'(\w+)\s+(?:is|are|was|were|be)\s*:?(?:\s*\[\d+(?:\s*,\s*\d+)*\])+\s*[.!?]?$',
+                         re.IGNORECASE)
+PRONOUN = {'it', 'they', 'this', 'that', 'these', 'those', 'he', 'she', 'so', 'we', 'you'}
+
+
+def blank_answer(text):
+    """The first sentence, the direct answer, has a citation where its value should be."""
+    first = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text.strip(), maxsplit=1)[0]
+    first = first.strip(DECORATION.replace('.', ''))
+    match = BLANK_VALUE.search(first)
+    return bool(match and match.group(1).casefold() not in PRONOUN and ',' not in CITATION.sub('', first)
+                and not re.match(r'(?:yes|no)\b', first, re.IGNORECASE))
+
+
 def said_not_found(text):
     """The not-found sentence, even with the [1], quotes or bold a small model adds, or a
     reply that only says, in its own words, that the sources don't have the answer.
@@ -183,7 +201,7 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
         if isinstance(item, str):
             yield 'text', item
             continue
-        if not item.text or said_not_found(item.text):
+        if not item.text or said_not_found(item.text) or blank_answer(item.text):
             yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
         else:
             text, cited, dropped = check_citations(item.text, len(passages))
