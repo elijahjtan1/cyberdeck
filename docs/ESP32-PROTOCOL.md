@@ -8,8 +8,7 @@ side lives in `core/esp32.py` (roadmap 5.5), and until the board exists a mock E
 
 The one rule that matters most: **the ESP32 cuts the Pi's power only after a poweroff has
 been acknowledged and the Pi's heartbeat has stopped soon after**, or when the Pi has
-provably halted, when the power button is held 10 s, or (as a last resort, pending Eli's
-approval) when a cell is critically low (see [Shutdown](#shutdown)).
+provably halted, when the power button is held 10 s, or (as a last resort) when a cell is critically low (see [Shutdown](#shutdown)).
 
 ## Transport
 
@@ -203,7 +202,7 @@ unconditionally and stores `last_cut: "forced"`. It is the way out for a hung Pi
 halted without an ack on a board without the power-off signal. Being a deliberate physical
 act, it is the one manual exception to the ack rule. (A `long` press at 2 s still only asks.)
 
-**4. A critical battery** (last resort, pending Eli's approval). When any cell stays below
+**4. A critical battery** (last resort, approved by Eli in October 2026). When any cell stays below
 **2.9 V** for 10 s (the pack below 11.6 V on a board without cell readings), the ESP32 sends
 `shutdown_request` with reason `battery_critical` and handles an ack as in case 1. If power
 is still on **120 s** after the first request and the cell is still below 2.9 V, it cuts
@@ -289,7 +288,7 @@ Thermal Engineer; the battery isn't chosen yet, so they will be tuned from measu
 | below 40% | `shed_tier` 1: the Pi turns off non-essential apps (games, camera, timelapse) and switches to its low-power profile | above 45% |
 | below 25% | `shed_tier` 2: the ESP32 also switches off the `hub` and `screens` rails | above 30% |
 | below 10%, or pack below 12.0 V at light load | `shutdown_request` with reason `battery_low` | See [Power on](#power-on) |
-| any cell below 2.9 V for 10 s (pack below 11.6 V without cell readings) | `shutdown_request` with reason `battery_critical`, then the hard cut in [Shutdown](#shutdown) (pending Eli's approval) | See [Power on](#power-on) |
+| any cell below 2.9 V for 10 s (pack below 11.6 V without cell readings) | `shutdown_request` with reason `battery_critical`, then the hard cut in [Shutdown](#shutdown) | See [Power on](#power-on) |
 | `battery_temp_c` above 60 | `shutdown_request` with reason `temperature` | See [Power on](#power-on) |
 
 Before switching a rail off, the ESP32 sends `telemetry` with the new `shed_tier` (and
@@ -321,5 +320,5 @@ with `"simulated": true`. It never touches real power, and the Pi never shuts do
 - The thresholds above assume a 4S LiFePO4 pack, proposed in the Power & Thermal
   Engineer's design notes (not yet in the repo) and not yet approved by Eli; they move
   with the pack.
-- The critical-battery hard cut is Eli's decision. If Eli declines it, the BMS alone guards
-  against deep discharge, and a hung or halted Pi can drain the pack to its cutoff.
+- The critical-battery hard cut is approved; its 2.9 V threshold and 120 s grace are
+  starting values to tune on the chosen pack.
