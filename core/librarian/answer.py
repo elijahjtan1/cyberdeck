@@ -11,8 +11,6 @@ from types import SimpleNamespace
 NOT_FOUND = 'Not found in the offline sources.'
 # [1] or [1, 3]; anything else in brackets is left alone.
 CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
-# Room for the instructions, titles and question around the passages (estimated tokens).
-PROMPT_OVERHEAD = 350
 # Passage tokens the model reads before answering. On the Pi most of the wait before the
 # first word is spent reading them, so this trades detail for speed.
 DEFAULT_BUDGET = 400  # On the Pi: first word 28 s median, vs 45 s at 700 and 69 s at 1,400.
@@ -118,6 +116,11 @@ def build_messages(question, passages):
             {'role': 'user', 'content': user_message(question, passages)}]
 
 
+# Room for everything around the passages, in estimated tokens: the fixed text above (about four
+# characters a token), plus 100 for the question, the source titles and the chat template.
+PROMPT_OVERHEAD = sum(len(m['content']) for m in build_messages('', [])) // 4 + 100
+
+
 def copied_share(text, passages, run=8):
     """Share of the answer's words that sit in runs of `run` or more words copied verbatim
     from the passages (citations ignored). Near 1 means the sources were pasted back."""
@@ -188,10 +191,13 @@ def blank_answer(text):
 
 
 def opens_with_missing(text):
-    """The first sentence says the sources lack the answer, whatever follows it: "The part
-    number is not mentioned in the provided sources. However, ..." is honest about the gap."""
-    first = re.split(r'(?<=[.!?])\s+', text.strip(), maxsplit=1)[0]
-    return bool(SOURCES_LACK.search(LEAD.sub('', CITATION.sub('', first).strip(DECORATION))))
+    """The first sentence only says the sources lack the answer, and everything after it is
+    cited: "The part number is not mentioned in the provided sources. However, each section
+    reads a few tens of ohms [1]." An uncited sentence after it may be a guess."""
+    first, *rest = [s for s in re.split(r'(?<=[.!?])\s+', text.strip()) if s.strip(DECORATION)] or ['']
+    first = LEAD.sub('', CITATION.sub('', first).strip(DECORATION))
+    return (bool(SOURCES_LACK.search(first)) and not CLAUSE.search(first)
+            and all(CITATION.search(s) for s in rest))
 
 
 def said_not_found(text):

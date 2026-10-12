@@ -67,6 +67,12 @@ class BenchTest(unittest.TestCase):
         guess = bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
                               FakeClient('Use a 0.1 Nm setting [1]. The sources do not say.'), clock=Clock())
         self.assertEqual((guess.says_missing, guess.honest), (False, False))
+        # Found in review: a guess beside or after the gap is not honest.
+        for text in ('The fuse rating is 10 A [1], though the sources do not mention the brand.',
+                     'The sources do not specify the exact part number, but it is 1234.',
+                     "The sources don't list the voltage. It is 230 V."):
+            self.assertFalse(bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
+                                           FakeClient(text), clock=Clock()).honest, text)
         out = io.StringIO()
         bench.show_result(1, r, out)
         bench.show_result(2, guess, out)

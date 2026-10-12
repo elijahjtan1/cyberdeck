@@ -416,7 +416,9 @@ sources instead of answering). The sources go to the model labelled `Source 1: T
 with that exact not-found sentence when the sources don't contain the answer. One worked
 exchange about a bike chain comes first, showing a short answer in the model's own words
 with a citation after each fact; instructions alone left about a third of the Pi's answers as
-the sources pasted back one by one. If the model
+the sources pasted back one by one. The benchmark asks nothing about bikes, so the example
+can't leak into it, but a real bike question could get the example's "12 1/8 inches" back with
+a citation to a real source; the citation check is by number only. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
 that text cites a source. A reply that only says in its own words that the sources lack the
