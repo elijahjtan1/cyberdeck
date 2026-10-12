@@ -122,6 +122,7 @@ class PlannerApp:
         self.shown = None      # First day of the month on screen; None follows today.
         self.day = None        # Day open in the day view.
         self.selected = None   # Entry index waiting for delete confirmation.
+        self.first = 0         # First entry shown in the day list; ^ and v scroll it.
         self.text, self.time, self.symbols = '', '', False
         self.message = ''
         self.wall = None       # Wall time of the last draw, so taps agree with what is shown.
@@ -158,11 +159,28 @@ class PlannerApp:
                   round(x0 + (c+1)*cell_w) - 2, round(y0 + 14 + (r+1)*cell_h) - 2), day)
                 for r, week in enumerate(weeks) for c, day in enumerate(week) if day]
 
-    def entry_rects(self, count):
+    def entry_layout(self):
         a = self.a
-        top, pitch = (48, 24) if not a.portrait() else (62, 26)
-        rows = min(count, max(1, (a.H - 36 - top) // pitch))
-        return [(4, top + i*pitch, a.W-5, top + i*pitch + pitch - 3) for i in range(rows)]
+        top, pitch = (48, 22) if not a.portrait() else (62, 25)
+        return top, pitch, max(1, (a.H - 54 - top) // pitch)  # Ends above the message line at H-48.
+
+    def entry_rects(self, count):
+        """Rects for the entries on screen, narrowed to leave room for ^ and v when they don't all fit."""
+        top, pitch, rows = self.entry_layout()
+        right = self.a.W - (37 if count > rows else 5)
+        return [(4, top + i*pitch, right, top + i*pitch + pitch - 3) for i in range(min(count, rows))]
+
+    def scroll_rects(self, count):
+        """^ and v beside the entry list, or nothing when every entry fits."""
+        top, pitch, rows = self.entry_layout()
+        if count <= rows:
+            return []
+        bottom, x = top + rows*pitch - 3, self.a.W - 33
+        middle = (top + bottom) // 2
+        return [(x, top, self.a.W-5, middle-2), (x, middle+1, self.a.W-5, bottom)]
+
+    def clamp_first(self, count):
+        self.first = max(0, min(self.first, count - self.entry_layout()[2]))
 
     def time_rects(self):
         a = self.a
@@ -212,10 +230,15 @@ class PlannerApp:
                 else:
                     self.text, self.symbols, self.view = '', False, 'type'
             else:
-                entries = self.planner.entries(self.day)
-                hit = a.index_at(self.entry_rects(len(entries)), x, y, slop=1)
+                count = len(self.planner.entries(self.day))
+                scroll = a.index_at(self.scroll_rects(count), x, y, slop=1)
+                if scroll is not None:
+                    self.first += -1 if scroll == 0 else 1
+                    self.clamp_first(count)
+                    return None
+                hit = a.index_at(self.entry_rects(count), x, y, slop=1)
                 if hit is not None:
-                    self.selected = hit
+                    self.selected = self.first + hit
             return None
         if self.view == 'time':
             choice = a.index_at(self.time_rects(), x, y, slop=2) if self.time else None
@@ -231,6 +254,12 @@ class PlannerApp:
                 saved = self.planner.add(self.day, self.text, self.time)
                 self.message = 'Saved' if saved else 'Not saved'
                 self.view = 'day'
+                entries = self.planner.entries(self.day)
+                new = clean_entry({'text': self.text, 'time': self.time})
+                if saved and new in entries:  # Scroll so the new entry is on screen.
+                    index, rows = entries.index(new), self.entry_layout()[2]
+                    self.first = min(max(self.first, index - rows + 1), index)
+                    self.clamp_first(len(entries))
             return None
         # Typing the entry text.
         keys = keyboard_rects(a.W, a.H, self.symbols)
@@ -256,7 +285,7 @@ class PlannerApp:
         return None
 
     def open_day(self, day):
-        self.day, self.view, self.selected, self.message = day, 'day', None, ''
+        self.day, self.view, self.selected, self.message, self.first = day, 'day', None, '', 0
 
     def now(self):
         return self.wall or datetime.now().astimezone()
@@ -336,10 +365,11 @@ class PlannerApp:
         if note and a.portrait():
             a.centred(d, 44, note, a.TINY, a.WARN)
         entries = self.planner.entries(self.day)
+        self.clamp_first(len(entries))
         rects = self.entry_rects(len(entries))
         if not entries:
             a.centred(d, a.H//2 - 10, 'Nothing planned. Tap ADD.', a.SMALL, a.MUTED)
-        for i, (rect, entry) in enumerate(zip(rects, entries)):
+        for i, (rect, entry) in enumerate(zip(rects, entries[self.first:]), self.first):
             chosen = i == self.selected
             d.rounded_rectangle(rect, radius=4, fill=a.DANGER if chosen else a.INSET)
             time = entry['time'] or 'all day'
@@ -348,9 +378,11 @@ class PlannerApp:
             left = rect[0] + 12 + d.textlength('all day', font=a.SMALL)
             d.text((left, (rect[1]+rect[3])//2), a.fit_text(d, entry['text'], rect[2]-left-6, a.SMALL),
                    font=a.SMALL, fill=a.TEXT, anchor='lm')
-        hidden = len(entries) - len(rects)
-        if hidden > 0 and entries:
-            d.text((a.W-6, rects[-1][3]+1), f'+{hidden} more', font=a.TINY, fill=a.MUTED, anchor='ra')
+        scroll = self.scroll_rects(len(entries))
+        if scroll:
+            ends = (self.first > 0, self.first + len(rects) < len(entries))
+            for rect, label, more in zip(scroll, ('^', 'v'), ends):
+                a.button(d, rect, label, fill=None if more else a.INSET)
         if self.selected is not None:
             labels = ('CANCEL', '', 'DELETE', '')
         else:

@@ -121,6 +121,54 @@ class PlannerAppTest(unittest.TestCase):
             self.assertEqual(ui.view, 'month')
             self.assertEqual(self.tap(planner.bottom_buttons(app.W, app.H)[3]), 'exit')
 
+    def test_a_full_day_scrolls_to_every_entry(self):
+        for degrees in (0, 90):
+            app.set_rotation(degrees)
+            ui, day = self.ui, NOW.date()
+            for i in range(planner.MAX_PER_DAY):
+                ui.planner.add(day, f'Task {i:02}', f'{6 + i//4:02}:{i%4*15:02}')
+            ui.open_day(day)
+            self.draw()
+            count = planner.MAX_PER_DAY
+            rows, scroll = ui.entry_rects(count), ui.scroll_rects(count)
+            self.assertEqual(len(scroll), 2)
+            self.assertEqual(len(rows), 8 if degrees else 6)
+            for rect in rows + scroll:  # Rows, arrows and the message line never overlap.
+                self.assertTrue(0 <= rect[0] < rect[2] <= app.W and rect[3] < app.H-56, (degrees, rect))
+            self.assertLess(rows[0][2], scroll[0][0])
+            self.tap(scroll[0])  # ^ at the top does nothing.
+            self.assertEqual(ui.first, 0)
+            for _ in range(count):
+                self.tap(scroll[1])
+            self.assertEqual(ui.first, count - len(rows))
+            self.draw()
+            self.tap(ui.entry_rects(count)[-1])
+            self.assertEqual(ui.selected, count-1)
+            self.draw()
+            self.tap(planner.bottom_buttons(app.W, app.H)[2])  # DELETE
+            self.assertEqual([e['text'] for e in ui.planner.entries(day)][-1], f'Task {count-2:02}')
+            self.draw()
+            self.assertEqual(ui.first, count - 1 - len(rows))  # Still showing the end of the list.
+            self.tap(scroll[0])
+            self.assertEqual(ui.first, count - 2 - len(rows))
+            while ui.planner.entries(day):
+                ui.planner.delete(day, 0)
+
+    def test_a_new_entry_scrolls_into_view(self):
+        ui, day = self.ui, NOW.date()
+        for i in range(10):
+            ui.planner.add(day, f'Task {i}', f'{8+i:02}:00')
+        ui.open_day(day)
+        self.draw()
+        ui.tap(*centre(planner.bottom_buttons(app.W, app.H)[3]), 0)  # ADD
+        self.type_text('late')
+        self.tap(next(rect for rect, key in keyboard_rects(app.W, app.H, False) if key == 'ask'))
+        ui.time = '23:00'
+        self.tap(planner.bottom_buttons(app.W, app.H)[3])  # SAVE
+        rows = len(ui.entry_rects(11))
+        self.assertEqual(ui.first, 11 - rows)
+        self.draw()
+
     def test_all_day_entry_and_month_paging(self):
         ui = self.ui
         self.draw()
