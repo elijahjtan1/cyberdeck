@@ -1,5 +1,4 @@
 import json
-import queue
 import subprocess
 import sys
 import tempfile
@@ -14,7 +13,7 @@ from urllib.error import HTTPError
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import panel_app as app
-from panel_tools.runtime import CameraWorker, Clocks, Timelapse, Job, data_home
+from panel_tools.runtime import CameraWorker, Clocks, Timelapse, data_home
 from panel_tools.network import NetworkHistory, PhotoShare
 from panel_tools.updates import Updates
 from panel_tools.ui import ToolsUI

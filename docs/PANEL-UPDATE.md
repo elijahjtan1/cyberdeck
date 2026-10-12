@@ -16,34 +16,15 @@ The original code already kept its grab during calibration; without Pi logs, the
 
 ## Update
 
-1. Stop the old app with Ctrl+C in its Pi terminal. Back up the current script:
+Update the whole checkout with Git, as in [INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md); don't copy `panel_app.py` on its own, because it needs `panel_tools/` beside it. Then install desktop touch isolation once and reboot:
 
 ```bash
-cp ~/panel_app.py ~/panel_app.previous.py
-```
-
-2. From Windows PowerShell, copy these two files (replace the hostname with the Pi's IP if required):
-
-```powershell
-scp "C:\Users\Eli\Documents\Codex\2026-10-09\i\outputs\panel_app.py" "C:\Users\Eli\Documents\Codex\2026-10-09\i\outputs\setup_panel_touch.py" eli@cyberdeck.local:/home/eli/
-```
-
-3. In the Pi terminal, install desktop touch isolation, then reboot:
-
-```bash
-sudo python3 ~/setup_panel_touch.py
+cd ~/cyberdeck-repo
+sudo python3 setup_panel_touch.py
 sudo reboot
 ```
 
 If setup reports an error, resolve that before rebooting; it prints what prevented installation. It verifies the expected touchscreen exists and refuses to overwrite unfamiliar configuration files.
-
-4. Reconnect through VNC and launch:
-
-```bash
-sudo python3 ~/panel_app.py
-```
-
-Existing libraries are sufficient. No camera, SPI speed, GPIO, colour, or boot-overlay changes are needed. Automatic startup is still not configured.
 
 ## Verify on the Pi
 

@@ -5,35 +5,11 @@ GNSS and Sun & moon. **APPS > QUICK CONTROLS** opens the shortcuts directly. Lay
 all four screen rotations. The original camera, calibration, savers, audio and
 games remain available.
 
-## Install this branch on the Pi
+## Install
 
-Stop the old app with its Close button or Ctrl+C. If it runs at boot, stop that
-copy first:
-
-```bash
-sudo systemctl stop cyberdeck-panel
-cd ~/cyberdeck-repo
-git fetch origin
-git switch feature/panel-tools
-git pull --ff-only
-sudo python3 panel_app.py
-```
-
-If Git reports local changes, stop and preserve those changes before switching.
-Do not reset or delete your checkout. This release includes the `panel_tools/`
-package: keep the whole repository together, rather than copying only
-`panel_app.py`. It uses the existing Pillow, NumPy, Picamera2 and evdev packages;
-the new tools use Python's standard library and Git. No web framework is needed.
-
-For an existing boot service, after testing and closing the manual copy:
-
-```bash
-cd ~/cyberdeck-repo
-sudo python3 setup_panel_service.py --now
-```
-
-This repoints the service at this checkout if it previously ran a copy elsewhere.
-Never run the manual app and service simultaneously.
+Tools are part of the app, so updating the checkout installs them; see
+[INSTALL-AND-UPDATE.md](INSTALL-AND-UPDATE.md). They use the existing Pillow, NumPy,
+Picamera2 and evdev packages, Python's standard library and Git.
 
 ## Where photos and settings live
 
@@ -138,11 +114,11 @@ expires. Do not forward the port to the Internet. Sharing is off at startup.
    revision in detached mode, provided the checkout is clean and still matches
    the installed update. It preserves the updated branch and all user data.
    Restart to load the restored version. Future updates require selecting the
-   desired branch again in a terminal, e.g. `git switch feature/panel-tools`.
+   desired branch again in a terminal, e.g. `git switch main`.
 
-Updates follow **your current tracking branch**, not an assumed `main`. The code
-on this feature branch therefore updates from this feature branch until you
-switch. No background downloads or automatic installation are scheduled.
+Updates follow **your current tracking branch**, not an assumed `main`, so a
+checkout on another branch keeps updating from that branch until you switch. No
+background downloads or automatic installation are scheduled.
 Syntax checks do not replace hardware testing. Rollback is for the most recent
 update applied through this menu; earlier manual Git changes aren't recorded.
 Keep VNC/SSH available for recovery if a future version cannot start.
