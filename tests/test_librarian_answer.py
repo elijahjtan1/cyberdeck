@@ -6,8 +6,9 @@ import unittest
 from unittest import mock
 
 from core.librarian import answer as answer_module
-from core.librarian.answer import (NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
-                                   check_citations, passage_budget, service_kiwix_settings)
+from core.librarian.answer import (ANSWER_CUE, NOT_FOUND, PROMPT_OVERHEAD, answer, build_messages,
+                                   check_citations, copied_share, passage_budget,
+                                   service_kiwix_settings)
 from core.librarian.ollama import OllamaError, Reply
 from core.librarian.rank import Passage
 from core.librarian.service import RetrievalError
@@ -67,9 +68,9 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(detail, 'How does a passive sonobuoy work?')
         self.assertIn(NOT_FOUND, messages[0]['content'])
         user = messages[1]['content']
-        self.assertIn('[1] Sonobuoy\nA passive sonobuoy listens', user)
-        self.assertIn('[2] notes.md\nCharge the deck', user)
-        self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?'))
+        self.assertIn('Source [1]: Sonobuoy\nA passive sonobuoy listens', user)
+        self.assertIn('Source [2]: notes.md\nCharge the deck', user)
+        self.assertTrue(user.endswith('Question: How does a passive sonobuoy work?\n\n' + ANSWER_CUE))
 
     def test_model_saying_not_found_is_reported_as_not_found(self):
         for text in ('Not found in the offline sources.', ' not found in the offline sources ', ''):
@@ -86,6 +87,45 @@ class AnswerTest(unittest.TestCase):
             result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
+
+    def test_not_found_in_the_models_own_words_is_not_found(self):
+        # Both from the Pi, for questions the Restarters wiki can't answer.
+        for text in ('The sources do not provide information about the torque required for pentalobe '
+                     'screwdrivers on an iPhone 12. Therefore, the answer is not found in the offline sources.',
+                     'The part number of a toaster heating element is not provided in the sources. [1]',
+                     'No information about this is given in the sources [1].',
+                     "The sources don't mention the torque for these screws."):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertFalse(result.found, text)
+            self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
+
+    def test_answers_that_mention_missing_details_are_still_answers(self):
+        for text in ('The sources do not give a part number, but the element is a nichrome coil [1].',
+                     'Charge the deck before use [1]. The sources do not mention the voltage.',
+                     'Do not use the deck in rain [1].',
+                     'The fuse is not provided with the kit.',
+                     # Found in review: each gives an instruction or fact besides the gap.
+                     'The manual does not provide a part number, so check the label on the base for '
+                     'that information [1].',
+                     'This information is not listed on the plug; test the fuse with a multimeter set '
+                     'to continuity [1].',
+                     'Kettles do not contain user-serviceable heating elements, according to the sources [1].',
+                     'If the fuse rating is not given in the sources, use a 3 A fuse for appliances '
+                     'under 700 W [1].',
+                     'The element is not available separately, so the sources suggest replacing the '
+                     'whole toaster [1].',
+                     'Do not open the microwave: the capacitor holds a charge and no information on '
+                     'safe discharge is given [2].',
+                     'The sources do not mention a reset button. Unplug it for ten minutes and try again [1].',
+                     # A fact joined by a comma or "and" is still a fact.
+                     'The sources do not specify a torque, which is usually 0.1 Nm for these screws [1].',
+                     'The sources do not mention gloves, and the capacitor can hold a lethal charge [2].',
+                     'The sources do not cover it, which means the heating element must be replaced '
+                     'as a unit [1].',
+                     'The sources do not mention the voltage (it is 230 V) [1].',
+                     'The sources do not mention the voltage - it is 230 V [1].'):
+            result = answer('q', FakeRetriever([NOTES]), FakeClient(text))
+            self.assertTrue(result.found, text)
 
     def test_cited_facts_after_not_found_are_an_answer(self):
         for text in ('Not found in the offline sources. But charge the deck first [1].',
@@ -113,7 +153,7 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(result.sources[0].text, f'{SONOBUOY.text}\n\n{more.text}')
         self.assertEqual(result.sources[0].score, SONOBUOY.score)  # The best paragraph's.
         prompt = client.calls[0][0][1]['content']
-        self.assertIn('[2] notes.md', prompt)
+        self.assertIn('Source [2]: notes.md', prompt)
         self.assertNotIn('[3]', prompt)
         self.assertEqual(result.dropped, [3])
 
@@ -206,7 +246,19 @@ class AnswerTest(unittest.TestCase):
     def test_messages_shape(self):
         messages = build_messages('  Why?  ', [NOTES])
         self.assertEqual([m['role'] for m in messages], ['system', 'user'])
-        self.assertTrue(messages[1]['content'].endswith('Question: Why?'))
+        self.assertIn('Question: Why?\n\n', messages[1]['content'])
+        self.assertTrue(messages[1]['content'].endswith(NOT_FOUND))  # The last thing it reads.
+
+    def test_copied_share_spots_pasted_sources(self):
+        lamp = Passage('Seals can leak, and this is often more problematic. Cleaning might resolve '
+                       'the problem, or there might occasionally be an O-ring you can replace.',
+                       'Mixers', 'http://k/Mixers', 'kiwix')
+        pasted = ('[1] Mixers\nSeals can leak, and this is often more problematic. Cleaning '
+                  'might resolve the problem, or there might occasionally be an O-ring you can replace.')
+        own = 'A worn seal is the usual cause [1]. Cleaning it may help, or replace the O-ring [1].'
+        self.assertGreater(copied_share(pasted, [lamp]), .9)
+        self.assertEqual(copied_share(own, [lamp]), 0.0)
+        self.assertEqual(copied_share('Too short [1].', [lamp]), 0.0)
 
 
 if __name__ == '__main__':

@@ -20,6 +20,7 @@ from panel_tools.backlight import load_backlight
 from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
                                Klondike, SudokuGame, PIECES, PIECE_COLOURS, SUITS, rank_name)
 from panel_tools.ui import ToolsUI
+from panel_tools.ask import AskApp
 import json
 import os
 from pathlib import Path
@@ -3222,7 +3223,7 @@ HOME_TILES = (('CAMERA', 'camera', '#44d4ad'), ('PHOTOS', 'photos', '#67bfff'),
               ('GAMES', 'games', '#f2d24b'), ('AUDIO', 'audio', '#b07cf0'),
               ('ALBUM', 'album', '#f29b42'), ('GIFS', 'gifs', '#f0605a'),
               ('TOOLS', 'tools', '#5fd36b'), ('QUICK', 'quick', '#4fd8e8'),
-              ('SAVER', 'saver', '#a9bbc9'))
+              ('ASK', 'ask', '#ff8fb8'))
 
 
 def home_rects():
@@ -4135,8 +4136,7 @@ def main():
                     'audio': (f"Vol {audio.state['volume']}%"
                               if audio.state.get('volume') is not None else 'Music, volume'),
                     'album': 'Slideshow', 'gifs': 'Animations', 'tools': 'Timers & more',
-                    'quick': 'Shortcuts', 'saver': SAVER_NAMES[options['saver_style']]
-                    if options['saver_style'] != 'off' else 'Radar'}}
+                    'quick': 'Shortcuts', 'ask': apps['ask'].note()}}
             elif page == 'apps':
                 extra = {'notes': app_notes()}
             elif page == 'audio':
@@ -4228,6 +4228,7 @@ def main():
                            {'snap': take_photo, 'busy': lambda: photo_pending,
                             'fps': lambda: fps, 'preset': apply_preset, 'retry': retry_camera})
         apps['tools'] = tools_ui
+        apps['ask'] = AskApp(sys.modules[__name__], backend.base if backend is not None else None)
         apps['games'] = GamesMenu(lambda: {
             'snake': f"Best score: {apps['snake'].best}",
             'tetris': f"Best score: {apps['tetris'].best}",
@@ -4330,9 +4331,7 @@ def main():
                     page = open_app(arg, now)
                     ignore_touch_until = now + .3
                 elif kind == 'home':
-                    if arg == 'saver':
-                        active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
-                    elif arg == 'camera':
+                    if arg == 'camera':
                         page = 'camera'
                     elif arg == 'photos':
                         library.refresh()
@@ -4537,6 +4536,7 @@ def main():
                     and not photo_pending and not tools_ui.clocks.alarm
                     and not (page == 'tools' and tools_ui.confirm)
                     and not (page in GAME_PAGES and apps[page].running)
+                    and not (page == 'ask' and apps['ask'].running)
                     and saver_due(options, now-last_touch, page)):
                 active_saver, next_saver_draw = make_saver(options['saver_style'], now), 0
             if active_saver is not None:

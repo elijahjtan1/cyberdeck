@@ -76,23 +76,80 @@ def by_article(passages):
     return merged
 
 
+# Last in the prompt, where a small model heeds it most. On the Pi, the coffee maker question
+# came back as the "[1] Title" source blocks copied out, the format the prompt showed it.
+ANSWER_CUE = ('Answer the question in two to four sentences of your own, using only the sources '
+              'above. Put the source number after each fact, like [1]. Do not copy the sources out. '
+              f'If the sources do not answer it, reply exactly: {NOT_FOUND}')
+
+
 def build_messages(question, passages):
-    blocks = [f'[{n}] {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
-    user = 'Sources:\n\n' + '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}'
+    blocks = [f'Source [{n}]: {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
+    user = '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}\n\n{ANSWER_CUE}'
     return [{'role': 'system', 'content': SYSTEM_PROMPT},
             {'role': 'user', 'content': user}]
+
+
+def copied_share(text, passages, run=8):
+    """Share of the answer's words that sit in runs of `run` or more words copied verbatim
+    from the passages (citations ignored). Near 1 means the sources were pasted back."""
+    def words(value):
+        return re.findall(r'\w+', CITATION.sub(' ', value).casefold())
+    answer_words = words(text)
+    if len(answer_words) < run:
+        return 0.0
+    grams = set()
+    for passage in passages:
+        found = words(f'{passage.title} {passage.text}')
+        grams.update(tuple(found[i:i + run]) for i in range(len(found) - run + 1))
+    covered = [False] * len(answer_words)
+    for i in range(len(answer_words) - run + 1):
+        if tuple(answer_words[i:i + run]) in grams:
+            covered[i:i + run] = [True] * run
+    return sum(covered) / len(answer_words)
 
 
 # Wrapping a small model puts around the not-found sentence: quotes, bold, the full stop.
 DECORATION = ' \t\n.*_"\'`'
 
 
+# How a small model words "not found" when it doesn't use the exact sentence, as on the Pi:
+# "The part number ... is not provided in the sources." or "The sources do not provide ...".
+# Only the sources lacking the answer counts: "Kettles do not contain..." is a fact.
+SOURCES_LACK = re.compile(
+    r'\b(?:the |these |offline )?sources? (?:do|does)(?: not|n\'t) (?:provide|contain|mention|include|give|'
+    r'state|specify|list|say|cover)\b'
+    r'|\bnot (?:found|provided|mentioned|given|included|stated|specified|listed|covered) in the '
+    r'(?:offline )?sources?\b'
+    r'|\bno (?:information|mention|details?)\b.*\bin the (?:offline )?sources?\b', re.IGNORECASE)
+# A second clause may carry the answer: "..., so check the label", "If ..., use a 3 A fuse",
+# "..., which is usually 0.1 Nm", "... and the capacitor can hold a lethal charge", "(it is 230 V)".
+CLAUSE = re.compile(r'[,;:()–—]|\s-\s|^if\b|\b(?:so|but|however|although|though|instead|use|check|try|test|'
+                    r'replace|unplug|and|which|because|while|usually|typically|should|must|can)\b',
+                    re.IGNORECASE)
+# A linking word that opens a sentence adds nothing: "Therefore, the answer is not found...".
+LEAD = re.compile(r'^(?:therefore|thus|so|hence|unfortunately|sorry),\s*', re.IGNORECASE)
+
+
+def only_says_missing(text):
+    """Every sentence says the sources lack the answer, and nothing more. Hiding a real
+    answer is worse than showing an honest reply as unverified, so any doubt keeps it."""
+    sentences = [LEAD.sub('', CITATION.sub('', s).strip(DECORATION))
+                 for s in re.split(r'(?<=[.!?])\s+', text)]
+    sentences = [s for s in sentences if s]
+    return bool(sentences) and all(SOURCES_LACK.search(s) and not CLAUSE.search(s)
+                                   for s in sentences)
+
+
 def said_not_found(text):
-    """The not-found sentence, even with the [1], quotes or bold a small model adds.
+    """The not-found sentence, even with the [1], quotes or bold a small model adds, or a
+    reply that only says, in its own words, that the sources don't have the answer.
 
     Text after it counts as an answer only if it cites a source; uncited remarks such as
     "The sources only discuss lamps." don't turn "not found" into a found answer.
     """
+    if only_says_missing(text):
+        return True
     phrase = NOT_FOUND.rstrip('.').casefold()
     start = text.casefold().find(phrase)
     if start < 0 or text[:start].strip(DECORATION):

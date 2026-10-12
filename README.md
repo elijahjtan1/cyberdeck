@@ -4,7 +4,8 @@ Touch app for a Raspberry Pi 4 with a 2.8" ILI9341 SPI TFT (320x240, `fbtft`), a
 
 | Page | What it does |
 | --- | --- |
-| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and screensaver |
+| HOME | Start page: clock, status and tiles for Camera, Photos, Games, Audio, Album, GIFs, Tools, Quick controls and Ask |
+| ASK (via Home) | Type a question on an on-screen keyboard and read the offline librarian's answer with its sources (needs cyberdeck-core) |
 | CAMERA | Live preview, full-resolution SNAP, 3 s/10 s self-timer, pause, FPS, and a last-photo thumbnail |
 | PHOTOS | Browse, zoom/pan full-size pictures and delete saved photos |
 | APPS (via Home) | Audio, Games (Snake, Tetris, Pong, Brick Breaker, Flappy, Space Invaders, Minesweeper, Solitaire, Sudoku), slideshow, GIFs, Quick controls and Tools |
@@ -35,6 +36,7 @@ Install, update and run options: [INSTALL-AND-UPDATE.md](docs/INSTALL-AND-UPDATE
 - `AGENTS.md`: rules for the coding agents working on this repo; [ROADMAP.md](docs/ROADMAP.md) is the shared task list.
 - `tests/`: hardware-free tests (`python3 -m unittest discover -s tests -v`).
 - `tools/render_previews.py` and `tools/render_tools.py`: regenerate the sample screen images in `docs/previews/`.
+- `tools/content.py`: plans, downloads and verifies the offline library ZIMs by tier. See [CONTENT.md](docs/CONTENT.md).
 
 ## Guides
 
@@ -53,7 +55,9 @@ Install, update and run options: [INSTALL-AND-UPDATE.md](docs/INSTALL-AND-UPDATE
 | [PANEL-UPDATE.md](docs/PANEL-UPDATE.md) | Touch isolation and the status graphs |
 | [CORE.md](docs/CORE.md) | The backend: telemetry, history page, API |
 | [LIBRARIAN.md](docs/LIBRARIAN.md) | Offline search and AI answers, Kiwix setup, `deck ask` and `deck bench` |
+| [CONTENT.md](docs/CONTENT.md) | Choosing, downloading and checking the offline library ZIMs |
 | [LIBRARIAN-RANKING.md](docs/LIBRARIAN-RANKING.md) | Model-free keywords and passage ranking |
+| [HARDWARE-MAP.md](docs/HARDWARE-MAP.md) | Which pins, buses and ports each part uses, and the wiring checker |
 | [PI-BASELINE.md](docs/PI-BASELINE.md) | Recorded facts about the Pi this runs on |
 | [PANEL-DEVELOPMENT.md](docs/PANEL-DEVELOPMENT.md) | How the panel code fits together, for contributors |
 | [ROADMAP.md](docs/ROADMAP.md) | The shared task list |
