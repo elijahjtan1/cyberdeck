@@ -252,7 +252,13 @@ class ToolsUI:
                         ('^', 'up'), ('v', 'down')]
             for rect, (label, action) in zip(a.row_rects(6, bottom-37, bottom-6), controls):
                 button(rect, label, action)
-        if self.page in ('updates', 'recovery', 'presets', 'share', 'quick'):
+        if self.page in ('updates', 'recovery'):
+            # These pages have room above the message, so long Git errors get two lines.
+            rows = a.wrap_text(d, 'Working...' if self.job.busy else self.message, a.W-12, a.SMALL,
+                               max_lines=3 if a.portrait() else 2)
+            for i, text in enumerate(rows):
+                line(bottom-20-14*(len(rows)-1-i), text, a.WARN)
+        elif self.page in ('presets', 'share', 'quick'):
             line(bottom-20, 'Working...' if self.job.busy else self.message, a.WARN)
         if self.page == 'zoom' and self.zoom_image is None and not self.job.busy:
             line(90, self.message, a.WARN)

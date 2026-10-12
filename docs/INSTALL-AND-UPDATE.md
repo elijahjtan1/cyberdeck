@@ -49,7 +49,11 @@ sudo systemctl restart cyberdeck-panel   # If it runs at boot; otherwise restart
 sudo systemctl restart cyberdeck-core    # Only if the backend is installed
 ```
 
-If Git reports local changes, stop and keep them (`git stash`) rather than resetting.
+If the panel says **Edited on the Pi: <file>**, a file that belongs to the repository was
+changed in `~/cyberdeck-repo`. See what changed with `git -C ~/cyberdeck-repo status --short`
+and `git -C ~/cyberdeck-repo diff`. Keep the edits with `git stash`, or undo one file with
+`git restore <file>`, rather than resetting. New files that Git doesn't track (logs,
+downloads) don't block an update.
 No routine update needs a reboot, an SPI or GPIO change, or a new touch setup. The
 one-off setups above (touch isolation, PWM backlight) do, and their guides say so.
 
