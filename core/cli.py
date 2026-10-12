@@ -129,6 +129,8 @@ def show(events, explain=False, out=None, err=None):
                           + ', '.join(f'[{n}]' for n in event['dropped']), file=out)
                 if event.get('uncited'):
                     print('UNVERIFIED: the answer cites no source.', file=out)
+                if event.get('incomplete'):
+                    print("PARTIAL: the sources don't contain the full answer.", file=out)
                 if event.get('copied'):
                     print('QUOTED: mostly copied word for word from the sources.', file=out)
                 cited = event.get('cited') or []

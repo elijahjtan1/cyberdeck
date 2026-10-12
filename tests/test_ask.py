@@ -155,6 +155,9 @@ class DeckCommandTest(unittest.TestCase):
         self.assertNotIn('QUOTED', out)
         _, out, _ = self.run_show([PASSAGES, {'event': 'text', 'text': 'Pasted [1].'}, dict(DONE, copied=True)])
         self.assertIn('QUOTED: mostly copied word for word from the sources.', out)
+        self.assertNotIn('PARTIAL', out)
+        _, out, _ = self.run_show([PASSAGES, {'event': 'text', 'text': 'Seals [1].'}, dict(DONE, incomplete=True)])
+        self.assertIn("PARTIAL: the sources don't contain the full answer.", out)
 
     def test_show_errors_and_ctrl_c(self):
         status, _, err = self.run_show([PASSAGES, {'event': 'error', 'error': 'Ollama is down'}])

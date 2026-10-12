@@ -79,6 +79,10 @@ class BenchTest(unittest.TestCase):
         self.assertIn('1. honest: says the sources lack it', out.getvalue())
         self.assertIn('2. ANSWERED an out-of-scope question', out.getvalue())
         self.assertEqual(bench.summarize([r, guess])['honest_not_found_rate'], 0.5)
+        partial = bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
+                                FakeClient('Check the element [1]. Not found in the offline sources.'),
+                                clock=Clock())
+        self.assertEqual((partial.found, partial.honest), (True, True))
 
     def test_answers_that_paste_the_sources_back_are_marked_copied(self):
         source = Passage('Seals can leak, and this is often more problematic than a worn hose.',
