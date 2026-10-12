@@ -99,7 +99,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | review | Main Programmer 2: `core/gps.py` and `/api/gps` in [#33](https://github.com/elijahjtan1/cyberdeck/pull/33). Replaces the GNSS placeholder only when a source is configured |
+| 5.1 | GPS: one NMEA parser with serial, gpsd and log-replay sources; replay labelled SIMULATED everywhere | Claude | done | Main Programmer 2: `core/gps.py` and `/api/gps` merged in [#33](https://github.com/elijahjtan1/cyberdeck/pull/33). Replaces the GNSS placeholder only when a source is configured |
 | 5.2 | Offline maps: a region extract in a local map file shown with a vendored map library | - | todo | Don't bulk-download openstreetmap.org tiles |
 | 5.3 | Waypoints in SQLite, with distance and bearing to a chosen one | - | todo | No routing yet |
 | 5.4 | ESP32 protocol spec: JSON lines over USB serial with `hello`, `telemetry`, `button`, `heartbeat`, `shutdown_request`/`shutdown_ack` and a version field | Claude | review | Main Programmer 2: `docs/ESP32-PROTOCOL.md` in [#39](https://github.com/elijahjtan1/cyberdeck/pull/39) |
@@ -116,7 +116,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | 6.2 | Content pack on a USB 3 SSD: mount at a fixed path, move ZIMs and `~/cyberdeck-data/library/` there, point kiwix-serve and the librarian at it; candidates WikiMed, iFixit, Wikipedia nopic, Wikivoyage, Wiktionary, Stack Exchange (DIY, gardening, outdoors, amateur radio, electronics), Gutenberg, Appropedia | Claude | in progress | Content Curator: content tool (`tools/content.py`) merged in [#31](https://github.com/elijahjtan1/cyberdeck/pull/31); tiers and SSD size await Eli. Mount and kiwix-serve switch still to do. Eli picks the SSD and the ZIM list; the librarian benchmark (3.5) gets questions for each new source. Panel falls back cleanly when the SSD is unplugged. Medical answers (WikiMed) show the passages first with a "verify before acting" warning |
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
 | 6.4 | Hardware map: pins, I2C addresses, UARTs, PWM and USB for the incoming radar, GNSS, SDR and screens, with a clash checker | Claude | done | Hardware Integrator: `docs/HARDWARE-MAP.md` and `python3 -m core.hardware`, merged in [#34](https://github.com/elijahjtan1/cyberdeck/pull/34) |
-| 6.5 | Radar: LD2450 driver with serial, record and replay; replay labelled SIMULATED | Claude | review | Hardware Integrator: `core/hardware/ld2450.py` in [#36](https://github.com/elijahjtan1/cyberdeck/pull/36). Read-only, off unless a source is given |
+| 6.5 | Radar: LD2450 driver with serial, record and replay; replay labelled SIMULATED | Claude | done | Hardware Integrator: `core/hardware/ld2450.py` merged in [#36](https://github.com/elijahjtan1/cyberdeck/pull/36). Read-only, off unless a source is given |
 
 ## Phase 7: software for an offline world
 
