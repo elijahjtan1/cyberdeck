@@ -53,6 +53,33 @@ def main():
     portrait_screens(clock, rows)
     games_screens(clock)
     history_screens(clock, rows)
+    planner_screens(clock)
+
+
+def planner_screens(clock):
+    """PLANNER app: month, day, new-entry and time views with sample entries."""
+    import tempfile
+    from datetime import date
+    from panel_tools.planner import PlannerApp
+
+    sheets = []
+    with tempfile.TemporaryDirectory() as folder:
+        page = PlannerApp(app, Path(folder), lambda: 'Synchronized')
+        for day, text, time in ((9, 'Check the antenna mast', '10:00'), (9, 'Charge the power bank', ''),
+                                (9, 'Radio net', '19:30'), (14, 'Market', '09:00'), (21, 'Hike', '')):
+            page.planner.add(date(2026, 10, day), text, time)
+        for rotation in (0, 90):
+            app.set_rotation(rotation)
+            try:
+                screens = []
+                for view in ('month', 'day', 'type', 'time'):
+                    page.view, page.day, page.text, page.time = view, clock.date(), 'Refill water', '20:00'
+                    screens.append(page.render(0, clock, ()))
+                sheets.append(screens)
+            finally:
+                app.set_rotation(0)
+    save_sheet(sheets[0], 'planner-landscape-preview.png', cols=4)
+    save_sheet(sheets[1], 'planner-portrait-preview.png', cols=4)
 
 
 def save_sheet(screens, name, cols=2, gap=8, scale=2):
