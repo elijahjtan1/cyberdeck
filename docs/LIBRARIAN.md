@@ -272,7 +272,8 @@ always answers in the terminal; `--explain` adds the keywords and passage scores
 - **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
   stopped while it is still reading, it finishes reading first and a new question waits that long.
 - **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
-  in the offline sources* and *UNVERIFIED* (no citations) are shown as they are, never hidden.
+  in the offline sources*, *UNVERIFIED* (no citations) and *QUOTED* (the sources pasted back
+  instead of an answer) are shown as they are, never hidden.
 - **Scrolling:** **UP** and **DOWN** scroll a long answer.
 - **Editing:** **EDIT** brings the question back to change it.
 - **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
@@ -369,6 +370,8 @@ first word, but two answers (iPhone, table lamp) cited nothing, and the coffee m
 was its three sources pasted back in the `[1] Title` form the prompt showed them in. The
 prompt now labels them `Source [1]: Title` and ends with the instruction to answer in a few
 sentences of the model's own words with citations, and the benchmark counts copied answers.
+After the next run, all five copied answers still began "[1] <source text> [2] ...", the
+bracket-first layout of the source labels, so the labels became `Source 1: Title`.
 
 The own-words prompt
 ([#40](https://github.com/elijahjtan1/cyberdeck/pull/40)) left no answer uncited. The copied
@@ -442,7 +445,10 @@ removed from `result.text` and listed in `result.dropped`; the valid ones are in
 `result.cited`, in order of first use. A found answer with no valid citation has
 `result.uncited` set and must be shown as unverified. The command prints
 `UNVERIFIED: the answer cites no source.` and lists every searched passage instead of
-the cited ones.
+the cited ones. When at least 60% of a found answer's words are runs of eight or more words
+copied from the sources, `result.copied` is set and the command prints
+`QUOTED: this repeats the sources instead of answering.` The text is still real source text
+with its citations, so it is shown rather than hidden.
 
 The check is by number only: it proves each citation points at a real passage, not that
 the passage supports the sentence. Text already streamed through `on_text` is the raw model

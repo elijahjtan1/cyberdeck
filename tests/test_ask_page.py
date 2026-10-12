@@ -123,6 +123,10 @@ class AskPageTest(unittest.TestCase):
         self.assertIn('UNVERIFIED: the answer cites no source.', body)
         self.assertIn('Warning: Kiwix timed out', body)
         self.assertIn('Searched:', body)
+        page = self.page(scripted(PASSAGES, dict(DONE, copied=True)))
+        page.ask('Why does my coffee maker leak?')
+        self.finish(page)
+        self.assertIn('QUOTED: this repeats the sources instead of answering.', page.body())
 
     def test_partial_answers_line_breaks_and_bad_lines(self):
         page = self.page(scripted(PASSAGES, {'event': 'text', 'text': '1. Unplug it [1].\n2. Check the seal'},

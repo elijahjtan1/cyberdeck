@@ -13,12 +13,11 @@ import statistics
 import threading
 import time
 
-from .answer import ask_events, budget_from_environment, copied_share, passage_budget
+from .answer import ask_events, budget_from_environment, passage_budget
 from .query import fold
 
 DEFAULT_QUESTIONS = Path(__file__).with_name('benchmarks') / 'restarters.json'
 MODEL_PROCESSES = ('ollama', 'llama-server')  # Process names (comm) that hold the model.
-COPIED = .6  # Share of an answer's words pasted from the sources that counts as copied.
 
 
 @dataclass
@@ -149,7 +148,7 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
                     result.answer = value.text
-                    result.copied = value.found and copied_share(value.text, value.sources) >= COPIED
+                    result.copied = value.copied
                     result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.
         result.error = str(exc) or type(exc).__name__

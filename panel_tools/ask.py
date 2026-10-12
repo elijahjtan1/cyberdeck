@@ -184,6 +184,8 @@ class AskApp:
         self.source_label = 'Sources' if cited else 'Searched'
         if event.get('uncited'):
             self.notes.append('UNVERIFIED: the answer cites no source.')
+        if event.get('copied'):
+            self.notes.append('QUOTED: this repeats the sources instead of answering.')
         self.notes.extend(f'Warning: {w}' for w in event.get('warnings') or [])
         self.stage = 'done'
 
@@ -370,7 +372,7 @@ class AskApp:
         first, lines, visible, rect = self.layout()
         for i, line in enumerate(lines[first:first+visible]):
             d.text((rect[0], rect[1] + i*LINE), line, font=a.SMALL,
-                   fill=a.WARN if line.startswith(('UNVERIFIED', 'Warning')) else a.TEXT)
+                   fill=a.WARN if line.startswith(('UNVERIFIED', 'QUOTED', 'Warning')) else a.TEXT)
         if len(lines) > visible:  # Scroll bar, so text below the fold isn't missed.
             span = rect[3]-rect[1]
             top = rect[1] + span*first//len(lines)
