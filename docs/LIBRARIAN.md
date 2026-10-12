@@ -177,6 +177,14 @@ plain text with browser execution blocked. Paths outside the configured library 
 symlinks are rejected. Kiwix URLs retain the server's exact article path and configured
 loopback origin. Open links on the Pi, where those services run.
 
+`GET /api/article?url=<kiwix article url>` returns one Kiwix article as plain text for the
+panel's READER app: `url`, `paragraphs` (from `fetch_article`) and `truncated`, which is
+`true` when the article was cut at 400 paragraphs or 120,000 characters. Only URLs on the
+configured loopback kiwix-serve are fetched; any other host, port or scheme is HTTP 400
+and nothing is requested. A missing article is 404, Kiwix not answering is 502, and Kiwix
+not configured or a search already running is 503. It reads only and never calls the model.
+Local documents need no extra route; the reader uses `/api/library/<path>`.
+
 ## Phase 3 interface
 
 ```python

@@ -54,6 +54,7 @@ def main():
     games_screens(clock)
     history_screens(clock, rows)
     planner_screens(clock)
+    reader_screens(clock)
 
 
 def planner_screens(clock):
@@ -80,6 +81,40 @@ def planner_screens(clock):
                 app.set_rotation(0)
     save_sheet(sheets[0], 'planner-landscape-preview.png', cols=4)
     save_sheet(sheets[1], 'planner-portrait-preview.png', cols=4)
+
+
+def reader_screens(clock):
+    """READER app: keyboard, results and an article page, from a canned backend."""
+    from panel_tools.reader import ReaderApp
+
+    results = [{'title': 'Amateur radio', 'url': 'http://127.0.0.1:8080/content/wiki/A/Amateur_radio',
+                'source': 'kiwix'},
+               {'title': 'Antenna (radio)', 'url': 'http://127.0.0.1:8080/content/wiki/A/Antenna', 'source': 'kiwix'},
+               {'title': 'Shortwave radio', 'url': 'http://127.0.0.1:8080/content/wiki/A/Shortwave', 'source': 'kiwix'},
+               {'title': 'antenna-notes.txt', 'url': '/api/library/antenna-notes.txt', 'source': 'local'}]
+    paragraphs = ['Amateur radio, also known as ham radio, is the use of the radio frequency spectrum '
+                  'for purposes of non-commercial exchange of messages, wireless experimentation, '
+                  'self-training, private recreation, radiosport, contesting, and emergency communications.',
+                  'The term "amateur" is used to specify a person who has an interest in radio '
+                  'electrical phenomena with no direct monetary or other similar reward.',
+                  'Radio amateurs use a variety of voice, text, image, and data communications modes '
+                  'and have access to frequency allocations throughout the RF spectrum.']
+    sheets = []
+    for rotation in (0, 90):
+        app.set_rotation(rotation)
+        try:
+            page = ReaderApp(app, 'http://127.0.0.1:8765')
+            page.query = 'ham radio'
+            screens = [page.render(0, clock, ())]
+            page.view, page.results = 'results', results
+            screens.append(page.render(0, clock, ()))
+            page.view, page.title, page.paragraphs, page.truncated = 'article', 'Amateur radio', paragraphs, True
+            screens.append(page.render(0, clock, ()))
+            sheets.append(screens)
+        finally:
+            app.set_rotation(0)
+    save_sheet(sheets[0], 'reader-landscape-preview.png', cols=3)
+    save_sheet(sheets[1], 'reader-portrait-preview.png', cols=3)
 
 
 def save_sheet(screens, name, cols=2, gap=8, scale=2):

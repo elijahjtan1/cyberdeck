@@ -168,6 +168,19 @@ APPS -> **PLANNER** is a month calendar with a list of entries for each day.
 ![Planner, landscape](previews/planner-landscape-preview.png)
 ![Planner, portrait](previews/planner-portrait-preview.png)
 
+## 9. Reader
+
+APPS -> **READER** searches the offline library (Kiwix and your local documents) and shows an article's text a page at a time. It needs cyberdeck-core running ([CORE.md](CORE.md)) and kiwix-serve for Wikipedia articles.
+
+- Type a search on the keyboard and tap **SEARCH**. Results list the article titles; local documents are marked `local`. `<` and `>` page through longer lists.
+- Tap a result to open it. **PAGE >**, or a tap on the lower half of the text, turns the page; **< PAGE** goes back. The counter at the top shows the page, and the bar on the right shows where you are in the article.
+- **RESULTS** returns to the list. From the keyboard, tapping the search box goes back to the article that is still open.
+- Only the text is shown: pictures, tables and links are left out. Very long articles are cut after about 120,000 characters, and the last page says so.
+- If nothing matches, the backend is down or Kiwix doesn't answer, the reader says that; it never invents text. Screensavers don't start while the reader is open.
+
+![Reader, landscape](previews/reader-landscape-preview.png)
+![Reader, portrait](previews/reader-portrait-preview.png)
+
 ## Screensaver settings changes
 
 **OPTIONS -> Screensavers** now has:
