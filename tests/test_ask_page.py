@@ -127,6 +127,10 @@ class AskPageTest(unittest.TestCase):
         page.ask('Why does my coffee maker leak?')
         self.finish(page)
         self.assertIn('QUOTED: mostly copied word for word from the sources.', page.body())
+        page = self.page(scripted(PASSAGES, dict(DONE, incomplete=True)))
+        page.ask('What is the part number of the coffee maker seal?')
+        self.finish(page)
+        self.assertIn("PARTIAL: the sources don't contain the full answer.", page.body())
 
     def test_partial_answers_line_breaks_and_bad_lines(self):
         page = self.page(scripted(PASSAGES, {'event': 'text', 'text': '1. Unplug it [1].\n2. Check the seal'},

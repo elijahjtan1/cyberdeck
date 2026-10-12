@@ -33,7 +33,7 @@ class Result:
     uncited: bool = False
     copied: bool = False  # Most of the answer is source text pasted back, not an answer.
     answer: str = ''  # The checked answer, so a wrong one can be read back from the JSON.
-    says_missing: bool = False  # Opens by saying the sources lack the answer.
+    says_missing: bool = False  # Says the sources lack (part of) the answer.
     prompt_tokens: int = 0  # As counted by the model; over num_ctx means the prompt was cut.
     error: str = ''
     model: bool = True  # False for retrieval-only runs; found then means "had passages".
@@ -150,7 +150,7 @@ def run_one(question, expect, retriever, client, *, use_model=True, budget=None,
                 elif kind == 'done':
                     result.found, result.uncited = value.found, value.uncited
                     result.answer = value.text
-                    result.says_missing = value.found and opens_with_missing(value.text)
+                    result.says_missing = value.found and (value.incomplete or opens_with_missing(value.text))
                     result.copied = value.copied
                     result.prompt_tokens = value.reply.prompt_tokens if value.reply else 0
     except Exception as exc:  # Any failure is recorded; one bad question shouldn't end the run.

@@ -35,6 +35,7 @@ class Answer:
     cited: list = field(default_factory=list)  # Valid source numbers, in order of first use.
     dropped: list = field(default_factory=list)  # Cited numbers with no matching source.
     copied: bool = False  # Mostly source text pasted back rather than an answer.
+    incomplete: bool = False  # Cited, but the model said the sources lack the rest.
 
     @property
     def uncited(self):
@@ -200,15 +201,17 @@ def opens_with_missing(text):
             and all(CITATION.search(s) for s in rest))
 
 
-def drop_trailing_not_found(text):
-    """On the Pi, a cited answer sometimes ended with the not-found sentence anyway, which reads
-    as a contradiction. Drop it after cited text; an uncited answer keeps it as a warning."""
+def split_trailing_not_found(text):
+    """(text, True) without a final not-found sentence that follows cited text; else (text, False).
+    On the Pi a cited answer sometimes ended "... [1]. Not found in the offline sources.": the
+    sources cover part of the question but not all of it. Callers show that as a note, which
+    keeps the gap visible without the answer contradicting itself."""
     phrase = NOT_FOUND.rstrip('.').casefold()
     body = text.rstrip(DECORATION)
     start = body.casefold().rfind(phrase)
     if start < 0 or body[start + len(phrase):].strip(DECORATION) or not CITATION.search(body[:start]):
-        return text
-    return body[:start].rstrip()
+        return text, False
+    return body[:start].rstrip(), True
 
 
 def said_not_found(text):
@@ -256,9 +259,12 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
         if not item.text or said_not_found(item.text) or blank_answer(item.text):
             yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
         else:
-            text, cited, dropped = check_citations(drop_trailing_not_found(item.text), len(passages))
+            text, cited, dropped = check_citations(item.text, len(passages))
+            # After the check, so a citation to a source that wasn't given doesn't count.
+            text, incomplete = split_trailing_not_found(text)
             copied = copied_share(text, passages) >= COPIED
-            yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped, copied)
+            yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped,
+                                 copied, incomplete)
 
 
 def answer(question, retriever, client, *, budget_tokens=None, on_text=None, on_passages=None):
@@ -277,8 +283,8 @@ def to_json(result):
     reply = result.reply
     return {
         'question': result.question, 'answer': result.text, 'found': result.found,
-        'uncited': result.uncited, 'copied': result.copied, 'cited': result.cited,
-        'dropped': result.dropped,
+        'uncited': result.uncited, 'copied': result.copied,
+        'incomplete': result.incomplete, 'cited': result.cited, 'dropped': result.dropped,
         'sources': [passage_json(n, p) for n, p in enumerate(result.sources, 1)],
         'warnings': result.warnings, 'partial': bool(result.warnings),
         'model': reply.model if reply else None,

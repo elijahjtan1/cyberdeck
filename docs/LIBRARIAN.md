@@ -272,7 +272,8 @@ always answers in the terminal; `--explain` adds the keywords and passage scores
 - **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
   stopped while it is still reading, it finishes reading first and a new question waits that long.
 - **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
-  in the offline sources*, *UNVERIFIED* (no citations) and *QUOTED* (mostly copied word for
+  in the offline sources*, *UNVERIFIED* (no citations) and *PARTIAL* (only part of the question
+  is in the sources), *QUOTED* (mostly copied word for
   word from the sources) are shown as they are, never hidden.
 - **Scrolling:** **UP** and **DOWN** scroll a long answer.
 - **Editing:** **EDIT** brings the question back to change it.
@@ -430,7 +431,10 @@ sources lacking the answer and has no second clause (a comma, `;`, brackets, a d
 is worse than showing an honest one as unverified. A reply whose first sentence has a
 citation where the value should be ("The thermal fuse in a Philips HD7546 is [1].") is not
 found too: the model had nothing to put there. A cited answer that ends with the not-found
-sentence anyway has that last sentence dropped, since it contradicts the cited facts before it.
+sentence anyway answers part of the question: the sentence is taken off the end, and the
+answer is shown with `PARTIAL: the sources don't contain the full answer.` (`result.incomplete`),
+so the gap stays visible without the answer contradicting itself. The benchmark counts such a
+reply to an out-of-scope question as honest.
 
 ```python
 from core.librarian.answer import answer

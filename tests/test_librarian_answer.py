@@ -100,16 +100,21 @@ class AnswerTest(unittest.TestCase):
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
 
-    def test_a_trailing_not_found_after_a_cited_answer_is_dropped(self):
-        # From the Pi: a real, cited answer that ends by contradicting itself.
+    def test_a_trailing_not_found_after_a_cited_answer_marks_it_incomplete(self):
+        # From the Pi: cited facts, then "the rest isn't in the sources".
         text = ('Seals can leak, and an O-ring can be replaced [2]. Descale with citric acid [1]. '
                 'Not found in the offline sources.')
         result = answer('q', FakeRetriever([SONOBUOY, NOTES]), FakeClient(text))
-        self.assertEqual((result.found, result.text),
-                         (True, 'Seals can leak, and an O-ring can be replaced [2]. Descale with citric acid [1].'))
-        # Uncited text keeps it, so the answer still reads as unsure.
-        result = answer('q', FakeRetriever([SONOBUOY, NOTES]), FakeClient('Maybe the seal. Not found in the offline sources.'))
-        self.assertEqual(result.text, 'Maybe the seal. Not found in the offline sources.')
+        self.assertEqual((result.found, result.incomplete, result.text),
+                         (True, True, 'Seals can leak, and an O-ring can be replaced [2]. '
+                                      'Descale with citric acid [1].'))
+        self.assertTrue(to_json(result)['incomplete'])  # So deck ask and the panel show the gap.
+        # Uncited text, or a citation to a source that wasn't given, keeps the sentence.
+        for text in ('Maybe the seal. Not found in the offline sources.',
+                     'Maybe the seal [7]. Not found in the offline sources.'):
+            result = answer('q', FakeRetriever([SONOBUOY, NOTES]), FakeClient(text))
+            self.assertFalse(result.incomplete, text)
+            self.assertTrue(result.text.endswith(NOT_FOUND), text)
 
     def test_a_citation_in_place_of_the_value_is_not_found(self):
         # From the Pi: asked for a part number the sources don't give.
