@@ -17,11 +17,12 @@ The app now opens on **Home**, a launcher for everything else.
   | Games | The Games menu | Number of games |
   | Audio | Volume and visualizer | Current volume |
   | Album | Slideshow | |
-  | GIFs | GIF player | |
+  | Apps | The APPS page: Audio, Games, Album, GIF player, Tools, Quick, SOS & light, Planner and Reader | |
   | Tools | Tools menu | |
   | Quick | Quick controls | |
   | Ask | Ask the offline librarian ([LIBRARIAN.md](LIBRARIAN.md#on-the-panel)) | Answering..., or Backend off |
 
+- **GIFs** moved inside **Apps** to make room for the Apps tile, so SOS & light, Planner and Reader can be reached from Home.
 - **Screensaver:** the Saver tile made way for Ask. The saver still starts on its own after the idle delay, and **OPTIONS → Screensavers → PREVIEW** starts it at once.
 - **Tab bar:** the **APPS** tab is now **HOME**, in the same spot, so the other tabs haven't moved. In portrait, HOME is the top-right tab.
 - **Returning:** leaving the Games menu, Tools, Audio and the other apps now brings you back to Home.

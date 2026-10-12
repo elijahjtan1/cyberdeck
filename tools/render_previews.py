@@ -293,7 +293,7 @@ def games_screens(clock):
 def home_screens(clock):
     rows = {'temp': '48.2 C', 'disk_free': '18.4 GiB'}
     notes = {'wifi': 'Wi-Fi -58 dBm', 'camera': 'Live view', 'photos': '23 saved',
-             'games': '9 games', 'audio': 'Vol 55%', 'album': 'Slideshow', 'gifs': 'Animations',
+             'games': '9 games', 'audio': 'Vol 55%', 'album': 'Slideshow', 'apps': '9 apps',
              'tools': 'Timers & more', 'quick': 'Shortcuts', 'ask': 'Offline answers'}
     landscape = app.render('home', None, False, 20, rows, '', wall_time=clock, extra={'home': notes})
     app.set_rotation(90)

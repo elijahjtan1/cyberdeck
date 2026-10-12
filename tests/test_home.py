@@ -37,6 +37,11 @@ class HomePageTest(unittest.TestCase):
                              ['home:' + key for _, key, _ in app.HOME_TILES])
             self.assertIn('tab:home', [a for _, a in app.HOTSPOTS])
 
+    def test_every_app_is_reachable_from_home(self):
+        # The APPS page is the only way to some apps (SOS, planner, reader), so Home must lead to it.
+        self.assertIn('apps', [key for _, key, _ in app.HOME_TILES])
+        self.assertIn(('READER', 'reader'), app.APP_TILES)
+
     def test_home_tab_sits_where_apps_was(self):
         app.render('status', None, False, 20, self.rows, '')
         self.assertEqual(app.hit(136, 222), 'tab:home')
