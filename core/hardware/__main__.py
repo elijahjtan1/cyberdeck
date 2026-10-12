@@ -6,7 +6,7 @@ from core/hardware/pinmap.py, and prints who uses what. Exits 1 when something c
 import argparse
 from pathlib import Path
 
-from .pinmap import BASELINE, PLAN, USB_PORTS, from_config, report
+from .pinmap import BASELINE, PLAN, USB_PORTS, combine, from_config, report
 
 CONFIGS = (Path('/boot/firmware/config.txt'), Path('/boot/config.txt'))
 
@@ -28,7 +28,7 @@ def main(argv=None):
         devices, warnings = list(BASELINE), []
         source = 'built-in baseline (no config.txt found)'
     if not args.installed_only:
-        devices += PLAN
+        devices = combine(devices, PLAN)
     text, clashes = report(devices, warnings, args.usb_ports)
     print(f'Installed: {source}' + ('' if args.installed_only else '; plus planned parts'))
     print(text)

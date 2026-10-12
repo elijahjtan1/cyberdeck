@@ -3,7 +3,7 @@ from contextlib import nullcontext
 import os
 import re
 
-from .extract import fetch_article
+from .extract import fetch_article, join_short
 from .kiwix import KiwixClient, KiwixError, SearchResult
 from .library import LibraryError, LocalLibrary
 from .query import search_query
@@ -18,12 +18,18 @@ class RetrievalError(RuntimeError):
 LANGUAGE_PAGE = re.compile(r'/([a-z]{2}(?:-[a-z]+)?)$')
 
 
+# Front pages link to everything, so they match most searches and answer none.
+HUB_PAGES = {'main page'}
+
+
 def english_title(title):
-    """The title to dedupe on: "Table lamps/en" is "Table lamps"; other languages are None."""
+    """The title to dedupe on: "Table lamps/en" is "Table lamps"; other languages, and hub
+    pages such as Main Page in any language, are None."""
     match = LANGUAGE_PAGE.search(title)
-    if not match:
-        return title
-    return title[:match.start()] if match.group(1) == 'en' else None
+    base = title[:match.start()] if match else title
+    if base.strip().casefold() in HUB_PAGES or (match and match.group(1) != 'en'):
+        return None
+    return base
 
 
 class Retriever:
@@ -72,7 +78,7 @@ class Retriever:
                     else:
                         for result in found:
                             try:
-                                rows = fetch_article(self.kiwix, result.url)
+                                rows = join_short(fetch_article(self.kiwix, result.url))
                                 count = 0
                                 for row in rows:
                                     for text in chunks(row):

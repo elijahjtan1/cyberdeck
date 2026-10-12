@@ -103,8 +103,8 @@ last telemetry.
 
 Each side sends one every **2 s**. The Pi's heartbeat carries `cpu_temp_c` (the SoC
 temperature, or null if it can't be read) for a fan the ESP32 drives, if it drives one.
-The switchable fan reserved on GPIO13 in [HARDWARE-MAP.md](HARDWARE-MAP.md) is driven by the
-Pi; a given fan is run by one side only. The other side counts as **gone** after **6 s**
+GPIO13 in [HARDWARE-MAP.md](HARDWARE-MAP.md) is only a fallback for a Pi-driven fan; a
+given fan is run by one side only. The other side counts as **gone** after **6 s**
 (three missed beats) without any message from it. The Pi sends heartbeats from `cyberdeck-core`,
 so they stop when the backend stops, including during shutdown.
 

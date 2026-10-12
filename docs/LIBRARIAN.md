@@ -35,7 +35,8 @@ The pair searches all run and take their results in turns (each pair's best arti
 each one's second, ...), so a broad first pair such as `test fuse` can't fill all five slots
 before `fuse plug` is tried.
 Translated copies of a wiki page (`Table lamps/fr`) are skipped so they don't use up the
-five slots; `/en` copies count as the page itself.
+five slots; `/en` copies count as the page itself. Main Page is skipped in every language:
+it links to everything, so it matched many searches without answering any.
 
 Search results contain `title`, `url`, `snippet`, and `source`. Article URLs come
 directly from the RSS response, preserving `/content/<book>/...` or `/<book>/A/...`
@@ -45,8 +46,12 @@ a two-megabyte response cap; search returns at most 20 results. A failed server 
 a readable `KiwixError`. Callers should display that error.
 
 `fetch_article(client, url)` returns plain paragraphs using `html.parser`, dropping
-navigation, tables, references and other common Wikipedia page furniture. The parser
-does not execute scripts or load linked assets.
+navigation, tables, references and other common Wikipedia page furniture, and paragraphs
+that are at least 80% link text (lists of links to other pages). The parser does not
+execute scripts or load linked assets. Before ranking, each run of article paragraphs shorter
+than 200 characters is joined onto the next: on the Pi, one-line list items such as
+"Filter coffee makers" were mostly title words, so they outscored the paragraphs that
+explain something and took the model's sources.
 
 ## Known limits and Pi check
 
@@ -252,6 +257,29 @@ running, or predates `/api/ask`, it says so and answers in the terminal itself. 
 always answers in the terminal; `--explain` adds the keywords and passage scores (with
 `--local`, also the Kiwix articles found).
 
+### On the panel
+
+![ASK page: keyboard, waiting for the first word, and an answer (sample text)](previews/ask-landscape-preview.png)
+
+**HOME → ASK** asks the same backend from the touchscreen, so `cyberdeck-core` must be running.
+
+- **Typing:** type on the on-screen keyboard; **123** switches to digits and symbols. Tap the
+  x at the right of the question box to clear it. When the box is empty, tapping it lists your last three questions
+  and a few example questions; tap one to ask it.
+- **Waiting:** the answer page shows the time so far: *Searching*, then *Reading* while the
+  model reads the sources (this can take a minute on the Pi), then *Answering* as the text
+  streams in.
+- **Stopping:** **STOP** ends the question at once. The model stops when it next writes, so
+  stopped while it is still reading, it finishes reading first and a new question waits that long.
+- **Answers:** the answer keeps its [n] citations and ends with the cited sources. *Not found
+  in the offline sources* and *UNVERIFIED* (no citations) are shown as they are, never hidden.
+- **Scrolling:** **UP** and **DOWN** scroll a long answer.
+- **Editing:** **EDIT** brings the question back to change it.
+- **Leaving:** **HOME** leaves while the answer carries on in the background; the Ask tile reads
+  *Answering...* until it finishes. The screensaver waits while the ASK page is open and answering.
+- **Backend down:** if the backend isn't running, the page says so instead of answering. It
+  never answers on the panel itself.
+
 ## Benchmark
 
 `deck bench` asks a list of questions and reports what matters for the librarian: did the
@@ -268,10 +296,13 @@ can't answer, and how long it took on the Pi.
 quality. The summary's largest prompt is the model's own token count; if it exceeds the
 context size (2,048 by default) the start of the prompt was cut, so lower the budget; `--limit 5` runs only the first five questions.
 
-Each line shows the verdict, time to first word and total time, and for a miss the titles
-it got instead. The summary gives the **top-3 hit rate** (in-scope questions whose expected
+Each line shows the verdict, time to first word and total time, for a miss the titles
+it got instead, and for a copied answer or an answered out-of-scope question what the model
+said. `--json` keeps every answer. The summary gives the **top-3 hit rate** (in-scope questions whose expected
 article was among the first three distinct passage titles), how many in-scope questions were
-answered and how many of those cited nothing, the **honest "not found" rate** for
+answered and how many of those cited nothing or were **copied** (at least 60% of the answer's
+words pasted from the sources in runs of eight or more, which reads as the sources rather
+than an answer; marked COPIED on its line), the **honest "not found" rate** for
 out-of-scope questions, median and maximum retrieval, first-word and total times, and memory:
 the lowest `MemAvailable` and the peak resident memory of Ollama and its `llama-server`
 model runner, sampled every half second from `/proc`. The full run takes a while (about a minute per
@@ -284,7 +315,9 @@ so `Lamp` matches `Table lamps` but not `Clamp meter`. An empty `expect` marks a
 the sources shouldn't answer. Most of those find no passages and never reach the model; the
 ones about repair topics (a part number, a screw torque) are meant to find related
 passages that lack the specific fact, so they test whether the model says it
-doesn't know. Entries with `"checked": true` use titles seen on the Pi; the other
+doesn't know. On the Pi, the torque and toaster questions do find passages; the coffee
+maker and kettle part-number questions don't (too few of their words appear together to
+pass the relevance gate), so they end as an honest "not found" without testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
@@ -316,19 +349,42 @@ multimeter (expected article ranked 4th).
 Later runs the same day with Chromium closed and smaller passage budgets
 (`deck bench --budget 700`, then `--budget 400`, which became the default):
 
-| Measure | 1,400 tokens | 700 tokens | 400 tokens |
-| --- | --- | --- | --- |
-| Top-3 hit rate | 75% | 75% | 75% |
-| Answered (in scope) | 94% | 100%, none uncited | 100%, none uncited |
-| Honest "not found" | 100% | 100% | 100% |
-| Time to first word | 69 s median, 111 s max | 45 s median, 56 s max | 28 s median, 55 s max |
-| Total per question | 79 s median, 237 s max | 62 s median, 163 s max | 45 s median, 94 s max |
-| Largest prompt | not measured | 835 tokens | not recorded |
-| Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB | 973 MiB |
+| Measure | 1,400 tokens | 700 tokens | 400 tokens | 400, one source per article | 400, own-words prompt |
+| --- | --- | --- | --- | --- | --- |
+| Top-3 hit rate | 75% | 75% | 75% | 75% | 75% |
+| Answered (in scope) | 94% | 100%, none uncited | 100%, none uncited | 100%, 12% uncited | 100%, none uncited, 31% copied |
+| Honest "not found" | 100% | 100% | 100% | 100% | 75% (6 of 8; 2 new questions answered) |
+| Time to first word | 69 s median, 111 s max | 45 s median, 56 s max | 28 s median, 55 s max | 22 s median, 31 s max | 24 s median, 32 s max |
+| Total per question | 79 s median, 237 s max | 62 s median, 163 s max | 45 s median, 94 s max | 35 s median, 65 s max | 37 s median, 61 s max |
+| Largest prompt | not measured | 835 tokens | not recorded | 502 tokens | 559 tokens |
+| Lowest available memory | 339 MiB (Chromium open) | 1,130 MiB | 973 MiB | 1,126 MiB | 946 MiB |
 
 Smaller budgets cut the wait for the first word with no loss in hits or answers. The 400 run
 overlapped one manual `deck ask`, so its slowest times are a little high. The model reads
 roughly 18 prompt tokens a second on the Pi, so most of the wait is still that reading.
+
+The last column is after merging paragraphs into one source per article
+([#28](https://github.com/elijahjtan1/cyberdeck/pull/28)): fewer, shorter prompts sped up the
+first word, but two answers (iPhone, table lamp) cited nothing, and the coffee maker answer
+was its three sources pasted back in the `[1] Title` form the prompt showed them in. The
+prompt now labels them `Source [1]: Title` and ends with the instruction to answer in a few
+sentences of the model's own words with citations, and the benchmark counts copied answers.
+
+The own-words prompt
+([#40](https://github.com/elijahjtan1/cyberdeck/pull/40)) left no answer uncited. The copied
+measure is new, so 31% has no earlier figure to compare with. That run was also the first with
+the four part-number and torque questions from
+[#29](https://github.com/elijahjtan1/cyberdeck/pull/29), and two of them (toaster heating
+element, iPhone 12 screw torque) were answered instead of "not found". The benchmark now
+prints what the model said for those.
+
+**Expectations changed after these runs.** Hair dryer, fuse and cracked phone screen named
+articles that the Restarters wiki doesn't have. A retrieval trace on the Pi showed their
+content in other pages, so `Cleaning`, `PAT testing` and `Spare parts` became expected titles
+([#41](https://github.com/elijahjtan1/cyberdeck/pull/41)). That alone turns those three
+misses into hits, so a run after it reports a higher top-3 rate without better retrieval.
+To compare with the 75% above, also count the hits under the old expectations: those three
+questions counted as misses then, so subtract any of them that hit only through a new title.
 
 ## Grounded answers
 
@@ -356,7 +412,12 @@ their titles, under instructions to answer only from them, cite source numbers, 
 with that exact not-found sentence when the sources don't contain the answer. If the model
 does so, the result is reported as not found too, even when it wraps the sentence in quotes
 or bold or adds a citation like `[1]`. Text after the sentence makes it an answer only if
-that text cites a source.
+that text cites a source. A reply that only says in its own words that the sources lack the
+answer ("The part number is not provided in the sources.", "The sources do not provide
+information about ...") is not found as well, but only when every sentence is about the
+sources lacking the answer and has no second clause (a comma, `;`, brackets, a dash, `so`, `if`, `but`, `and`,
+`which`, `usually`, `use`, `check` ...). A leading "Therefore," or "Unfortunately," doesn't count. Anything that might carry advice keeps the reply an answer, since hiding a real answer
+is worse than showing an honest one as unverified.
 
 ```python
 from core.librarian.answer import answer

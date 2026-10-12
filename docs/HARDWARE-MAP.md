@@ -36,7 +36,8 @@ it there and in this page.
 | RTC | DS3231 module | I2C1 0x68 (+ EEPROM 0x57) | Roadmap 6.1, not ordered yet |
 | Power sensor | INA226 or INA219 | I2C1 0x40 | Roadmap 6.3, not ordered yet |
 | Temperature probes | DS18B20 | 1-wire on GPIO6 | Power & Thermal design |
-| Fan | - | GPIO13, PWM0 channel 1 | Reserved for a switchable fan. The case's dual fans run from the 5 V pins, always on |
+| Fan | - | GPIO13, PWM0 channel 1 | Fallback only: the power draft drives the fan from the ESP32. The case's dual fans run from the 5 V pins, always on |
+| Power-off signal | - | GPIO26 to an ESP32 input | Tells the ESP32 the Pi has finished shutting down (power draft) |
 
 ## Header pins
 
@@ -90,6 +91,7 @@ Physical pin numbers are in brackets. Pins marked *from config* are confirmed on
 - **5 V pins.** The header has two 5 V pins, and the case fans usually take them. The radar and
   GNSS also need 5 V, so they'll need a shared 5 V lead or the battery system's 5 V bus. This
   goes to the Power & Thermal design.
+- **Pi wake.** The ESP32 wakes the Pi through the GLOBAL_EN header pad, which is not a GPIO and isn't in the checker.
 - **Logic levels.** The Pi's pins are 3.3 V only. The LD2450 uses 3.3 V serial. Measure the
   BZ-251's TX pin before connecting it: it should read about 3.3 V, not 5 V.
 - **RF placement.** Keep the GNSS antenna, the compass and the SDR antenna away from the USB 3
@@ -102,6 +104,8 @@ Physical pin numbers are in brackets. Pins marked *from config* are confirmed on
 ## config.txt lines, per part
 
 Applied by Eli when the part is wired, never by an installer without asking. Reboot after each.
+Once a line is in `config.txt`, the checker counts that part as installed rather than
+planned. The same overlay on different pins is still reported, so a typo shows up.
 
 | Part | Line |
 | --- | --- |
@@ -111,8 +115,34 @@ Applied by Eli when the part is wired, never by an installer without asking. Reb
 | RTC | `dtoverlay=i2c-rtc,ds3231` |
 | Temperature probes | `dtoverlay=w1-gpio,gpiopin=6` |
 | GNSS PPS | `dtoverlay=pps-gpio,gpiopin=12` |
+| Power-off signal | `dtoverlay=gpio-poweroff,gpiopin=26` (active-high: don't add `active_low`) |
 | Fan PWM | `dtoverlay=pwm-2chan,pin=18,func=2,pin2=13,func2=4` in place of the backlight's `pwm` line |
-| ESP32 power-off signal | `dtoverlay=gpio-poweroff,gpiopin=26` (active-high; no `active_low`) |
+
+The fan line replaces the backlight's own line, and `setup_backlight.py --undo` deletes any
+line starting with `dtoverlay=pwm`. If the fan ever moves to the Pi, an undo would remove it
+too, so re-add the fan line after an undo. The current power draft drives the fan from the
+ESP32, so this only matters for the fallback.
+
+## Trying a part when it arrives
+
+Each driver has a terminal command that reads the part directly, so it can be checked before
+anything is connected to the panel or the backend.
+
+**LD2450 radar.** With the radar on a CP2102 adapter (no `config.txt` change needed):
+
+```bash
+cd ~/cyberdeck-repo && python3 -m core.hardware.ld2450 serial:/dev/ttyUSB0 --seconds 30
+```
+
+Walk in front of it: each line shows distance, angle (negative is left of the sensor) and
+speed (negative is approaching). `--record radar.bin` also saves the raw bytes. A recording
+is useful for tests, and `replay:radar.bin` plays it back labelled **SIMULATED**. Your user
+needs to be in the `dialout` group to open the port. On UART3 the device is `/dev/ttyAMA3` or
+similar, after `dtoverlay=uart3`.
+
+The LD2450 ships with Bluetooth on, so a phone app nearby can connect to it and change its
+settings. The driver only reads and never sends commands, so switching Bluetooth off is a
+later step.
 
 ## Open questions
 
