@@ -185,6 +185,14 @@ class ArticleApiTest(unittest.TestCase):
             data = client.get('/api/article?url=http://localhost:8080/content/x/Sonobuoy').get_json()
         self.assertEqual(len(data['paragraphs']), 1)
         self.assertTrue(data['truncated'])
+        with patch('core.librarian.api.ARTICLE_CHARS', 10):  # One paragraph longer than the cap.
+            data = client.get('/api/article?url=http://localhost:8080/content/x/Sonobuoy').get_json()
+        self.assertEqual([len(p) for p in data['paragraphs']], [10])
+        self.assertTrue(data['truncated'])
+        with patch('core.librarian.api.fetch_article', return_value=['y' * 50]), \
+                patch('core.librarian.api.ARTICLE_CHARS', 10):  # The only paragraph, cut.
+            data = client.get('/api/article?url=http://localhost:8080/content/x/One').get_json()
+        self.assertEqual((data['paragraphs'], data['truncated']), (['y' * 10], True))
 
     def test_only_the_local_kiwix_is_fetched(self):
         client = self.client()

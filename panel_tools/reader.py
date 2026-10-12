@@ -127,7 +127,6 @@ class ReaderApp:
             else:
                 data = self.get('/api/article?' + urlencode({'url': url}))
             with self.lock:
-                self.status = ''
                 if data.get('error'):
                     self.error = str(data['error'])
                 else:
@@ -135,6 +134,9 @@ class ReaderApp:
                     self.truncated = bool(data.get('truncated'))
                     if not self.paragraphs:
                         self.error = 'This article has no readable text.'
+            self.lines()  # Wrap here, not on the main loop; a long article takes a second on the Pi.
+            with self.lock:
+                self.status = ''
         self.start(work)
 
     # Layout --------------------------------------------------------------------

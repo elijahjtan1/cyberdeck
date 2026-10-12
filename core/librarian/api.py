@@ -146,13 +146,16 @@ def create_blueprint(telemetry=None, retriever=None, client=None):
             return jsonify(error=str(exc)), 502
         finally:
             lock.release()
-        kept, size = [], 0
+        kept, size, cut = [], 0, len(rows) > ARTICLE_PARAGRAPHS
         for row in rows[:ARTICLE_PARAGRAPHS]:
             if size + len(row) > ARTICLE_CHARS:
+                if not kept:  # One giant paragraph: show its start rather than nothing.
+                    kept.append(row[:ARTICLE_CHARS])
+                cut = True
                 break
             kept.append(row)
             size += len(row)
-        return jsonify(url=url, paragraphs=kept, truncated=len(kept) < len(rows))
+        return jsonify(url=url, paragraphs=kept, truncated=cut)
 
     @api.get('/api/library/<path:relative>')
     def document(relative):
