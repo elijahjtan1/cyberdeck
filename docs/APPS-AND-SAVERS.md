@@ -158,7 +158,7 @@ APPS -> **SOS & LIGHT** turns the panel into a signal lamp.
 APPS -> **PLANNER** is a month calendar with a list of entries for each day.
 
 - The month view marks today with a green outline and days with entries with a yellow dot. `<` and `>` change month, **TODAY** opens today, and tapping a day opens it.
-- The day view lists that day's entries, untimed ("all day") ones first, then by time. `<` and `>` move a day; **MONTH** goes back.
+- The day view lists that day's entries, untimed ("all day") ones first, then by time. When there are more than fit (6 in landscape, 8 in portrait), `^` and `v` beside the list scroll it. `<` and `>` move a day; **MONTH** goes back.
 - **ADD** opens the on-screen keyboard. Type the entry (up to 60 characters), tap **NEXT**, then set the time with -1h, -15m, +15m and +1h, or tap **ALL DAY**. **SAVE** stores it. For today the time starts at the next whole hour, for other days at 09:00.
 - Tap an entry, then **DELETE**, to remove it. Any other tap cancels.
 - The APPS tile shows the next timed entry in the coming week.
