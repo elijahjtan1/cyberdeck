@@ -20,6 +20,7 @@ from panel_tools.backlight import load_backlight
 from panel_tools.games import (TetrisGame, PongGame, BrickGame, FlappyGame, InvadersGame, MinesGame,
                                Klondike, SudokuGame, PIECES, PIECE_COLOURS, SUITS, rank_name)
 from panel_tools.ui import ToolsUI
+from panel_tools import beacon
 from panel_tools.ask import AskApp
 import json
 import os
@@ -3203,16 +3204,76 @@ class VisualApp:
         return image
 
 
+def app_light_level(app, options):
+    """Brightness for a full-screen app: its own level if it drives the light (SOS & LIGHT),
+    otherwise the user's chosen level."""
+    level = getattr(app, 'level', None)
+    return options['pixel_level'] if level is None else level
+
+
+class SignalApp:
+    """SOS light beacon and a steady torch. The whole screen flashes; with a PWM backlight
+    the LEDs switch too, so the dark parts are really dark. Any tap stops the light."""
+    LABELS = ('SOS BEACON', 'TORCH', 'EXIT')
+
+    def __init__(self, text='SOS'):
+        self.steps = beacon.schedule(text)
+        self.mode, self.started, self.delay, self.level = None, 0., 1., None
+
+    @staticmethod
+    def rects():
+        top, bottom, gap = (120, H-12, 10) if portrait() else (86, H-8, 8)
+        height = (bottom - top - 2*gap) / 3
+        return [(12, round(top + i*(height+gap)), W-12, round(top + i*(height+gap) + height))
+                for i in range(3)]
+
+    def tap(self, x, y, now):
+        if self.mode is not None:
+            self.mode, self.level = None, None
+            return None
+        choice = index_at(self.rects(), x, y, slop=4)
+        if choice == 2:
+            return 'exit'
+        if choice is not None:
+            self.mode, self.started = ('sos', 'torch')[choice], now
+        return None
+
+    def render(self, now, wall_time, alerts):
+        if self.mode is not None:
+            lit, left = (True, 1.) if self.mode == 'torch' else \
+                beacon.state_at(self.steps, now - self.started)
+            self.level, self.delay = (100 if lit else 0), max(.02, left)
+            image = Image.new('RGB', (W, H), 'white' if lit else 'black')
+            if alerts:  # A finished timer or a power warning must stay readable.
+                self.level = 100
+                draw_banner(ImageDraw.Draw(image), alerts, wall_time.strftime('%H:%M'))
+            return image
+        self.level, self.delay = None, 1.
+        image = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(image)
+        game_header(d, 'SOS & LIGHT', wall_time, False)
+        light = 'screen and backlight' if BACKLIGHT_PWM else 'whole screen'
+        lines = ('Beacon flashes Morse SOS  ... --- ...', f'Uses the {light}.',
+                 'Flashing light, under 2/s. Tap to stop.')
+        for i, line in enumerate(lines):
+            d.text((10, 30 + i*16), fit_text(d, line, W-20, SMALL), font=SMALL,
+                   fill=TEXT if i == 0 else MUTED)
+        for rect, label in zip(self.rects(), self.LABELS):
+            button(d, rect, label, active=label == 'SOS BEACON')
+        return image
+
+
 GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
               'sudoku')
-APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'))
+APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'),
+             ('SOS & LIGHT', 'sos'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
 def saver_due(options, idle_seconds, page):
     return (options['saver_style'] != 'off' and idle_seconds >= options['saver_delay']
             and page not in ('exit','shutdown','calconfirm','savers','saverstyle','colours',
-                             'photodelete','album','gifs','visual'))
+                             'photodelete','album','gifs','visual','sos'))
 
 
 TABS = ('CAMERA', 'PHOTOS', 'HOME', 'STATUS', 'OPTIONS', 'EXIT')
@@ -3740,17 +3801,8 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         notes = extra.get('notes', {})
         for rect, (label, key) in zip(grid_rects(len(APP_TILES), 30, bottom+4, max_pitch=200), APP_TILES):
             d.rounded_rectangle(rect, radius=8, fill=PANEL)
-            middle, room = (rect[1]+rect[3])//2, rect[2]-rect[0]-8
-            title_lines = wrap_text(d, label, room, FONT, 2)
-            note_lines = wrap_text(d, notes.get(key, ''), room, TINY, 2)
-            y = middle - (len(title_lines)*18 + len(note_lines)*13)//2 + 2
-            for line in title_lines:
-                d.text(((rect[0]+rect[2])//2, y+8), line, font=FONT, fill=TEXT, anchor='mm')
-                y += 18
-            y += 4
-            for line in note_lines:
-                d.text(((rect[0]+rect[2])//2, y+6), line, font=TINY, fill=MUTED, anchor='mm')
-                y += 13
+            for line, y, selected, colour in tile_text(d, rect, label, notes.get(key, '')):
+                d.text(((rect[0]+rect[2])//2, y), line, font=selected, fill=colour, anchor='mm')
             hotspot(rect, 'app:' + key)
     elif page == 'audio':
         state, capture = extra.get('audio', {}), extra.get('capture')
@@ -3832,6 +3884,30 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         active = TAB_PARENT.get(page, page) == label.lower()
         button(d, rect, label, active, font_=TAB_FONT, action='tab:' + label.lower())
     return image
+
+
+def tile_text(draw, rect, title, note):
+    """[(line, centre y, font, colour)] for a launcher tile. Short tiles drop note lines and
+    tighten spacing before shortening the title, so everything stays inside the tile."""
+    room, height = rect[2]-rect[0]-8, rect[3]-rect[1]-4
+    for title_max, note_max, title_step, note_step, gap in (
+            (2, 2, 18, 13, 4), (2, 1, 18, 13, 4), (2, 1, 16, 12, 1), (2, 0, 18, 0, 0),
+            (2, 0, 16, 0, 0), (1, 1, 16, 12, 1), (1, 0, 16, 0, 0)):
+        titles = wrap_text(draw, title, room, FONT, title_max)
+        notes = wrap_text(draw, note, room, TINY, note_max) if note_max else []
+        used = len(titles)*title_step + (gap + len(notes)*note_step if notes else 0)
+        if used <= height:
+            break
+    y = (rect[1]+rect[3])//2 - used//2
+    lines = []
+    for line in titles:
+        lines.append((line, y + title_step//2, FONT, TEXT))
+        y += title_step
+    y += gap
+    for line in notes:
+        lines.append((line, y + note_step//2, TINY, MUTED))
+        y += note_step
+    return lines
 
 
 def wrap_text(draw, value, width, selected_font, max_lines=2):
@@ -4054,7 +4130,8 @@ def main():
                 'sudoku': SudokuApp(scores.get('sudoku_best_seconds', 0),
                                     score_saver('sudoku_best_seconds')),
                 'album': AlbumApp(album_show, cycle_option),
-                'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio)}
+                'gifs': GifApp(gif_player), 'visual': VisualApp(capture, audio),
+                'sos': SignalApp()}
 
         def make_saver(style, now):
             style = style if style != 'off' else 'radar'  # Preview with Off shows Radar.
@@ -4088,6 +4165,8 @@ def main():
             elif name == 'gifs':
                 gif_player.refresh()
                 gif_player.paused = False
+            elif name == 'sos':
+                apps['sos'].mode = None  # Always open on the menu, never straight into a flash.
             if name in apps and hasattr(apps[name], 'overlay_until'):
                 apps[name].overlay_until = now + 4  # Show the controls once on entry.
             return name
@@ -4101,6 +4180,7 @@ def main():
             return {'tools': 'Timers, network, GNSS and more', 'quick': 'Camera, sound, sleep',
                     'audio': 'Volume, media, visualizer',
                     'games': '9 games: arcade and puzzles',
+                    'sos': 'SOS beacon and torch',
                     'album': f"{count} picture{'s' if count != 1 else ''} | slideshow",
                     'gifs': f"{gifs} GIF{'s' if gifs != 1 else ''} | tap to play" if gifs else
                             'Copy GIFs to cyberdeck-data/gifs'}
@@ -4123,8 +4203,9 @@ def main():
         def draw(now, capturing=None):
             """Draw the current page; returns seconds until it next needs drawing."""
             if page in apps:
-                light.apply(options['pixel_level'])
-                screen.show(apps[page].render(now, datetime.now().astimezone(), alerts))
+                image = apps[page].render(now, datetime.now().astimezone(), alerts)
+                light.apply(app_light_level(apps[page], options))
+                screen.show(image)
                 return apps[page].delay
             extra = None
             if page == 'home':

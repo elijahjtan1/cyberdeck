@@ -144,6 +144,15 @@ APPS -> **GIF PLAYER** plays the GIFs in `~/cyberdeck-data/gifs/` full-screen at
 - **Memory:** frames are decoded one at a time, so long GIFs don't fill memory. GIFs at or near 320x240 play most smoothly.
 - **Bad files:** a broken file is skipped, with a message in the terminal or journal.
 
+## 7. SOS and light
+
+APPS -> **SOS & LIGHT** turns the panel into a signal lamp.
+
+- **SOS BEACON** flashes Morse SOS (`... --- ...`) with standard timing on the whole screen, white and black, and repeats until you tap. A dot lasts 0.3 s, so it never flashes more than about twice a second.
+- **TORCH** shows a steady full-brightness white screen.
+- With the PWM backlight ([BACKLIGHT-PWM.md](BACKLIGHT-PWM.md)) the LEDs switch off in the dark parts, so the beacon is easier to see and uses less power. Without it the backlight stays on and only the pixels flash.
+- Any tap stops the light and returns to the menu. Screensavers never start on this page, and leaving it restores your brightness.
+
 ## Screensaver settings changes
 
 **OPTIONS -> Screensavers** now has:
