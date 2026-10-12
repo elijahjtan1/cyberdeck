@@ -200,6 +200,17 @@ def opens_with_missing(text):
             and all(CITATION.search(s) for s in rest))
 
 
+def drop_trailing_not_found(text):
+    """On the Pi, a cited answer sometimes ended with the not-found sentence anyway, which reads
+    as a contradiction. Drop it after cited text; an uncited answer keeps it as a warning."""
+    phrase = NOT_FOUND.rstrip('.').casefold()
+    body = text.rstrip(DECORATION)
+    start = body.casefold().rfind(phrase)
+    if start < 0 or body[start + len(phrase):].strip(DECORATION) or not CITATION.search(body[:start]):
+        return text
+    return body[:start].rstrip()
+
+
 def said_not_found(text):
     """The not-found sentence, even with the [1], quotes or bold a small model adds, or a
     reply that only says, in its own words, that the sources don't have the answer.
@@ -245,7 +256,7 @@ def ask_events(question, retriever, client, *, budget_tokens=None):
         if not item.text or said_not_found(item.text) or blank_answer(item.text):
             yield 'done', Answer(question, NOT_FOUND, False, passages, warnings, item)
         else:
-            text, cited, dropped = check_citations(item.text, len(passages))
+            text, cited, dropped = check_citations(drop_trailing_not_found(item.text), len(passages))
             copied = copied_share(text, passages) >= COPIED
             yield 'done', Answer(question, text, True, passages, warnings, item, cited, dropped, copied)
 

@@ -100,6 +100,17 @@ class AnswerTest(unittest.TestCase):
             self.assertFalse(result.found, text)
             self.assertEqual((result.text, result.cited), (NOT_FOUND, []))
 
+    def test_a_trailing_not_found_after_a_cited_answer_is_dropped(self):
+        # From the Pi: a real, cited answer that ends by contradicting itself.
+        text = ('Seals can leak, and an O-ring can be replaced [2]. Descale with citric acid [1]. '
+                'Not found in the offline sources.')
+        result = answer('q', FakeRetriever([SONOBUOY, NOTES]), FakeClient(text))
+        self.assertEqual((result.found, result.text),
+                         (True, 'Seals can leak, and an O-ring can be replaced [2]. Descale with citric acid [1].'))
+        # Uncited text keeps it, so the answer still reads as unsure.
+        result = answer('q', FakeRetriever([SONOBUOY, NOTES]), FakeClient('Maybe the seal. Not found in the offline sources.'))
+        self.assertEqual(result.text, 'Maybe the seal. Not found in the offline sources.')
+
     def test_a_citation_in_place_of_the_value_is_not_found(self):
         # From the Pi: asked for a part number the sources don't give.
         for text in ('The thermal fuse in a Philips HD7546 coffee maker is [1]. It is a safety interlock '

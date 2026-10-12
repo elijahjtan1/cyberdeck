@@ -317,9 +317,10 @@ so `Lamp` matches `Table lamps` but not `Clamp meter`. An empty `expect` marks a
 the sources shouldn't answer. Most of those find no passages and never reach the model; the
 ones about repair topics (a part number, a screw torque) are meant to find related
 passages that lack the specific fact, so they test whether the model says it
-doesn't know. On the Pi, the torque and toaster questions do find passages; the coffee
-maker and kettle part-number questions don't (too few of their words appear together to
-pass the relevance gate), so they end as an honest "not found" without testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
+doesn't know. On the Pi, the torque, toaster and coffee maker part-number questions find
+passages and reach the model; the kettle part-number question doesn't (too few of its words
+appear together to pass the relevance gate), so it ends as an honest "not found" without
+testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
 argument for a different ZIM (for example a Wikipedia set).
@@ -428,7 +429,8 @@ sources lacking the answer and has no second clause (a comma, `;`, brackets, a d
 `which`, `usually`, `use`, `check` ...). A leading "Therefore," or "Unfortunately," doesn't count. Anything that might carry advice keeps the reply an answer, since hiding a real answer
 is worse than showing an honest one as unverified. A reply whose first sentence has a
 citation where the value should be ("The thermal fuse in a Philips HD7546 is [1].") is not
-found too: the model had nothing to put there.
+found too: the model had nothing to put there. A cited answer that ends with the not-found
+sentence anyway has that last sentence dropped, since it contradicts the cited facts before it.
 
 ```python
 from core.librarian.answer import answer
