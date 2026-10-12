@@ -1,5 +1,4 @@
 import json
-import queue
 import subprocess
 import sys
 import tempfile
@@ -14,7 +13,7 @@ from urllib.error import HTTPError
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import panel_app as app
-from panel_tools.runtime import CameraWorker, Clocks, Timelapse, Job, data_home
+from panel_tools.runtime import CameraWorker, Clocks, Timelapse, data_home
 from panel_tools.network import NetworkHistory, PhotoShare
 from panel_tools.updates import Updates
 from panel_tools.ui import ToolsUI
@@ -187,6 +186,9 @@ class ToolsLayoutTest(unittest.TestCase):
                 saved=json.loads(ui.presets_path.read_text())['Camera']
                 self.assertEqual((saved['volume'],saved['fps'],saved['muted']),(45,15,True))
                 tap('presetapply'); callbacks['preset'].assert_called_once_with(saved)
+                tap('presetnext'); tap('presetapply')  # Unsaved preset: factory settings.
+                callbacks['preset'].assert_called_with({'options':{'pixel_level':70,'saver_style':'clock',
+                                                        'saver_delay':300},'fps':20,'volume':30,'muted':False})
                 ui.page='updates'; tap('restart')
                 self.assertIsNotNone(ui.confirm); tap('cancel')
                 self.assertIsNone(ui.confirm)
