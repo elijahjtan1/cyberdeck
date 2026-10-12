@@ -6,12 +6,13 @@ Citations to sources that weren't given are removed; an answer citing nothing is
 from dataclasses import dataclass, field, replace
 import os
 import re
+from types import SimpleNamespace
 
 NOT_FOUND = 'Not found in the offline sources.'
 # [1] or [1, 3]; anything else in brackets is left alone.
 CITATION = re.compile(r'\s*\[(\d+(?:\s*,\s*\d+)*)\]')
 # Room for the instructions, titles and question around the passages (estimated tokens).
-PROMPT_OVERHEAD = 250
+PROMPT_OVERHEAD = 350
 # Passage tokens the model reads before answering. On the Pi most of the wait before the
 # first word is spent reading them, so this trades detail for speed.
 DEFAULT_BUDGET = 400  # On the Pi: first word 28 s median, vs 45 s at 700 and 69 s at 1,400.
@@ -88,13 +89,33 @@ ANSWER_CUE = ('Answer the question in two to four sentences of your own, using o
               f'If the sources do not answer it, reply exactly: {NOT_FOUND}')
 
 
-def build_messages(question, passages):
+def user_message(question, passages):
     # No [n] at the start of a block: on the Pi, answers copied that layout as "[1] <source
     # text> [2] <source text>" in 5 of 16 answers.
     blocks = [f'Source {n}: {p.title}\n{p.text}' for n, p in enumerate(passages, 1)]
-    user = '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}\n\n{ANSWER_CUE}'
+    return '\n\n'.join(blocks) + f'\n\nQuestion: {question.strip()}\n\n{ANSWER_CUE}'
+
+
+# One worked exchange before the real one. Instructions alone left 6 of 16 Pi answers as the
+# sources pasted back one by one; a small model copies the shape of an example far more
+# readily. The topic is one the benchmark doesn't ask about, so its facts can't leak in.
+EXAMPLE_SOURCES = [
+    ('Bicycle chains', 'A chain stretches as it wears. Measure twelve links with a ruler: if they '
+     'span more than 12 1/8 inches, the chain is worn and will slip under load.'),
+    ('Cassettes', 'A worn cassette makes even a new chain slip, so the two are usually replaced '
+     'together.'),
+]
+EXAMPLE_QUESTION = 'Why does my bike chain slip?'
+EXAMPLE_ANSWER = ('The chain has probably stretched with wear [1]. If twelve links measure over '
+                  '12 1/8 inches, fit a new chain and a new cassette at the same time [1][2].')
+
+
+def build_messages(question, passages):
+    example = [SimpleNamespace(title=t, text=x) for t, x in EXAMPLE_SOURCES]
     return [{'role': 'system', 'content': SYSTEM_PROMPT},
-            {'role': 'user', 'content': user}]
+            {'role': 'user', 'content': user_message(EXAMPLE_QUESTION, example)},
+            {'role': 'assistant', 'content': EXAMPLE_ANSWER},
+            {'role': 'user', 'content': user_message(question, passages)}]
 
 
 def copied_share(text, passages, run=8):
@@ -127,7 +148,7 @@ SOURCES_LACK = re.compile(
     r'\b(?:the |these |offline )?sources? (?:do|does)(?: not|n\'t) (?:provide|contain|mention|include|give|'
     r'state|specify|list|say|cover)\b'
     r'|\bnot (?:found|provided|mentioned|given|included|stated|specified|listed|covered) in the '
-    r'(?:offline )?sources?\b'
+    r'(?:offline |provided |given )?sources?\b'
     r'|\bno (?:information|mention|details?)\b.*\bin the (?:offline )?sources?\b', re.IGNORECASE)
 # A second clause may carry the answer: "..., so check the label", "If ..., use a 3 A fuse",
 # "..., which is usually 0.1 Nm", "... and the capacitor can hold a lethal charge", "(it is 230 V)".
@@ -164,6 +185,13 @@ def blank_answer(text):
     match = BLANK_VALUE.search(first)
     return bool(match and match.group(1).casefold() not in PRONOUN and ',' not in CITATION.sub('', first)
                 and not re.match(r'(?:yes|no)\b', first, re.IGNORECASE))
+
+
+def opens_with_missing(text):
+    """The first sentence says the sources lack the answer, whatever follows it: "The part
+    number is not mentioned in the provided sources. However, ..." is honest about the gap."""
+    first = re.split(r'(?<=[.!?])\s+', text.strip(), maxsplit=1)[0]
+    return bool(SOURCES_LACK.search(LEAD.sub('', CITATION.sub('', first).strip(DECORATION))))
 
 
 def said_not_found(text):
