@@ -31,9 +31,9 @@ scp *.gif eli@cyberdeck.local:/home/eli/cyberdeck-data/gifs/
 scp *.jpg eli@cyberdeck.local:/home/eli/cyberdeck-data/album/
 ```
 
-## New tab layout
+## Where the apps are
 
-The tabs are now **CAMERA, PHOTOS, APPS, STATUS, OPTIONS, EXIT**. APPS opens four tiles: **Audio, Snake, Photo album, GIF player**.
+The tabs are **CAMERA, PHOTOS, HOME, STATUS, OPTIONS, EXIT**. Most apps are tiles on Home ([HOME-AND-STARTUP.md](HOME-AND-STARTUP.md)); Home -> **MORE** holds the photo album and the GIF player.
 
 ## 1. Bunny screensaver (interactive)
 
@@ -95,7 +95,7 @@ A large clock with seconds, the day and full date, and a thin seconds-progress l
 
 ## 3. Audio control and visualizer
 
-APPS -> **AUDIO**:
+Home -> **AUDIO**:
 
 - **VOL - / VOL +** change volume in 5% steps, up to 100%. **MUTE** toggles mute. The bar and percentage show the current level.
 - **|< PREV / PLAY / NEXT >|** control whichever media player is running (VLC, Chromium/YouTube, Spotify and others that support MPRIS). The track name is shown when the player provides it. These buttons need `playerctl`.
@@ -114,7 +114,7 @@ How it works and its limits:
 
 ## 4. Snake
 
-APPS -> **SNAKE**, then **START**.
+Home -> **GAMES** -> **SNAKE**, then **START**.
 
 - **Steering:** tap the screen on the side you want the snake to go. It turns toward your tap, so tap above the head to go up, to the right to go right, and so on. Up to two turns can be queued. It can't reverse straight into itself.
 - **Food:** eating grows the snake and speeds it up a little, from 5 to 12 moves per second.
@@ -126,7 +126,7 @@ Taps register when your finger lifts, as everywhere else on this resistive scree
 
 ## 5. Photo album
 
-APPS -> **PHOTO ALBUM** plays a full-screen slideshow with a short crossfade.
+Home -> **MORE** -> **PHOTO ALBUM** plays a full-screen slideshow with a short crossfade.
 
 - Tap once to show the controls. They hide again after 5 seconds.
   - Bottom row: **< PREV**, **PAUSE/RESUME**, **NEXT >**, **EXIT**.
@@ -136,7 +136,7 @@ APPS -> **PHOTO ALBUM** plays a full-screen slideshow with a short crossfade.
 
 ## 6. GIF player and GIF screensaver
 
-APPS -> **GIF PLAYER** plays the GIFs in `~/cyberdeck-data/gifs/` full-screen at their own frame timing, letterboxed to fit.
+Home -> **MORE** -> **GIF PLAYER** plays the GIFs in `~/cyberdeck-data/gifs/` full-screen at their own frame timing, letterboxed to fit.
 
 - Tap to show **< PREV**, **PAUSE**, **NEXT >** and **EXIT**, plus the file name and frame count.
 - As a screensaver (**Style -> GIFS**), each GIF plays for at least 20 seconds and one full loop, then the next one starts.
@@ -146,7 +146,7 @@ APPS -> **GIF PLAYER** plays the GIFs in `~/cyberdeck-data/gifs/` full-screen at
 
 ## 7. SOS and light
 
-APPS -> **SOS & LIGHT** turns the panel into a signal lamp.
+Home -> **SOS** turns the panel into a signal lamp.
 
 - **SOS BEACON** flashes Morse SOS (`... --- ...`) with standard timing on the whole screen, white and black, and repeats until you tap. A dot lasts 0.3 s, so it never flashes more than about twice a second.
 - **TORCH** shows a steady full-brightness white screen.
@@ -155,13 +155,13 @@ APPS -> **SOS & LIGHT** turns the panel into a signal lamp.
 
 ## 8. Planner
 
-APPS -> **PLANNER** is a month calendar with a list of entries for each day.
+Home -> **PLANNER** is a month calendar with a list of entries for each day.
 
 - The month view marks today with a green outline and days with entries with a yellow dot. `<` and `>` change month, **TODAY** opens today, and tapping a day opens it.
 - The day view lists that day's entries, untimed ("all day") ones first, then by time. When there are more than fit (6 in landscape, 8 in portrait), `^` and `v` beside the list scroll it. `<` and `>` move a day; **MONTH** goes back.
 - **ADD** opens the on-screen keyboard. Type the entry (up to 60 characters), tap **NEXT**, then set the time with -1h, -15m, +15m and +1h, or tap **ALL DAY**. **SAVE** stores it. For today the time starts at the next whole hour, for other days at 09:00.
 - Tap an entry, then **DELETE**, to remove it. Any other tap cancels.
-- The APPS tile shows the next timed entry in the coming week.
+- The Home tile shows the next timed entry in the coming week.
 - Entries are saved in `~/cyberdeck-data/planner.json`, only when you add or delete one. A day holds up to 20 entries.
 - "Today" comes from the Pi's clock. Without a network or RTC the clock can be wrong after a reboot, so the planner shows **Clock not synced: check today** (or **Clock sync unknown**) until the clock is synchronised.
 
@@ -170,7 +170,7 @@ APPS -> **PLANNER** is a month calendar with a list of entries for each day.
 
 ## 9. Reader
 
-APPS -> **READER** searches the offline library (Kiwix and your local documents) and shows an article's text a page at a time. It needs cyberdeck-core running ([CORE.md](CORE.md)) and kiwix-serve for Wikipedia articles.
+Home -> **READER** searches the offline library (Kiwix and your local documents) and shows an article's text a page at a time. It needs cyberdeck-core running ([CORE.md](CORE.md)) and kiwix-serve for Wikipedia articles.
 
 - Type a search on the keyboard and tap **SEARCH**. Results list the article titles; local documents are marked `local`. `<` and `>` page through longer lists.
 - Tap a result to open it. **PAGE >**, or a tap on the lower half of the text, turns the page; **< PAGE** goes back. The counter at the top shows the page, and the bar on the right shows where you are in the article.
@@ -203,7 +203,7 @@ All 35 automated tests pass (`python3 -m unittest discover -s tests -v`):
 - **Slideshow:** advancing, crossfade and the source filter.
 - **GIF player:** frame timing, looping, skipping a broken file, and the help screens for an empty album or GIF folder.
 - **Audio:** `wpctl`/`amixer` output parsing, backend detection, volume and media commands, a 1 kHz tone landing in the right spectrum band, reading a PCM stream, and the message when no capture tool exists.
-- **Real application loop:** with a simulated screen, touch and camera: APPS -> Snake -> Start -> Pause -> Quit -> Options -> Screensavers -> Style -> Bunnies -> Preview -> tap + -> tap the sky to wake -> Exit. It checks the style and bunny count were saved and the new folders created.
+- **Real application loop:** with a simulated screen, touch and camera: Home -> Games -> Snake -> Start -> Pause -> Quit -> Options -> Screensavers -> Style -> Bunnies -> Preview -> tap + -> tap the sky to wake -> Exit. It checks the style and bunny count were saved and the new folders created.
 - **Speed:** each screen draws in about 1–4 ms on the development machine, well within the frame budget even if the Pi is several times slower.
 
 **Still needs checking on the Pi:**

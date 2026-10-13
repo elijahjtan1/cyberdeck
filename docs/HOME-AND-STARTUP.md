@@ -8,21 +8,21 @@ The app now opens on **Home**, a launcher for everything else.
 
 - **Clock and date** at the top.
 - **Status line:** CPU temperature, Wi-Fi signal and free storage. The health banner still takes over the top bar when something needs attention.
-- **Nine tiles**, each with a short live note:
+- **Nine tiles**, most used first, each with a short live note:
 
   | Tile | Opens | Note shown |
   | --- | --- | --- |
-  | Camera | The camera | Whether it's live or connecting |
-  | Photos | Your photos | Number saved |
-  | Games | The Games menu | Number of games |
-  | Audio | Volume and visualizer | Current volume |
-  | Album | Slideshow | |
-  | Apps | The APPS page: Audio, Games, Album, GIF player, Tools, Quick, SOS & light, Planner and Reader | |
+  | Reader | Offline articles ([APPS-AND-SAVERS.md](APPS-AND-SAVERS.md#9-reader)) | The article you're reading |
+  | Planner | Calendar and day plans | Your next timed entry |
+  | Ask | Ask the offline librarian ([LIBRARIAN.md](LIBRARIAN.md#on-the-panel)) | Answering..., or Backend off |
   | Tools | Tools menu | |
   | Quick | Quick controls | |
-  | Ask | Ask the offline librarian ([LIBRARIAN.md](LIBRARIAN.md#on-the-panel)) | Answering..., or Backend off |
+  | Audio | Volume and visualizer | Current volume |
+  | Games | The Games menu | Number of games |
+  | SOS | SOS beacon and torch | |
+  | More | Photo album slideshow and GIF player | |
 
-- **GIFs** moved inside **Apps** to make room for the Apps tile, so SOS & light, Planner and Reader can be reached from Home.
+- **No duplicates:** Camera and Photos have their own tabs, so they aren't Home tiles, and each app appears in one place only.
 - **Screensaver:** the Saver tile made way for Ask. The saver still starts on its own after the idle delay, and **OPTIONS → Screensavers → PREVIEW** starts it at once.
 - **Tab bar:** the **APPS** tab is now **HOME**, in the same spot, so the other tabs haven't moved. In portrait, HOME is the top-right tab.
 - **Returning:** leaving the Games menu, Tools, Audio and the other apps now brings you back to Home.
@@ -74,7 +74,7 @@ How it behaves:
 
 All 116 automated tests pass, including 7 new ones in `tests/test_home.py`:
 
-- **Home tiles:** all nine fit on screen and lead to the right places in both orientations, and the HOME tab sits where APPS was.
+- **Home tiles:** all nine fit on screen and lead to the right places in both orientations, every app is reachable exactly once, and the HOME tab sits where APPS was.
 - **Boot status:** the switch reads systemd's enabled, disabled and unavailable states correctly.
 - **Turning boot start on:** writes the service with your data folder and enables it, without starting a second copy.
 - **Turning it off:** only disables the service.

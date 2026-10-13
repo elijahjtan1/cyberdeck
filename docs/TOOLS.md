@@ -1,7 +1,7 @@
 # Camera and deck tools
 
-Open **APPS > TOOLS**. The menu has two pages; use **MORE** for Recovery, Updates
-GNSS and Sun & moon. **APPS > QUICK CONTROLS** opens the shortcuts directly. Layouts support
+Open **Home > TOOLS**. The menu has two pages; use **MORE** for Recovery, Updates
+GNSS and Sun & moon. **Home > QUICK** opens the shortcuts directly. Layouts support
 all four screen rotations. The original camera, calibration, savers, audio and
 games remain available.
 

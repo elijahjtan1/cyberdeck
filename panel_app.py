@@ -3267,8 +3267,8 @@ class SignalApp:
 
 GAME_PAGES = ('snake', 'tetris', 'pong', 'bricks', 'flappy', 'invaders', 'mines', 'solitaire',
               'sudoku')
-APP_TILES = (('AUDIO', 'audio'), ('GAMES', 'games'), ('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'), ('TOOLS', 'tools'), ('QUICK CONTROLS', 'quick'),
-             ('SOS & LIGHT', 'sos'), ('PLANNER', 'planner'), ('READER', 'reader'))
+# The MORE page: apps that aren't on Home, so no app is listed twice.
+APP_TILES = (('PHOTO ALBUM', 'album'), ('GIF PLAYER', 'gifs'))
 AUDIO_BUTTONS = (('down', 'mute', 'up', 'source'), ('prev', 'play', 'next', 'full'))
 
 
@@ -3284,12 +3284,11 @@ TAB_EDGES = tuple(sum(TAB_WIDTHS[:i]) for i in range(len(TABS)+1))
 TAB_PARENT = {'health': 'status', 'history': 'status', 'savers': 'options', 'saverstyle': 'options',
               'calconfirm': 'options', 'photodelete': 'photos', 'shutdown': 'exit',
               'audio': 'home', 'apps': 'home'}
-# Home page launcher: (label, key, accent colour).
-HOME_TILES = (('CAMERA', 'camera', ACCENT), ('PHOTOS', 'photos', BLUE),
-              ('GAMES', 'games', YELLOW), ('AUDIO', 'audio', PURPLE),
-              ('ALBUM', 'album', ORANGE), ('APPS', 'apps', RED),
-              ('TOOLS', 'tools', GREEN), ('QUICK', 'quick', CYAN),
-              ('ASK', 'ask', '#ff8fb8'))
+# Home page launcher: (label, key, accent colour), most used first. Camera and Photos
+# have their own tabs, so they aren't repeated here.
+HOME_TILES = (('READER', 'reader', ACCENT), ('PLANNER', 'planner', BLUE), ('ASK', 'ask', '#ff8fb8'),
+              ('TOOLS', 'tools', GREEN), ('QUICK', 'quick', CYAN), ('AUDIO', 'audio', PURPLE),
+              ('GAMES', 'games', YELLOW), ('SOS', 'sos', RED), ('MORE', 'apps', ORANGE))
 
 
 def home_rects():
@@ -3558,7 +3557,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
                stroke_width=2, stroke_fill='black')
         return image
     title = {'calconfirm':'TOUCH SETUP', 'savers':'SAVERS', 'saverstyle':'SAVER STYLE',
-             'photodelete':'PHOTOS',
+             'photodelete':'PHOTOS', 'apps':'MORE',
              'shutdown':'POWER', 'poweroff':'POWER'}.get(page, page.upper())
     if alerts and page not in ('stopped', 'poweroff'):
         draw_banner(d, alerts, wall_time.strftime('%H:%M'))
@@ -3791,9 +3790,10 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             d.rounded_rectangle((rect[0], rect[1], rect[0]+4, rect[3]), radius=2, fill=colour)
             mid_x, mid_y = (rect[0]+rect[2])//2 + 2, (rect[1]+rect[3])//2
             room = rect[2]-rect[0]-12
+            label_room = room + 6  # Labels may use the margins, so PLANNER fits a portrait tile.
             note = notes.get(key, '')
-            label_font = HOME_LABEL if d.textlength(label, font=HOME_LABEL) <= room else HOME_LABEL_SMALL
-            d.text((mid_x, mid_y - (6 if note else 0)), fit_text(d, label, room, label_font),
+            label_font = HOME_LABEL if d.textlength(label, font=HOME_LABEL) <= label_room else HOME_LABEL_SMALL
+            d.text((mid_x, mid_y - (6 if note else 0)), fit_text(d, label, label_room, label_font),
                    font=label_font, fill=TEXT, anchor='mm')
             if note:
                 d.text((mid_x, mid_y+10), fit_text(d, note, room, TINY), font=TINY,
@@ -4217,13 +4217,12 @@ def main():
                 signal = re.search(r'(-?\d+) dBm', wifi)
                 extra = {'home': {
                     'wifi': f'Wi-Fi {signal[1]} dBm' if signal else 'No Wi-Fi',
-                    'camera': ('Live view' if camera is not None and camera.ready
-                               else 'Connecting...' if camera is not None else 'Off'),
-                    'photos': f'{len(library.items)} saved',
+                    'reader': apps['reader'].note(),
+                    'planner': apps['planner'].note(datetime.now().astimezone()),
                     'games': f'{len(GAME_PAGES)} games',
                     'audio': (f"Vol {audio.state['volume']}%"
                               if audio.state.get('volume') is not None else 'Music, volume'),
-                    'album': 'Slideshow', 'apps': f'{len(APP_TILES)} apps', 'tools': 'Timers & more',
+                    'sos': 'Beacon, torch', 'apps': 'Album, GIFs', 'tools': 'Timers & more',
                     'quick': 'Shortcuts', 'ask': apps['ask'].note()}}
             elif page == 'apps':
                 extra = {'notes': app_notes()}
