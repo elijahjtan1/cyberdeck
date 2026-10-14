@@ -37,10 +37,15 @@ class HomePageTest(unittest.TestCase):
                              ['home:' + key for _, key, _ in app.HOME_TILES])
             self.assertIn('tab:home', [a for _, a in app.HOTSPOTS])
 
-    def test_every_app_is_reachable_from_home(self):
-        # The APPS page is the only way to some apps (SOS, planner, reader), so Home must lead to it.
-        self.assertIn('apps', [key for _, key, _ in app.HOME_TILES])
-        self.assertIn(('READER', 'reader'), app.APP_TILES)
+    def test_every_app_is_reachable_once(self):
+        home = [key for _, key, _ in app.HOME_TILES]
+        more = [key for _, key in app.APP_TILES]
+        tabs = [tab.lower() for tab in app.TABS]
+        self.assertIn('apps', home)  # MORE is the only way to the apps listed there.
+        everything = home + more + tabs
+        for key in ('reader', 'planner', 'ask', 'tools', 'quick', 'audio', 'games', 'sos',
+                    'album', 'gifs', 'camera', 'photos'):
+            self.assertEqual(everything.count(key), 1, key)  # Reachable, and not listed twice.
 
     def test_home_tab_sits_where_apps_was(self):
         app.render('status', None, False, 20, self.rows, '')
@@ -87,9 +92,11 @@ class BootSwitchTest(unittest.TestCase):
 class StartPageTest(unittest.TestCase):
     def test_app_opens_on_home_and_tiles_work(self):
         import test_panel_app as t
-        # Default start page is Home: GAMES tile -> BACK to Home -> CAMERA tile -> Exit.
+        # Default start page is Home: GAMES tile -> BACK to Home -> CAMERA tab -> Exit.
         games_back = centre(app.GamesMenu(lambda: {}).rects()[1])
-        script = [(.5, 263, 98), (1.1, *games_back), (1.7, 56, 98),
+        keys = [key for _, key, _ in app.HOME_TILES]
+        games_tile = centre(app.home_rects()[keys.index('games')])
+        script = [(.5, *games_tile), (1.1, *games_back), (1.7, 29, 222),
                   (2.3, 300, 222), (2.9, 160, 150)]
         t.FakeTouch.script, t.FakeScreen.frames = script, []
         with tempfile.TemporaryDirectory() as folder:

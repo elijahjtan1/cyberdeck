@@ -135,7 +135,7 @@ class SignalAppTest(unittest.TestCase):
                                     (rotation, key, line, box, rect))
 
     def test_listed_in_apps_and_never_covered_by_a_saver(self):
-        self.assertIn(('SOS & LIGHT', 'sos'), app.APP_TILES)
+        self.assertIn(('SOS', 'sos'), [(label, key) for label, key, _ in app.HOME_TILES])
         options = {**app.DEFAULT_OPTIONS, 'saver_style': 'radar', 'saver_delay': 1}
         self.assertFalse(app.saver_due(options, 10**6, 'sos'))
 

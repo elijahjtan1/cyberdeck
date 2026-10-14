@@ -653,7 +653,7 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(len(list((data/'photos').glob('*.jpg'))), 1)
 
     def test_tools_timelapse_runs_after_leaving_its_page(self):
-        data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 185), # HOME > TOOLS
+        data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 142), # HOME > TOOLS
                                (1.7, 240, 68), (2.3, 80, 142), # TIMELAPSE > START
                                (2.9, 240, 222), # return to CAMERA
                                (3.6, 290, 222), (4.3, 160, 150)])
@@ -691,10 +691,10 @@ class MainLoopTest(unittest.TestCase):
         poweroff.assert_not_called()
 
     def test_apps_snake_and_bunny_saver(self):
-        # Coordinates: HOME tab x=136; GAMES tile (263, 98); menu SNAKE (55, 53);
+        # Coordinates: HOME tab x=136; GAMES tile (56, 185); menu SNAKE (55, 53);
         # dialog START (100, 170) / QUIT (220, 170); menu BACK (55, 212).
-        script = [(.5, 136, 222),    # APPS tab
-                  (1.1, 263, 98),    # GAMES
+        script = [(.5, 136, 222),    # HOME tab
+                  (1.1, 56, 185),    # GAMES
                   (1.7, 55, 53),     # SNAKE in the Games menu (top left)
                   (2.3, 100, 170),   # START
                   (2.9, 280, 12),    # PAUSE (header)

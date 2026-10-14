@@ -201,7 +201,7 @@ class ReaderTest(unittest.TestCase):
         view.render(0, CLOCK, ())
 
     def test_listed_in_apps_and_not_covered_by_a_saver(self):
-        self.assertIn(('READER', 'reader'), app.APP_TILES)
+        self.assertIn(('READER', 'reader'), [(label, key) for label, key, _ in app.HOME_TILES])
         options = {**app.DEFAULT_OPTIONS, 'saver_style': 'radar', 'saver_delay': 1}
         self.assertFalse(app.saver_due(options, 10**6, 'reader'))
 
