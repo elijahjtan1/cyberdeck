@@ -286,6 +286,7 @@ def games_screens(clock):
     save_sheet(sheets[1], 'games-portrait-preview.png', cols=6)
     puzzle_screens(clock)
     home_screens(clock)
+    main_app_screens(clock)
     ask_screens(clock)
     bunny_breeds()
 
@@ -464,6 +465,17 @@ def history_screens(clock, rows):
                app.render('history', None, False, 20, {**rows, 'backend_online': False}, '', **common)]
     save_sheet(screens, 'history-preview.png')
 
+
+def main_app_screens(clock):
+    """The 1024x600 main app: home with WIKIPEDIA picked, and Status."""
+    import main_app
+    stats = {'temp': '48.2 C', 'cpu': 14.0, 'ram': '1.1/3.7 GiB', 'disk_free': '18.4 GiB',
+             'freq': '1500 MHz', 'uptime': '2h 16m'}
+    state = {'stats': stats, 'backend': True, 'busy': [], 'alerts': [], 'selected': 1}
+    for page, name in (('home', 'main-app-preview.png'), ('status', 'main-app-status-preview.png')):
+        out = ROOT / 'docs/previews' / name
+        main_app.render(page, (1024, 600), state, clock).save(out, optimize=True)
+        print(out)
 
 if __name__ == '__main__':
     main()
