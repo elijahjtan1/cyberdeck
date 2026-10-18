@@ -43,8 +43,8 @@ While both share the 5" screen, only one runs at a time:
 - **QUICK PANEL** (or `Q`) closes the main app and starts the quick panel in its place.
 - The quick panel's **EXIT** page then shows **MAIN APP** instead of CLOSE APP, which hands the
   screen back.
-- Tiles for apps that haven't moved here yet (Ask, Wikipedia, Planner, Tools, Games, Camera,
-  Photos) open the quick panel straight on that app. Leaving it through EXIT → MAIN APP returns
+- Tiles for apps that haven't moved here yet (Planner, Tools, Games, Camera, Photos) open the
+  quick panel straight on that app. Leaving it through EXIT → MAIN APP returns
   here.
 
 The quick panel takes these options for this:
@@ -52,9 +52,43 @@ The quick panel takes these options for this:
 - `--open PAGE` starts it on `ask`, `reader`, `planner`, `tools`, `games`, `camera` or `photos`.
 - `--main-app` makes its EXIT page hand the screen back.
 
-The plan is for the apps to move into the main app one at a time, starting with Ask and
-Wikipedia at full size. Later, the 2.8" screen can run the quick panel full time beside the main
+The plan is for the apps to move into the main app one at a time. Ask and Wikipedia have moved
+already. Later, the 2.8" screen can run the quick panel full time beside the main
 app on the 5".
+
+## Ask
+
+![Ask in the main app](previews/main-app-ask-preview.png)
+
+**ASK** (`1`) puts a question to the offline librarian, the same as the quick panel's ASK and
+`deck ask`. To ask, type the question and press Enter, or tap one of the recent and example
+questions.
+
+- The answer streams in as the model writes it, and its sources are listed under it.
+- The same warnings appear in yellow: UNVERIFIED, PARTIAL, QUOTED, and when the sources don't
+  contain an answer.
+- While it answers, the bottom-left button is **STOP**. Afterwards it is **EDIT**, which brings
+  the question back to change it.
+- UP and DOWN (or the arrow keys, Page Up and Page Down) scroll a long answer.
+- Esc stops or edits, then goes home.
+
+The backend (`cyberdeck-core`) must be running. If it isn't, ASK says so and doesn't answer.
+
+## Wikipedia
+
+![Wikipedia in the main app](previews/main-app-wikipedia-preview.png)
+
+**WIKIPEDIA** (`2`) searches the offline library (every ZIM that kiwix-serve has, plus local
+documents) and shows an article as text. Pictures and tables are left out.
+
+- Type a search and press Enter. Number keys `1` to `6` open a result, or tap it.
+- Arrows, Space, Page Up and Page Down turn the article's pages. So does tapping the left or
+  right of the text.
+- Long articles show their first part only, and say so at the end.
+- Typing in the results or the article starts a new search.
+- Esc goes back a step, and from the search box back to home.
+
+Typing needs the keyboard here. The quick panel's READER still has an on-screen keyboard.
 
 ## Status
 
@@ -67,11 +101,13 @@ throttling) show in the header on every page.
 
 ## Checks
 
-- **Tests:** `tests/test_main_app.py` covers the tile layout at 1024x600 and 800x480, the
+- **Tests:** `tests/test_main_pages.py` covers asking, the notes and buttons, and searching,
+  opening and paging an article, with a fake backend. `tests/test_main_app.py` covers the tile layout at 1024x600 and 800x480, the
   arrow keys, the hand-off arguments, drawing on a fake 1024x600 16-bit screen (only changed
   rows are sent), and mapping calibrated taps.
 - **On the Pi:**
   - The home fills the screen with sharp text.
   - Each tile opens with its number key and by touch, and taps land where you touch.
   - `Q` opens the quick panel, and EXIT → MAIN APP comes back.
-  - The WIKIPEDIA tile opens the quick panel's READER.
+  - ASK answers a question, and the text is easy to read from arm's length.
+  - WIKIPEDIA finds and opens an article, and the pages turn.

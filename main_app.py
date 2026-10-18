@@ -4,7 +4,8 @@
 It draws straight to the framebuffer like the quick panel (panel_app.py), with no desktop,
 so Ollama keeps the memory. While both share one screen only one runs at a time: QUICK PANEL
 hands the screen to the quick panel, and its EXIT page's MAIN APP button hands it back
-(docs/MAIN-APP.md). Apps not moved here yet open in the quick panel."""
+(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py); apps
+not moved here yet open in the quick panel."""
 import argparse
 import json
 import os
@@ -21,6 +22,7 @@ import panel_app as panel
 from panel_app import ACCENT, BG, BLUE, CYAN, DANGER, GREEN, MUTED, ORANGE, PURPLE, RED, TEXT, WARN, YELLOW, font
 from panel_tools.backend import Backend
 from panel_tools.keyboard import Keyboard
+from panel_tools.main_pages import AskPage, WikiPage
 from panel_tools.runtime import data_home
 
 HERE = Path(__file__).resolve().parent
@@ -29,16 +31,18 @@ HEADER = 56
 FOOTER = 34
 TITLE, LABEL, BODY, SMALL = font(26, bold=True), font(28, bold=True), font(20), font(16)
 BIG = font(40, bold=True)
+READ, READ_LINE, SMALL_BOLD = font(22), 31, font(18, bold=True)  # Article and answer text.
 TILE_FONTS = (LABEL, TITLE, font(22, bold=True))
 # (label, key, colour, where): where is 'here' for a page drawn by this app, or the quick
 # panel page that opens it until it moves here.
-TILES = (('ASK', 'ask', '#ff8fb8', 'ask'), ('WIKIPEDIA', 'wiki', ACCENT, 'reader'),
+TILES = (('ASK', 'ask', '#ff8fb8', 'here'), ('WIKIPEDIA', 'wiki', ACCENT, 'here'),
          ('PLANNER', 'planner', BLUE, 'planner'), ('TOOLS', 'tools', GREEN, 'tools'),
          ('GAMES', 'games', YELLOW, 'games'), ('CAMERA', 'camera', CYAN, 'camera'),
          ('PHOTOS', 'photos', PURPLE, 'photos'), ('STATUS', 'status', ORANGE, 'here'),
          ('QUICK PANEL', 'quick', MUTED, 'home'), ('CLOSE', 'close', RED, 'here'))
 TILE_KEYS = '1234567890'
-NOTES = {'status': 'Temperature, memory, disk', 'quick': 'The small panel: camera, savers',
+NOTES = {'ask': 'Questions answered from the offline library', 'wiki': 'Search and read offline articles',
+         'status': 'Temperature, memory, disk', 'quick': 'The small panel: camera, savers',
          'close': 'Back to the console'}
 LATER = 'In the quick panel for now'
 
@@ -234,6 +238,7 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, terminate)
     screen = touch = keyboard = backend = stats = None
+    apps = {}
     handoff = None
     try:
         screen = Screen(display=args.display)
@@ -249,6 +254,9 @@ def main():
             backend = Backend(*([args.backend] if args.backend else []))
             backend.start()
         page, state = 'home', {'selected': None, 'message': ''}
+        base = backend.base if backend is not None else None
+        apps = {'ask': AskPage(sys.modules[__name__], base, size=screen.size),
+                'wiki': WikiPage(sys.modules[__name__], base, size=screen.size)}
         if touch and matrix is None:
             state['message'] = 'Touch is not calibrated yet: press Q, then calibrate in the quick panel.'
         next_stats = 0
@@ -256,8 +264,8 @@ def main():
         def open_tile(index):
             nonlocal page, handoff
             label, key, colour, where = TILES[index]
-            if key == 'status':
-                page = 'status'
+            if key == 'status' or key in apps:
+                page = key
             elif key == 'close':
                 return False
             else:
@@ -274,12 +282,20 @@ def main():
                 state['alerts'] = panel.health_alerts(state['stats'])
                 state['busy'] = backend.busy if backend is not None else []
                 next_stats = now + 5
-            screen.show(render(page, screen.size, state))
+            app = apps.get(page)
+            if app is not None:
+                screen.show(app.render(now, datetime.now(), state['alerts']))
+            else:
+                screen.show(render(page, screen.size, state))
             waiting = [touch.device] if touch else []
-            panel.select.select(waiting + keyboard.devices, [], [], 1.)
+            panel.select.select(waiting + keyboard.devices, [], [], app.delay if app else 1.)
             for key in keyboard.poll():
+                app = apps.get(page)
                 if key == 'quit':
                     running = False
+                elif app is not None:
+                    if app.key(key, time.monotonic()) == 'exit':
+                        page = 'home'
                 elif key == 'esc':
                     page, state['selected'] = 'home', None
                 elif page == 'status':
@@ -298,6 +314,10 @@ def main():
                     continue
                 px, py = np.append(raw, 1) @ matrix
                 x, y = screen.from_panel(px, py)
+                if page in apps:
+                    if apps[page].tap(x, y, time.monotonic()) == 'exit':
+                        page = 'home'
+                    continue
                 if page == 'status':
                     page = 'home'
                     continue
@@ -308,6 +328,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if apps.get('ask') is not None and apps['ask'].running:
+            apps['ask'].stop()  # Drops the connection, which stops the model.
         for thing in (backend, stats, keyboard, touch, screen):
             if thing is not None:
                 try:
