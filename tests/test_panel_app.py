@@ -99,10 +99,34 @@ class FramebufferLookupTest(unittest.TestCase):
             for name, label in (('fb0', 'vc4drmfb'), ('fb1', 'fb_ili9341')):
                 (root / name).mkdir()
                 (root / name / 'name').write_text(label + '\n')
-            self.assertEqual(app.find_panel_framebuffer(root).name, 'fb1')
+            drm = root / 'drm'
+            (drm / 'card1-HDMI-A-1').mkdir(parents=True)
+            status = drm / 'card1-HDMI-A-1' / 'status'
+            status.write_text('disconnected\n')
+            self.assertEqual(app.find_panel_framebuffer(root, drm=drm).name, 'fb1')
+            # The ILI9341 overlay keeps its framebuffer when the panel is unplugged, so a
+            # connected HDMI monitor wins in auto mode.
+            status.write_text('connected\n')
+            self.assertEqual(app.find_panel_framebuffer(root, drm=drm).name, 'fb0')
+            self.assertEqual(app.find_panel_framebuffer(root, 'spi', drm).name, 'fb1')
+            status.write_text('disconnected\n')
+            self.assertEqual(app.find_panel_framebuffer(root, 'hdmi', drm).name, 'fb0')
             (root / 'fb1' / 'name').write_text('other')
+            self.assertEqual(app.find_panel_framebuffer(root, drm=drm).name, 'fb0')
             with self.assertRaises(RuntimeError):
-                app.find_panel_framebuffer(root)
+                app.find_panel_framebuffer(root, 'spi', drm)
+
+
+class TouchChoiceTest(unittest.TestCase):
+    def test_spi_controller_first_on_the_panel_and_last_on_hdmi(self):
+        devices = [('/dev/input/event0', 'Logitech K400', False),           # Keyboard: no axes.
+                   ('/dev/input/event1', 'ADS7846 Touchscreen', True),
+                   ('/dev/input/event2', 'ILITEK ILITEK-TP', True)]
+        self.assertEqual(app.pick_touch(devices, prefer_spi=True), '/dev/input/event1')
+        self.assertEqual(app.pick_touch(devices, prefer_spi=False), '/dev/input/event2')
+        # A 5" screen whose touch is an XPT2046 on SPI still works on HDMI.
+        self.assertEqual(app.pick_touch(devices[:2], prefer_spi=False), '/dev/input/event1')
+        self.assertIsNone(app.pick_touch(devices[:1]))
 
 
 class PhotoLibraryTest(unittest.TestCase):
@@ -533,8 +557,9 @@ class AudioTest(unittest.TestCase):
 class FakeScreen:
     frames = []
 
-    def __init__(self):
+    def __init__(self, display='auto'):
         self.pixel_level = 100
+        self.spi = True
 
     def show(self, image):
         app.physical_image(image)  # Same size/rotation check as the real framebuffer.
@@ -550,7 +575,7 @@ class FakeTouch:
     script = []
     timeout = 20
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, prefer_spi=True):
         self.signature = ['fake', [0, 320], [0, 240]]
         self.start = time.monotonic()
         self.pending = list(FakeTouch.script)

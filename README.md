@@ -47,6 +47,7 @@ Install, update and run options: [INSTALL-AND-UPDATE.md](docs/INSTALL-AND-UPDATE
 | [CAMERA-PHOTOS-POWER.md](docs/CAMERA-PHOTOS-POWER.md) | Camera, photo review, self-timer, health banner, boot service, safe shutdown |
 | [PANEL-OPTIONS.md](docs/PANEL-OPTIONS.md) | The Options menu, clock and health indicators |
 | [ROTATION.md](docs/ROTATION.md) | Turning the UI (portrait) and the camera |
+| [HDMI-SCREEN.md](docs/HDMI-SCREEN.md) | Using a 5" HDMI touch screen instead of the 2.8" panel |
 | [APPS-AND-SAVERS.md](docs/APPS-AND-SAVERS.md) | Apps tab, audio, Snake, photo album, GIFs, bunny and clock savers |
 | [SCREENSAVERS.md](docs/SCREENSAVERS.md) | Screensaver styles and settings |
 | [GAMES.md](docs/GAMES.md) | The games and their records |

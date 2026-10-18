@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""320x240 RGB565 camera + system monitor for Eli's ILI9341 Pi.
+"""320x240 camera + system monitor for Eli's Pi: the 2.8" ILI9341 panel, or an HDMI
+touch screen showing the same pages scaled up (docs/HDMI-SCREEN.md).
 
 Run: sudo python3 panel_app.py
 Optional: --calibrate, --fps 15, --touch /dev/input/eventN, --status-only, --data DIR,
-          --rotation 0|90|180|270 (this run only; normally OPTIONS -> Screen)
+          --rotation 0|90|180|270 (this run only; normally OPTIONS -> Screen),
+          --display auto|spi|hdmi
 Apps: audio + visualizer, Snake, photo album, GIF player. See docs/APPS-AND-SAVERS.md.
-No desktop preview or console switching. Hardware imports happen only at startup.
+No desktop preview. Hardware imports happen only at startup.
 Boot service: sudo python3 setup_panel_service.py (see docs/CAMERA-PHOTOS-POWER.md).
 """
 import argparse
@@ -227,15 +229,50 @@ def user_owns(path):
         os.chown(path, int(os.environ['SUDO_UID']), int(os.environ['SUDO_GID']))
 
 
-def find_panel_framebuffer(root=Path('/sys/class/graphics')):
-    """fb0 normally, but boot order can renumber framebuffers when HDMI is attached."""
-    for base in sorted(root.glob('fb[0-9]*'), key=lambda p: int(p.name[2:])):
+def hdmi_connected(drm=Path('/sys/class/drm')):
+    """True when the kernel sees a monitor on an HDMI port."""
+    for status in drm.glob('card*-HDMI-A-*/status'):
         try:
-            if 'ili9341' in (base / 'name').read_text().lower():
-                return base
+            if status.read_text().strip() == 'connected':
+                return True
         except OSError:
             continue
-    raise RuntimeError('ILI9341 framebuffer not found. Stopping.')
+    return False
+
+
+def find_panel_framebuffer(root=Path('/sys/class/graphics'), display='auto', drm=Path('/sys/class/drm')):
+    """The framebuffer to draw on. 'spi' is the 2.8" ILI9341 (boot order can renumber it),
+    'hdmi' is the first other framebuffer. 'auto' uses HDMI when a monitor is connected,
+    because the ILI9341 overlay keeps its framebuffer even when the panel is unplugged."""
+    spi, other = None, []
+    for base in sorted(root.glob('fb[0-9]*'), key=lambda p: int(p.name[2:])):
+        try:
+            name = (base / 'name').read_text().lower()
+        except OSError:
+            continue
+        if 'ili9341' in name:
+            spi = spi or base
+        else:
+            other.append(base)
+    if display == 'auto':
+        display = 'hdmi' if other and (spi is None or hdmi_connected(drm)) else 'spi'
+    if display == 'spi' and spi is not None:
+        return spi
+    if display == 'hdmi' and other:
+        return other[0]
+    raise RuntimeError(f'No {display.upper()} framebuffer found. Stopping.')
+
+
+def console_graphics(on, tty=Path('/dev/tty0')):
+    """Stop the text console drawing its cursor and messages over the HDMI screen (and
+    give it back on exit). Best effort: needs root, and not every system has a tty0."""
+    try:
+        import fcntl
+        with open(tty, 'wb') as handle:
+            fcntl.ioctl(handle, 0x4B3A, 1 if on else 0)  # KDSETMODE: KD_GRAPHICS / KD_TEXT.
+        return True
+    except (ImportError, OSError):
+        return False
 
 
 BACKLIGHT_PWM = False  # True once a PWM backlight is configured: levels mean brightness.
@@ -262,60 +299,94 @@ class Framebuffer:
     and a ticking clock costs a strip of rows instead of the whole 153 KB frame."""
     FULL_REFRESH = 10.  # Seconds; rewrite everything now and then in case anything else drew.
 
-    def __init__(self, base=None, device=None):
-        base = base or find_panel_framebuffer()
-        if (base / 'virtual_size').read_text().strip() != '320,240':
-            raise RuntimeError('Expected a 320x240 framebuffer. Keep rotate=270.')
-        if int((base / 'bits_per_pixel').read_text()) != 16:
-            raise RuntimeError('Expected 16-bit RGB565 framebuffer.')
+    def __init__(self, base=None, device=None, display='auto'):
+        base = base or find_panel_framebuffer(display=display)
+        width, height = (int(v) for v in (base / 'virtual_size').read_text().strip().split(','))
+        self.depth = int((base / 'bits_per_pixel').read_text())
+        self.spi = (base / 'name').exists() and 'ili9341' in (base / 'name').read_text().lower()
+        if self.spi:
+            if (width, height) != (PW, PH):
+                raise RuntimeError('Expected a 320x240 framebuffer. Keep rotate=270.')
+        if self.depth not in (16, 32):
+            raise RuntimeError(f'Expected a 16- or 32-bit framebuffer, not {self.depth}-bit.')
+        if width < PW or height < PH:
+            raise RuntimeError(f'The screen is {width}x{height}; the panel needs at least {PW}x{PH}.')
         self.stride = int((base / 'stride').read_text())
-        if self.stride < PW * 2:
+        if self.stride < width * self.depth // 8:
             raise RuntimeError('Unexpected framebuffer stride.')
+        # A bigger screen shows the 320x240 canvas at the largest whole-number scale, centred,
+        # so text stays sharp and every layout keeps working; the rest of the screen is black.
+        self.scale = min(width // PW, height // PH)
+        self.left = (width - PW*self.scale) // 2
+        self.top = (height - PH*self.scale) // 2
         self.base = base
         self.file = open(device or Path('/dev') / base.name, 'r+b', buffering=0)
         self.map = None
         try:
             import mmap
-            self.map = mmap.mmap(self.file.fileno(), self.stride * PH, mmap.MAP_SHARED,
+            self.map = mmap.mmap(self.file.fileno(), self.stride * height, mmap.MAP_SHARED,
                                  mmap.PROT_READ | mmap.PROT_WRITE)
         except (ImportError, OSError, ValueError) as exc:
             print('Framebuffer mmap unavailable, using full writes:', exc, flush=True)
+        # Only on the real screen: tests pass a plain file as the device.
+        self.console = device is None and self.scale > 1 and console_graphics(True)
+        if (width, height) != (PW, PH):
+            self.write(0, bytes(self.stride * height))  # Clear the border once.
         self.last = None
         self.refreshed = 0.
         self.pixel_level = 100
-        self.rows_sent = 0  # Diagnostic/test counter.
+        self.rows_sent = 0  # Diagnostic/test counter, in panel rows.
+
+    def pixels(self, image):
+        """Screen bytes for `image` (already panel-shaped), scaled and padded to full rows."""
+        scale = self.scale
+        if scale > 1:
+            image = image.resize((image.width*scale, image.height*scale), Image.NEAREST)
+        if self.depth == 16:
+            data = np.frombuffer(rgb565(image), dtype=np.uint8).reshape(image.height, image.width*2)
+        else:  # 32-bit framebuffers are B, G, R, unused in memory.
+            rgb = np.asarray(image.convert('RGB'), dtype=np.uint8)
+            data = np.zeros((image.height, image.width, 4), dtype=np.uint8)
+            data[:, :, :3] = rgb[:, :, ::-1]
+            data = data.reshape(image.height, image.width*4)
+        if data.shape[1] != self.stride:
+            padded = np.zeros((data.shape[0], self.stride), dtype=np.uint8)
+            start = self.left * self.depth // 8
+            padded[:, start:start + data.shape[1]] = data
+            data = padded
+        return data
+
+    def write(self, offset, chunk):
+        if self.map is not None:
+            self.map[offset:offset+len(chunk)] = chunk
+            return
+        self.file.seek(offset)
+        view = memoryview(chunk)
+        while view:
+            n = self.file.write(view)
+            if not n:
+                raise OSError('Framebuffer write stopped.')
+            view = view[n:]
 
     def show(self, image):
         image = physical_image(image)
         level = getattr(self, 'pixel_level', 100)
         if level != 100:
             image = image.point([round(v*level/100) for v in range(256)]*3)
-        data = np.frombuffer(rgb565(image), dtype=np.uint8).reshape(PH, PW * 2)
-        if self.stride != PW * 2:
-            padded = np.zeros((PH, self.stride), dtype=np.uint8)
-            padded[:, :PW * 2] = data
-            data = padded
+        # Changes are found on the small panel image; only those rows are scaled and sent.
+        small = np.asarray(image.convert('RGB'))
         now = time.monotonic()
         first, end = 0, PH
         if self.last is not None and now - self.refreshed < self.FULL_REFRESH:
-            changed = np.flatnonzero((data != self.last).any(axis=1))
+            changed = np.flatnonzero((small != self.last).any(axis=(1, 2)))
             if not len(changed):
                 return  # Identical frame: nothing to send.
             first, end = int(changed[0]), int(changed[-1]) + 1
         else:
             self.refreshed = now
-        chunk = data[first:end].tobytes()
-        if self.map is not None:
-            self.map[first*self.stride:end*self.stride] = chunk
-        else:
-            self.file.seek(first*self.stride)
-            view = memoryview(chunk)
-            while view:
-                n = self.file.write(view)
-                if not n:
-                    raise OSError('Framebuffer write stopped.')
-                view = view[n:]
-        self.last = data
+        chunk = self.pixels(image.crop((0, first, PW, end))).tobytes()
+        self.write((self.top + first*self.scale) * self.stride, chunk)
+        self.last = small
         self.rows_sent += end - first
 
     def set_blank(self, blank):
@@ -329,6 +400,8 @@ class Framebuffer:
             return False
 
     def close(self):
+        if self.console:
+            console_graphics(False)
         if self.map is not None:
             self.map.close()
         self.file.close()
@@ -419,21 +492,40 @@ class PhotoLibrary:
         self.refresh()
 
 
+SPI_TOUCH_NAMES = ('ads7846', 'xpt2046')
+
+
+def pick_touch(devices, prefer_spi=True):
+    """Path of the touchscreen to use from (path, name, usable) rows. The 2.8" panel's
+    controller comes first when drawing on that panel; any other touchscreen comes first on
+    HDMI, because the ADS7846 overlay keeps its device even when the panel is unplugged."""
+    usable = [(path, name) for path, name, ok in devices if ok]
+    spi = [path for path, name in usable if any(n in name.lower() for n in SPI_TOUCH_NAMES)]
+    other = [path for path, _ in usable if path not in spi]
+    order = spi + other if prefer_spi else other + spi
+    return order[0] if order else None
+
+
 class Touch:
-    def __init__(self, path=None):
+    def __init__(self, path=None, prefer_spi=True):
         import evdev
         self.e = evdev.ecodes
         self.device = None
+        found, opened = [], {}
         for candidate in ([path] if path else evdev.list_devices()):
             d = evdev.InputDevice(candidate)
             caps = d.capabilities(absinfo=False)
             axes = caps.get(self.e.EV_ABS, [])
             keys = caps.get(self.e.EV_KEY, [])
-            match = path or any(n in d.name.lower() for n in ('ads7846', 'xpt2046'))
-            if match and self.e.ABS_X in axes and self.e.ABS_Y in axes and self.e.BTN_TOUCH in keys:
+            usable = self.e.ABS_X in axes and self.e.ABS_Y in axes and self.e.BTN_TOUCH in keys
+            found.append((candidate, d.name, usable))
+            opened[candidate] = d
+        chosen = pick_touch(found, prefer_spi)
+        for candidate, d in opened.items():
+            if candidate == chosen:
                 self.device = d
-                break
-            d.close()
+            else:
+                d.close()
         if self.device is None:
             raise RuntimeError('Touchscreen not found. Check sudo evtest first.')
         try:
@@ -3971,6 +4063,8 @@ def main():
     parser.add_argument('--fps', type=int, choices=(10, 15, 20), default=20)
     parser.add_argument('--calibrate', action='store_true')
     parser.add_argument('--touch', help='Override touchscreen event device')
+    parser.add_argument('--display', choices=('auto', 'spi', 'hdmi'), default='auto',
+                        help='Screen to draw on; auto uses HDMI when a monitor is connected')
     parser.add_argument('--status-only', action='store_true')
     parser.add_argument('--data', help='Data folder (default: ~/cyberdeck-data for the invoking user)')
     parser.add_argument('--rotation', type=int, choices=(0, 90, 180, 270),
@@ -4019,12 +4113,12 @@ def main():
     backlight = light = None
     panel_off = False  # Black saver with a PWM backlight: LEDs off and panel blanked.
     try:
-        screen = Framebuffer()
+        screen = Framebuffer(display=args.display)
         backlight = load_backlight(data)
         BACKLIGHT_PWM = backlight.available
         light = Brightness(screen, backlight)
         light.apply(100)  # Lit for calibration; pages apply the chosen level when drawn.
-        touch = Touch(args.touch)
+        touch = Touch(args.touch, prefer_spi=screen.spi)
         matrix = None
         if not args.calibrate:
             try:
