@@ -253,6 +253,22 @@ class HdmiFramebufferTest(unittest.TestCase):
                 app.set_rotation(0)
                 fb.close()
 
+    def test_a_strip_of_rows_scales_exactly_like_the_whole_frame(self):
+        # Only the changed rows are scaled, so they must match the full-frame result.
+        rows = np.random.default_rng(1).integers(0, 256, (240, 320, 3), dtype=np.uint8)
+        image = Image.fromarray(rows)
+        for width, height in ((1024, 600), (800, 480), (1280, 800), (1366, 768), (720, 480)):
+            with tempfile.TemporaryDirectory() as folder:
+                fb, _ = self.make(folder, width, height, 32)
+                try:
+                    whole = np.asarray(fb.scaled(image))
+                    self.assertEqual(whole.shape[:2], (fb.size[1], fb.size[0]))
+                    for top, bottom in ((0, 1), (0, fb.size[1]), (7, 8), (250, 263), (fb.size[1]-3, fb.size[1])):
+                        strip = np.asarray(fb.scaled(image, top, bottom))
+                        self.assertTrue(np.array_equal(strip, whole[top:bottom]), (width, height, top, bottom))
+                finally:
+                    fb.close()
+
     def test_refuses_screens_it_cannot_drive(self):
         for size, depth in (((300, 200), 32), ((800, 480), 24)):
             with tempfile.TemporaryDirectory() as folder, self.assertRaises(RuntimeError):
