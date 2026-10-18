@@ -17,6 +17,11 @@ sudo python3 ~/cyberdeck-repo/main_app.py
 
 It isn't a boot service yet. Ctrl+C on the keyboard closes it, and so does the CLOSE tile.
 
+The main app and the quick panel can't run at the same time, because they share the screen,
+touch and keys. If the quick panel is running as the boot service, stop it first with
+`sudo systemctl stop cyberdeck-panel`. Otherwise the main app stops and says the quick panel is
+running.
+
 ## Using it
 
 | Key | Does |

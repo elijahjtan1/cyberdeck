@@ -220,11 +220,14 @@ def main():
     parser.add_argument('--backend', help="cyberdeck-core address (default http://127.0.0.1:8765; 'off' disables)")
     args = parser.parse_args()
     import fcntl
-    lock = open('/run/lock/cyberdeck-main-app.lock', 'a')
+    # The quick panel's lock: while both share one screen, touch and keys, only one may run.
+    lock = open('/run/lock/cyberdeck-camera-monitor.lock', 'a')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        raise RuntimeError('The main app is already running.')
+        lock.close()
+        raise RuntimeError('The quick panel or the main app is already running. Stop it first '
+                           f'(boot service: sudo systemctl stop {panel.SERVICE}).')
     data = data_home(args.data, panel.__file__)
 
     def terminate(signum, frame):
