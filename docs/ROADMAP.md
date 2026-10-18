@@ -90,10 +90,11 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 
 | # | Item | Owner | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 4.1 | Browser home page: Ask, Wikipedia, Files, Photos, Status, Maps | - | todo | All assets vendored; works offline |
+| 4.1 | Browser home page: Ask, Wikipedia, Files, Photos, Status, Maps | - | todo | All assets vendored; works offline. On 2026-10-18 Eli chose a framebuffer main app (4.5) over a browser, so this is now optional: a small read-only page for laptops at most |
 | 4.2 | Camera: video recording (H.264 to .mp4) with a length cap and low-storage stop; optional timestamp on stills | - | todo | RECORD on the panel |
 | 4.3 | Investigate tearing: compare partial vs whole-frame framebuffer writes | - | blocked | Waiting on 0.2 |
 | 4.4 | Camera service in the backend as the single owner; panel and browser as clients | - | todo | Only when the browser needs live video |
+| 4.5 | Main app (`main_app.py`) at the 5" screen's full 1024x600 on the framebuffer, keyboard first, with Ask, Wikipedia, Planner, Photos, Tools, Games and Status; `panel_app.py` trimmed to a 320x240 quick panel; a tile in each switches to the other | Claude | in progress | MP1; requested by Eli. Plan in five steps, one PR each, starting with the shell, home, Status and the switch |
 
 ## Phase 5: simulated hardware
 
