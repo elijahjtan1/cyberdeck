@@ -79,7 +79,8 @@ def usb():
 # What is on the deck today when config.txt isn't available. The TFT's DC and RESET pins and
 # the touch interrupt aren't recorded in the repo; reading config.txt fills them in.
 BASELINE = [
-    Device('2.8" TFT', spi('spi0', 0), 'ILI9341 (fbtft)'),
+    Device('2.8" TFT', spi('spi0', 0), 'ILI9341 (fbtft)',
+           'Disconnected since Oct 2026; its pins stay reserved for when it returns'),
     Device('Touch', spi('spi0', 1), 'XPT2046 / ADS7846'),
     Device('Backlight PWM', pwm(18), note='Only once setup_backlight.py has run; until then '
            'the LED pin is on 3.3 V and GPIO18 is free'),
@@ -92,7 +93,7 @@ PLAN = [
            'GPIO14/15. Needs dtoverlay=disable-bt and no serial console'),
     Device('GNSS PPS', gpio(12), 'Only if the module breaks out PPS (assumed)',
            'Plain input; GPIO12 is then not free for PWM', overlay='pps-gpio'),
-    Device('Compass', i2c(0x0D), 'QMC5883L, if the GNSS board has one (assumed)',
+    Device('Compass', i2c(0x0D), 'On the BZ-251 board (its SCL/SDA wires); chip assumed QMC5883L',
            'An HMC5883L would be 0x1E instead'),
     Device('Radar A', uart('uart3'), 'HLK-LD2450, 256000 baud',
            'GPIO4/5 via dtoverlay=uart3, so 1-wire moves to GPIO6', overlay='uart3'),
@@ -109,8 +110,9 @@ PLAN = [
     Device('Power-off signal', gpio(26), 'To an ESP32 input (power draft)',
            'dtoverlay=gpio-poweroff,gpiopin=26 (active-high): tells the ESP32 shutdown finished',
            overlay='gpio-poweroff'),
-    Device('7" screen', hdmi(0) + usb(), '1024x600 IPS, HDMI with USB touch'),
-    Device('5" screen', hdmi(1) + usb(), '1024x600, HDMI with USB touch'),
+    Device('5" screen', hdmi(0) + usb(), '1024x600, HDMI with USB touch',
+           'The main screen now. HDMI0 is the port next to USB-C, the one the Pi boots to'),
+    Device('7" screen', hdmi(1) + usb(), '1024x600 IPS, HDMI with USB touch'),
     Device('SDR', usb(), 'RTL-SDR Blog V4', 'A USB 2 port, away from the GNSS antenna'),
     Device('SSD', usb(), 'USB 3 SSD (roadmap 6.2)'),
     Device('ESP32', usb(), 'USB serial (roadmap 5.4)', 'Plus the power-off signal above'),
