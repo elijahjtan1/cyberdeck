@@ -56,6 +56,8 @@ CYAN, BLUE, INDIGO, PURPLE = '#4fd8e8', '#67bfff', '#4f86f0', '#b07cf0'
 SCREEN, DEEP = '#0b1218', '#070d12'  # Full-screen app and game backgrounds
 INSET, SHADE, GRID = '#15232f', '#18252f', '#2a3a46'  # Graph wells, disabled fills, grid lines
 SERVICE = 'cyberdeck-panel'
+MAIN_APP = [False]  # True when main_app.py handed the screen over: EXIT offers MAIN APP.
+OPEN_PAGES = ('ask', 'reader', 'planner', 'tools', 'games', 'camera', 'photos')
 SAVER_STYLES = ('radar', 'stars', 'bunnies', 'clock', 'album', 'gif', 'black', 'off')
 SAVER_NAMES = {'radar': 'Radar', 'stars': 'Starfield', 'bunnies': 'Bunnies', 'clock': 'Clock',
                'album': 'Photo album', 'gif': 'GIFs', 'black': 'Black', 'off': 'Off'}
@@ -3996,7 +3998,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
         rects = ([(20, 128+i*43, W-21, 165+i*43) for i in range(3)] if portrait() else
                  row_rects(3, 121, 174, margin=12, gap=11))
         for rect, label, action in zip(rects,
-                                       ('CANCEL', 'CLOSE APP', 'SHUT DOWN'),
+                                       ('CANCEL', 'MAIN APP' if MAIN_APP[0] else 'CLOSE APP', 'SHUT DOWN'),
                                        ('exit:cancel', 'exit:close', 'exit:shutdown')):
             button(d, rect, label, active=(label == 'CANCEL'),
                    fill=DANGER if label == 'SHUT DOWN' else None, action=action)
@@ -4097,7 +4099,12 @@ def main():
                         help='Turn the UI clockwise for this run only (overrides OPTIONS -> Screen)')
     parser.add_argument('--backend',
                         help="cyberdeck-core address (default http://127.0.0.1:8765; 'off' disables)")
+    parser.add_argument('--open', choices=OPEN_PAGES, help='Page to start on')
+    parser.add_argument('--main-app', action='store_true',
+                        help='Started by main_app.py: EXIT offers MAIN APP to hand the screen back')
     args = parser.parse_args()
+    MAIN_APP[0] = args.main_app
+    main_requested = False
     # Prevent two copies from competing for the camera and touchscreen.
     import fcntl
     lock = open('/run/lock/cyberdeck-camera-monitor.lock', 'a')
@@ -4171,6 +4178,8 @@ def main():
             if camera is None:
                 message = 'Camera unavailable; see terminal'
         page = 'camera' if options['start_page'] == 'camera' and camera else 'home'
+        if args.open and (args.open != 'camera' or camera):
+            page = args.open
         frame, paused, fps = None, False, args.fps
         stats, rows, alerts = Stats(), {}, []
         stats.start()
@@ -4594,6 +4603,7 @@ def main():
                     elif arg == 'close':
                         if not photo_pending and not tools_ui.job.busy:
                             running = False
+                            main_requested = MAIN_APP[0]
                     else:
                         page = 'shutdown'
                         ignore_touch_until = now + .5
@@ -4851,6 +4861,10 @@ def main():
                 if screen is not None:
                     screen.close()
                 lock.close()
+    if main_requested:
+        command = [sys.executable, str(Path(__file__).resolve().parent / 'main_app.py'),
+                   '--display', 'auto' if args.display == 'auto' else 'hdmi']
+        os.execv(sys.executable, command + (['--data', args.data] if args.data else []))
     if restart_requested:
         # Older revisions also understand --data; keep rollback on the same library.
         arguments = list(sys.argv)
