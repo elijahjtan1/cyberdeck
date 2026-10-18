@@ -490,9 +490,9 @@ def main_app_screens(clock):
                        'It is named after Samuel Morse, one of several developers of the system. '
                        'International Morse code encodes the 26 basic Latin letters, the Arabic numerals '
                        'and a small set of punctuation and procedural signals.']
-    for app, name in ((ask, 'main-app-ask-preview.png'), (wiki, 'main-app-wikipedia-preview.png')):
+    for page, name in ((ask, 'main-app-ask-preview.png'), (wiki, 'main-app-wikipedia-preview.png')):
         out = ROOT / 'docs/previews' / name
-        app.render(0, clock, []).save(out, optimize=True)
+        page.render(0, clock, []).save(out, optimize=True)
         print(out)
 
 if __name__ == '__main__':
