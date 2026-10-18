@@ -476,6 +476,24 @@ def main_app_screens(clock):
         out = ROOT / 'docs/previews' / name
         main_app.render(page, (1024, 600), state, clock).save(out, optimize=True)
         print(out)
+    from panel_tools.main_pages import AskPage, WikiPage
+    ask = AskPage(main_app, 'http://127.0.0.1:8765')
+    ask.view, ask.asked, ask.stage, ask.started, ask.finished = 'answer', 'Why does my bike chain slip?', 'done', 0, 41
+    ask.text = ('The chain has probably stretched with wear [1]. If twelve links measure more than '
+                '12 1/8 inches, replace the chain and usually the cassette too [1][2].')
+    ask.notes = ["PARTIAL: the sources don't contain the full answer."]
+    ask.sources = ['[1] Bicycle chain (kiwix)', '[2] Cassette (kiwix)']
+    wiki = WikiPage(main_app, 'http://127.0.0.1:8765')
+    wiki.view, wiki.title = 'article', 'Morse code'
+    wiki.paragraphs = ['Morse code is a telecommunications method which encodes text characters as '
+                       'standardized sequences of two different signal durations, called dots and dashes.',
+                       'It is named after Samuel Morse, one of several developers of the system. '
+                       'International Morse code encodes the 26 basic Latin letters, the Arabic numerals '
+                       'and a small set of punctuation and procedural signals.']
+    for page, name in ((ask, 'main-app-ask-preview.png'), (wiki, 'main-app-wikipedia-preview.png')):
+        out = ROOT / 'docs/previews' / name
+        page.render(0, clock, []).save(out, optimize=True)
+        print(out)
 
 if __name__ == '__main__':
     main()
