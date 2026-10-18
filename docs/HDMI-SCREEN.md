@@ -31,6 +31,27 @@ Buttons are 2.5 times bigger on the 5" screen, so they are easier to hit. Portra
 - On HDMI the text console is switched to graphics mode while the app runs, so its cursor
   and messages don't draw over the page, and switched back when it closes.
 
+## Keyboard
+
+A USB or wireless keyboard types in **READER**, **ASK** and **PLANNER** as well as the
+on-screen keys. Plug it in or switch it on at any time; the panel finds it within a few
+seconds. The keys are read with python3-evdev, like the touchscreen, and the layout is
+US English. While the panel runs it has the keyboard to itself, so typing doesn't reach
+the console behind it. **Ctrl+C** still stops the panel.
+
+| Key | READER | ASK | PLANNER |
+| --- | --- | --- | --- |
+| Letters, digits, symbols | Type the search; typing on a result or article starts a new one | Type the question; typing after an answer starts a new one | Type the entry; typing on a day starts a new entry |
+| **Enter** | Search, then open the first result | Ask | NEXT, then SAVE; on the month, open today |
+| **1** to **9** | Open that result | | |
+| **Esc** | Back one step, then HOME | STOP or EDIT, then HOME | Back one step, then HOME |
+| **Left / Right** | Page through results or the article | | Previous or next month or day |
+| **Up / Down**, **Page Up / Page Down** | Page, like Left / Right | Scroll the answer | Scroll the day; on the time, 15 minutes (Page Up/Down: an hour) |
+| **Space** | Next page of an article | Scroll down an answer | |
+| **Backspace** | Delete a letter | Delete a letter | Delete a letter; on a chosen entry, delete it |
+
+Any key also wakes the screen from a screensaver. Other pages still need touch.
+
 ## Running it
 
 The app draws straight to the framebuffer, so the Pi must boot to the console, not the
@@ -51,6 +72,9 @@ To boot to the console instead of the desktop: `sudo raspi-config`, then
 
 - **Tests:** `tests/test_power.py` draws on fake 800x480 32-bit (2x) and 1024x600 16-bit
   (2.5x, portrait) framebuffers: scaling, centring, borders and changed-rows-only updates;
-  `tests/test_panel_app.py` covers choosing the screen and the touch device.
+  `tests/test_panel_app.py` covers choosing the screen and the touch device;
+  `tests/test_keyboard.py` covers key names, finding and losing a keyboard, and typing in
+  READER, ASK and PLANNER.
 - **On the Pi:** the page fills the middle of the screen, taps land where you touch after
-  calibration, and closing the app gives the console back.
+  calibration, and closing the app gives the console back. Type a search in READER on the
+  wireless keyboard and press Enter; Ctrl+C stops the panel.

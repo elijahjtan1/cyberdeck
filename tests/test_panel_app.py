@@ -595,6 +595,24 @@ class FakeTouch:
         pass
 
 
+class FakeKeyboard:
+    """Delivers scripted (seconds_after_start, key name) keys, like panel_tools.keyboard."""
+    script = []
+
+    def __init__(self, skip=()):
+        self.start, self.devices, self.closed = time.monotonic(), [], False
+        self.pending = list(FakeKeyboard.script)
+
+    def poll(self):
+        keys = []
+        while self.pending and time.monotonic()-self.start >= self.pending[0][0]:
+            keys.append(self.pending.pop(0)[1])
+        return keys
+
+    def close(self):
+        self.closed = True
+
+
 class FakeCamera:
     instances = []
 
@@ -620,7 +638,7 @@ class FakeCamera:
 
 
 class MainLoopTest(unittest.TestCase):
-    def run_app(self, script, options=None):
+    def run_app(self, script, options=None, keys=None):
         folder = tempfile.mkdtemp()
         data = Path(folder)
         (data / 'photos').mkdir()
@@ -628,6 +646,7 @@ class MainLoopTest(unittest.TestCase):
             {'device': ['fake', [0, 320], [0, 240]], 'matrix': [[1, 0], [0, 1], [0, 0]]}))
         (data / 'options.json').write_text(json.dumps({'rotation': 0, 'start_page': 'camera', **(options or {})}))
         FakeTouch.script, FakeScreen.frames, FakeCamera.instances = script, [], []
+        FakeKeyboard.script = keys or []
         poweroff = mock.Mock()
         real_open = builtins.open
         def local_lock(path, *args, **kwargs):
@@ -644,6 +663,7 @@ class MainLoopTest(unittest.TestCase):
                 mock.patch.object(app, 'user_owns'), \
                 mock.patch('panel_tools.updates.Updates.git', return_value='test'), \
                 mock.patch.object(app, 'Touch', FakeTouch), \
+                mock.patch.object(app, 'Keyboard', FakeKeyboard), \
                 mock.patch.object(app, 'Camera', FakeCamera), \
                 mock.patch.object(app, 'request_poweroff', poweroff), \
                 mock.patch.object(app, 'command_output', return_value=''), \
@@ -676,6 +696,16 @@ class MainLoopTest(unittest.TestCase):
                                     (2.4, 290, 222), (3.1, 160, 150)])
         self.assertTrue(navigated_while_busy)
         self.assertEqual(len(list((data/'photos').glob('*.jpg'))), 1)
+
+    def test_keyboard_types_into_reader_and_ctrl_c_stops(self):
+        searched = []
+        reader = next(r for r, (_, key, _) in zip(app.home_rects(), app.HOME_TILES) if key == 'reader')
+        x, y = (reader[0]+reader[2])/2, (reader[1]+reader[3])/2
+        keys = [(1.2, k) for k in ('o', 'h', 'm', 'enter')] + [(1.6, 'esc'), (2.0, 'quit')]
+        with mock.patch('panel_tools.reader.ReaderApp.search', lambda view, q: searched.append(q)):
+            self.run_app([(.5, 136, 222), (.9, x, y)], options={'start_page': 'camera'}, keys=keys)
+        self.assertEqual(searched, ['ohm'])
+        self.assertTrue(FakeCamera.instances[0].closed)
 
     def test_tools_timelapse_runs_after_leaving_its_page(self):
         data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 142), # HOME > TOOLS

@@ -12,7 +12,7 @@ from urllib.request import ProxyHandler, build_opener
 
 from PIL import Image, ImageDraw
 
-from .ask import keyboard_rects, field_rect
+from .ask import keyboard_rects, field_rect, type_key
 
 LINE = 15
 MAX_QUERY = 100
@@ -174,33 +174,17 @@ class ReaderApp:
         buttons = bottom_buttons(a.W, a.H)
         if self.view == 'article':
             choice = a.index_at(buttons, x, y, slop=2)
-            if choice == 0:
-                self.view = 'results' if self.results else 'type'
-            elif choice == 1:
-                self.page = max(0, self.page - 1)
-            elif choice == 2:
-                self.page = min(self.pages() - 1, self.page + 1)
-            elif choice == 3:
-                return 'exit'
-            elif y > a.H // 2 and not self.running:  # Tapping the text turns the page too.
-                self.page = min(self.pages() - 1, self.page + 1)
-            return None
+            if choice is None and y > a.H // 2 and not self.running:
+                choice = 2  # Tapping the text turns the page too.
+            return self.button(choice)
         if self.view == 'results':
             choice = a.index_at(buttons, x, y, slop=2)
-            shown = self.shown_results()
-            if choice == 0:
-                self.view = 'type'
-            elif choice == 1:
-                self.result_page = max(0, self.result_page - 1)
-            elif choice == 2 and self.more_results():
-                self.result_page += 1
-            elif choice == 3:
-                return 'exit'
-            else:
+            if choice is None:
+                shown = self.shown_results()
                 hit = a.index_at(result_rects(a.W, a.H, len(shown)), x, y, slop=1)
                 if hit is not None and hit < len(shown):
                     self.open(shown[hit])
-            return None
+            return self.button(choice)
         keys = keyboard_rects(a.W, a.H, self.symbols)
         choice = a.index_at([rect for rect, _ in keys], x, y, slop=1)
         if choice is None:
@@ -208,20 +192,55 @@ class ReaderApp:
             if self.title and a.index_at([box], x, y, slop=0) is not None:
                 self.view = 'article'  # Back to the article that is still open.
             return None
-        key = keys[choice][1]
+        return self.press(keys[choice][1])
+
+    def button(self, choice):
+        """BACK, previous, next or HOME along the bottom of the results and article views."""
+        if choice == 0:
+            self.view = 'type' if self.view == 'results' or not self.results else 'results'
+        elif choice == 1:
+            if self.view == 'article':
+                self.page = max(0, self.page - 1)
+            else:
+                self.result_page = max(0, self.result_page - 1)
+        elif choice == 2:
+            if self.view == 'article':
+                self.page = min(self.pages() - 1, self.page + 1)
+            elif self.more_results():
+                self.result_page += 1
+        elif choice == 3:
+            return 'exit'
+        return None
+
+    def press(self, key):
+        """One key of the search keyboard, on screen or typed."""
         if key == 'back':
             return 'exit'
         if key == 'mode':
             self.symbols = not self.symbols
-        elif key == 'del':
-            self.query = self.query[:-1]
         elif key == 'ask':
             self.search(self.query)
-        elif len(self.query) < MAX_QUERY:
-            if key != 'space':
-                self.query += key
-            elif self.query and not self.query.endswith(' '):
-                self.query += ' '
+        else:
+            self.query = type_key(self.query, key, MAX_QUERY)
+        return None
+
+    def key(self, key, now):
+        """A key from a real keyboard: type to search, Enter to search or open the first
+        result, digits to open a result, arrows to turn pages and Esc to go back."""
+        if self.view == 'type':
+            return self.press({'enter': 'ask', 'esc': 'back'}.get(key, key))
+        steps = {'esc': 0, 'left': 1, 'up': 1, 'pageup': 1, 'right': 2, 'down': 2, 'pagedown': 2}
+        if self.view == 'article' and key == 'space':
+            key = 'right'
+        if key in steps:
+            return self.button(steps[key])
+        shown = self.shown_results() if self.view == 'results' else []
+        if key == 'enter' and shown:
+            self.open(shown[0])
+        elif key in '123456789' and len(key) == 1 and int(key) <= len(shown):
+            self.open(shown[int(key) - 1])
+        elif len(key) == 1 or key == 'del':  # Typing starts a new search.
+            self.view, self.query = 'type', type_key('', key, MAX_QUERY)
         return None
 
     def results_per_page(self):

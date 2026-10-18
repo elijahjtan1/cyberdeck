@@ -42,6 +42,18 @@ def keyboard_rects(width, height, symbols=False):
     return keys
 
 
+def type_key(text, key, limit):
+    """`text` after one typing key: a character, 'space' or 'del'. Other keys change
+    nothing. Spaces never start the text or double up."""
+    if key == 'del':
+        return text[:-1]
+    if len(text) >= limit:
+        return text
+    if key == 'space':
+        return text + ' ' if text and not text.endswith(' ') else text
+    return text + key if len(key) == 1 and key.isprintable() else text
+
+
 def field_rect(width, height):
     """The question box above the keyboard: two lines in landscape, three in portrait."""
     return (2, 26, width-3, 70 if height > width else 52)
@@ -208,20 +220,7 @@ class AskApp:
     def tap(self, x, y, now):
         a = self.a
         if self.view == 'answer':
-            choice = a.index_at(answer_buttons(a.W, a.H), x, y, slop=3)
-            if choice == 0:
-                if self.running:
-                    self.stop()
-                else:
-                    self.view = 'type'
-                    self.question = self.asked
-            elif choice in (1, 2):
-                first, _, visible, _ = self.layout()
-                step = max(1, visible-1)
-                self.scroll = max(0, first - step) if choice == 1 else first + step
-            elif choice == 3:
-                return 'exit'
-            return None
+            return self.button(a.index_at(answer_buttons(a.W, a.H), x, y, slop=3))
         if self.view == 'examples':
             questions = self.examples()
             choice = a.index_at(example_rects(a.W, a.H, len(questions)), x, y, slop=2)
@@ -242,21 +241,52 @@ class AskApp:
         choice = a.index_at([rect for rect, _ in keys], x, y, slop=1)
         if choice is None:
             return None
-        key = keys[choice][1]
+        return self.press(keys[choice][1])
+
+    def button(self, choice):
+        """STOP or EDIT, up, down and HOME under the answer."""
+        if choice == 0:
+            if self.running:
+                self.stop()
+            else:
+                self.view = 'type'
+                self.question = self.asked
+        elif choice in (1, 2):
+            first, _, visible, _ = self.layout()
+            step = max(1, visible-1)
+            self.scroll = max(0, first - step) if choice == 1 else first + step
+        elif choice == 3:
+            return 'exit'
+        return None
+
+    def press(self, key):
+        """One key of the question keyboard, on screen or typed."""
         if key == 'back':
             return 'exit'
         if key == 'mode':
             self.symbols = not self.symbols
-        elif key == 'del':
-            self.question = self.question[:-1]
         elif key == 'ask':
             self.ask(self.question)
-        elif len(self.question) < MAX_QUESTION:
-            if key != 'space':
-                self.question += key
-            elif self.question and not self.question.endswith(' '):
-                self.question += ' '
+        else:
+            self.question = type_key(self.question, key, MAX_QUESTION)
         return None
+
+    def key(self, key, now):
+        """A key from a real keyboard: type and press Enter to ask, arrows to scroll the
+        answer, Esc to stop or go back. Typing after an answer starts a new question."""
+        if self.view == 'answer':
+            steps = {'esc': 0, 'up': 1, 'pageup': 1, 'down': 2, 'pagedown': 2, 'space': 2}
+            if key in steps:
+                return self.button(steps[key])
+            if self.running or not (len(key) == 1 or key == 'del'):
+                return None
+            self.view, self.question = 'type', ''
+        elif self.view == 'examples':
+            if key == 'esc':
+                self.view = 'type'
+                return None
+            self.view = 'type'
+        return self.press({'enter': 'ask', 'esc': 'back'}.get(key, key))
 
     def examples(self):
         return (self.recent + [q for q in EXAMPLES if q not in self.recent])[:5]

@@ -9,7 +9,7 @@ import json
 
 from PIL import Image, ImageDraw
 
-from .ask import keyboard_rects, field_rect
+from .ask import keyboard_rects, field_rect, type_key
 from .runtime import atomic_json
 
 MAX_TEXT = 60
@@ -191,11 +191,39 @@ class PlannerApp:
 
     def tap(self, x, y, now):
         a = self.a
+        if self.view == 'type':
+            keys = keyboard_rects(a.W, a.H, self.symbols)
+            choice = a.index_at([rect for rect, _ in keys], x, y, slop=1)
+            return None if choice is None else self.press(keys[choice][1])
+        if self.view == 'time' and self.time:
+            step = a.index_at(self.time_rects(), x, y, slop=2)
+            if step is not None:
+                self.time = step_time(self.time, TIME_STEPS[step][1])
+                return None
+        choice = a.index_at(bottom_buttons(a.W, a.H), x, y, slop=2)
+        if choice is not None or self.selected is not None:
+            return self.button(choice)
+        if self.view == 'month':
+            days = self.day_rects(self.shown or self.now().date().replace(day=1))
+            hit = a.index_at([rect for rect, _ in days], x, y, slop=1)
+            if hit is not None:
+                self.open_day(days[hit][1])
+        elif self.view == 'day':
+            count = len(self.planner.entries(self.day))
+            scroll = a.index_at(self.scroll_rects(count), x, y, slop=1)
+            if scroll is not None:
+                self.scroll(-1 if scroll == 0 else 1)
+                return None
+            hit = a.index_at(self.entry_rects(count), x, y, slop=1)
+            if hit is not None:
+                self.selected = self.first + hit
+        return None
+
+    def button(self, choice):
+        """The four buttons along the bottom of the month, day and time views."""
         today = self.now().date()
         if self.view == 'month':
             month = self.shown or today.replace(day=1)
-            buttons = bottom_buttons(a.W, a.H)
-            choice = a.index_at(buttons, x, y, slop=2)
             if choice == 0:
                 self.shown = shift_month(month, -1)
             elif choice == 1:
@@ -205,21 +233,13 @@ class PlannerApp:
                 self.shown = shift_month(month, 1)
             elif choice == 3:
                 return 'exit'
-            else:
-                days = self.day_rects(month)
-                hit = a.index_at([rect for rect, _ in days], x, y, slop=1)
-                if hit is not None:
-                    self.open_day(days[hit][1])
-            return None
-        if self.view == 'day':
-            choice = a.index_at(bottom_buttons(a.W, a.H), x, y, slop=2)
+        elif self.view == 'day':
             if self.selected is not None:
                 if choice == 2:
                     self.planner.delete(self.day, self.selected)
                     self.message = 'Deleted'
                 self.selected = None
-                return None
-            if choice == 0:
+            elif choice == 0:
                 self.view = 'month'
                 self.shown = self.day.replace(day=1)
             elif choice in (1, 2):
@@ -229,60 +249,69 @@ class PlannerApp:
                     self.message = f'A day holds up to {MAX_PER_DAY} entries'
                 else:
                     self.text, self.symbols, self.view = '', False, 'type'
-            else:
-                count = len(self.planner.entries(self.day))
-                scroll = a.index_at(self.scroll_rects(count), x, y, slop=1)
-                if scroll is not None:
-                    self.first += -1 if scroll == 0 else 1
-                    self.clamp_first(count)
-                    return None
-                hit = a.index_at(self.entry_rects(count), x, y, slop=1)
-                if hit is not None:
-                    self.selected = self.first + hit
-            return None
-        if self.view == 'time':
-            choice = a.index_at(self.time_rects(), x, y, slop=2) if self.time else None
-            if choice is not None:
-                self.time = step_time(self.time or '09:00', TIME_STEPS[choice][1])
-                return None
-            choice = a.index_at(bottom_buttons(a.W, a.H), x, y, slop=2)
+        elif self.view == 'time':
             if choice == 0:
                 self.view = 'type'
             elif choice == 1:
                 self.time = '' if self.time else self.default_time()
             elif choice == 3:
-                saved = self.planner.add(self.day, self.text, self.time)
-                self.message = 'Saved' if saved else 'Not saved'
-                self.view = 'day'
-                entries = self.planner.entries(self.day)
-                new = clean_entry({'text': self.text, 'time': self.time})
-                if saved and new in entries:  # Scroll so the new entry is on screen.
-                    index, rows = entries.index(new), self.entry_layout()[2]
-                    self.first = min(max(self.first, index - rows + 1), index)
-                    self.clamp_first(len(entries))
-            return None
-        # Typing the entry text.
-        keys = keyboard_rects(a.W, a.H, self.symbols)
-        choice = a.index_at([rect for rect, _ in keys], x, y, slop=1)
-        if choice is None:
-            return None
-        key = keys[choice][1]
+                self.save()
+        return None
+
+    def save(self):
+        saved = self.planner.add(self.day, self.text, self.time)
+        self.message = 'Saved' if saved else 'Not saved'
+        self.view = 'day'
+        entries = self.planner.entries(self.day)
+        new = clean_entry({'text': self.text, 'time': self.time})
+        if saved and new in entries:  # Scroll so the new entry is on screen.
+            index, rows = entries.index(new), self.entry_layout()[2]
+            self.first = min(max(self.first, index - rows + 1), index)
+            self.clamp_first(len(entries))
+
+    def scroll(self, step):
+        self.first += step
+        self.clamp_first(len(self.planner.entries(self.day)))
+
+    def press(self, key):
+        """One key of the entry keyboard, on screen or typed."""
         if key == 'back':
             self.view = 'day'
         elif key == 'mode':
             self.symbols = not self.symbols
-        elif key == 'del':
-            self.text = self.text[:-1]
         elif key == 'ask':
             if self.text.strip():
                 self.time = self.default_time()
                 self.view = 'time'
-        elif len(self.text) < MAX_TEXT:
-            if key != 'space':
-                self.text += key
-            elif self.text and not self.text.endswith(' '):
-                self.text += ' '
+        else:
+            self.text = type_key(self.text, key, MAX_TEXT)
         return None
+
+    def key(self, key, now):
+        """A key from a real keyboard. Month and day: arrows move, Enter opens today or adds
+        an entry, Esc goes back. Typing on a day starts a new entry. Time: up and down
+        step 15 minutes, page up and down an hour, Enter saves."""
+        if self.view == 'type':
+            return self.press({'enter': 'ask', 'esc': 'back'}.get(key, key))
+        if self.view == 'time':
+            steps = {'down': -15, 'up': 15, 'pagedown': -60, 'pageup': 60}
+            if key in steps and self.time:
+                self.time = step_time(self.time, steps[key])
+                return None
+            return self.button({'esc': 0, 'enter': 3}.get(key))
+        if self.view == 'day' and self.selected is not None:
+            return self.button(2 if key == 'del' else None)
+        if self.view == 'day' and key in ('up', 'down'):
+            self.scroll(-1 if key == 'up' else 1)
+            return None
+        if self.view == 'month':
+            return self.button({'left': 0, 'enter': 1, 'right': 2, 'esc': 3}.get(key))
+        if len(key) == 1 and key != ' ':
+            self.button(3)
+            if self.view == 'type':
+                self.text = type_key('', key, MAX_TEXT)
+            return None
+        return self.button({'esc': 0, 'left': 1, 'right': 2, 'enter': 3}.get(key))
 
     def open_day(self, day):
         self.day, self.view, self.selected, self.message, self.first = day, 'day', None, '', 0
