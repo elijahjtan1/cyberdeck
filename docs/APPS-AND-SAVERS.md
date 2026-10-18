@@ -161,6 +161,7 @@ Home -> **PLANNER** is a month calendar with a list of entries for each day.
 - The day view lists that day's entries, untimed ("all day") ones first, then by time. When there are more than fit (6 in landscape, 8 in portrait), `^` and `v` beside the list scroll it. `<` and `>` move a day; **MONTH** goes back.
 - **ADD** opens the on-screen keyboard. Type the entry (up to 60 characters), tap **NEXT**, then set the time with -1h, -15m, +15m and +1h, or tap **ALL DAY**. **SAVE** stores it. For today the time starts at the next whole hour, for other days at 09:00.
 - Tap an entry, then **DELETE**, to remove it. Any other tap cancels.
+- A real keyboard works too: type on a day to add an entry, Enter for NEXT and SAVE, arrows to move and change the time, Esc to go back ([HDMI-SCREEN.md](HDMI-SCREEN.md#keyboard)).
 - The Home tile shows the next timed entry in the coming week.
 - Entries are saved in `~/cyberdeck-data/planner.json`, only when you add or delete one. A day holds up to 20 entries.
 - "Today" comes from the Pi's clock. Without a network or RTC the clock can be wrong after a reboot, so the planner shows **Clock not synced: check today** (or **Clock sync unknown**) until the clock is synchronised.
@@ -175,6 +176,7 @@ Home -> **READER** searches the offline library (Kiwix and your local documents)
 - Type a search on the keyboard and tap **SEARCH**. Results list the article titles; local documents are marked `local`. `<` and `>` page through longer lists.
 - Tap a result to open it. **PAGE >**, or a tap on the lower half of the text, turns the page; **< PAGE** goes back. The counter at the top shows the page, and the bar on the right shows where you are in the article.
 - **RESULTS** returns to the list. From the keyboard, tapping the search box goes back to the article that is still open.
+- A real keyboard works too: type and press Enter to search, Enter or 1-9 to open a result, arrows or Space to turn pages and Esc to go back ([HDMI-SCREEN.md](HDMI-SCREEN.md#keyboard)).
 - Only the text is shown: pictures, tables and links are left out. Very long articles are cut after about 120,000 characters, and the last page says so.
 - If nothing matches, the backend is down or Kiwix doesn't answer, the reader says that; it never invents text. Screensavers don't start while the reader is open.
 

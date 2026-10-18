@@ -26,6 +26,7 @@ from panel_tools import beacon
 from panel_tools.ask import AskApp
 from panel_tools.planner import PlannerApp
 from panel_tools.reader import ReaderApp
+from panel_tools.keyboard import Keyboard
 import json
 import os
 from pathlib import Path
@@ -617,9 +618,10 @@ class Touch:
         """Raw position of a finger that is down right now (for dragging), else None."""
         return np.array([self.x, self.y], dtype=float) if self.down else None
 
-    def wait(self, timeout):
-        """Sleep until a touch event arrives or the timeout passes (no busy polling)."""
-        select.select([self.device], [], [], max(0, timeout))
+    def wait(self, timeout, others=()):
+        """Sleep until a touch event (or input on `others`, such as a keyboard) arrives or
+        the timeout passes (no busy polling)."""
+        select.select([self.device, *others], [], [], max(0, timeout))
 
     def close(self):
         try:
@@ -4121,7 +4123,7 @@ def main():
         user_owns(folder)
     games_file = data / 'games.json'
     service = 'INVOCATION_ID' in os.environ  # Set by systemd for the boot service.
-    screen = touch = camera = stats = audio = capture = None
+    screen = touch = keyboard = camera = stats = audio = capture = None
     players = []
     shutdown_requested = False
     restart_requested = False
@@ -4143,6 +4145,7 @@ def main():
         light = Brightness(screen, backlight)
         light.apply(100)  # Lit for calibration; pages apply the chosen level when drawn.
         touch = Touch(args.touch, prefer_spi=screen.spi)
+        keyboard = Keyboard(skip=[getattr(getattr(touch, 'device', None), 'path', None)])
         matrix = None
         if not args.calibrate:
             try:
@@ -4184,7 +4187,7 @@ def main():
             timeout = min(max(0., until - time.monotonic()), cap)
             waiter = getattr(touch, 'wait', None)
             if waiter is not None:
-                waiter(timeout)
+                waiter(timeout, keyboard.devices)
             else:
                 time.sleep(timeout)
         running = True
@@ -4674,6 +4677,26 @@ def main():
                 break  # Avoid a second queued tap triggering a newly opened screen.
             if not running:
                 break
+            for key in keyboard.poll():
+                if key == 'quit' and not service:
+                    raise KeyboardInterrupt  # Ctrl+C: the keyboard is grabbed, so the shell can't see it.
+                last_touch = now
+                next_draw = 0
+                if active_saver is not None:  # A key wakes the panel, like a tap.
+                    active_saver.close()
+                    active_saver = None
+                    break
+                if key == 'quit':
+                    # Under the boot service a clean exit isn't restarted, so Ctrl+C only
+                    # opens the EXIT page; stopping there is a deliberate tap.
+                    if page not in ('exit', 'shutdown'):
+                        exit_return_page = page
+                    page = 'exit'
+                    break
+                if page in apps and hasattr(apps[page], 'key'):
+                    if apps[page].key(key, now) == 'exit':
+                        page = 'home'
+                        break
             now = time.monotonic()
             if page in apps and hasattr(apps[page], 'hold') and active_saver is None:
                 # Games follow a finger while it is down (Pong paddle, Tetris auto-repeat).
@@ -4820,6 +4843,8 @@ def main():
                 camera.close()
         finally:
             try:
+                if keyboard is not None:
+                    keyboard.close()
                 if touch is not None:
                     touch.close()
             finally:

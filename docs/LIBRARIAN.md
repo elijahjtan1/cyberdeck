@@ -273,7 +273,9 @@ always answers in the terminal; `--explain` adds the keywords and passage scores
 
 - **Typing:** type on the on-screen keyboard; **123** switches to digits and symbols. Tap the
   x at the right of the question box to clear it. When the box is empty, tapping it lists your last three questions
-  and a few example questions; tap one to ask it.
+  and a few example questions; tap one to ask it. A real keyboard works too: type and press
+  Enter to ask, Up/Down to scroll and Esc to stop or go back
+  ([HDMI-SCREEN.md](HDMI-SCREEN.md#keyboard)).
 - **Waiting:** the answer page shows the time so far: *Searching*, then *Reading* while the
   model reads the sources (this can take a minute on the Pi), then *Answering* as the text
   streams in.
