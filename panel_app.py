@@ -338,15 +338,26 @@ class Framebuffer:
         self.pixel_level = 100
         self.rows_sent = 0  # Diagnostic/test counter, in panel rows.
 
-    def scaled(self, image):
-        """The panel image at screen size. Whole-number scales copy pixels, so text stays
-        sharp; others go up to the next whole number and back down, which keeps edges crisp
-        with a little smoothing instead of uneven 2- and 3-pixel-wide strokes."""
+    def scaled(self, image, top=0, bottom=None):
+        """Screen rows top..bottom of the panel image at screen size. Whole-number scales
+        copy pixels, so text stays sharp; others go up to the next whole number and back
+        down, which keeps edges crisp with a little smoothing instead of uneven 2- and
+        3-pixel-wide strokes. Only the panel rows those screen rows need are scaled, so a
+        small change stays cheap; the result matches scaling the whole frame."""
+        bottom = self.size[1] if bottom is None else bottom
         if self.size == image.size:
-            return image
+            return image.crop((0, top, image.width, bottom))
         whole = math.ceil(self.scale - 1e-9)
-        image = image.resize((image.width*whole, image.height*whole), Image.NEAREST)
-        return image if image.size == self.size else image.resize(self.size, Image.BOX)
+        up = (image.width*whole, image.height*whole)
+        y0, y1 = top*up[1]/self.size[1], bottom*up[1]/self.size[1]
+        # One spare panel row either side covers the smoothing filter's reach.
+        p0 = max(0, math.floor(y0/whole) - 1)
+        p1 = min(image.height, math.ceil(y1/whole) + 1)
+        part = image.crop((0, p0, image.width, p1)).resize((up[0], (p1-p0)*whole), Image.NEAREST)
+        y0, y1 = y0 - p0*whole, y1 - p0*whole
+        if up == self.size:
+            return part.crop((0, round(y0), up[0], round(y1)))
+        return part.resize((self.size[0], bottom-top), Image.BOX, box=(0, y0, up[0], y1))
 
     def pixels(self, image):
         """Screen bytes for `image` (already screen-sized), padded to full rows."""
@@ -397,7 +408,7 @@ class Framebuffer:
         bottom = min(self.size[1], math.ceil(end*self.scale) + 1)
         if self.size == (PW, PH):
             top, bottom = first, end
-        chunk = self.pixels(self.scaled(image).crop((0, top, self.size[0], bottom))).tobytes()
+        chunk = self.pixels(self.scaled(image, top, bottom)).tobytes()
         self.write((self.top + top) * self.stride, chunk)
         self.last = small
         self.rows_sent += end - first
