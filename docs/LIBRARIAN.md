@@ -445,8 +445,10 @@ citation where the value should be ("The thermal fuse in a Philips HD7546 is [1]
 found too: the model had nothing to put there. A cited answer that ends with the not-found
 sentence anyway answers part of the question: the sentence is taken off the end, and the
 answer is shown with `PARTIAL: the sources don't contain the full answer.` (`result.incomplete`),
-so the gap stays visible without the answer contradicting itself. The benchmark counts such a
-reply to an out-of-scope question as honest.
+so the gap stays visible without the answer contradicting itself. The benchmark doesn't count
+such a reply to an out-of-scope question as honest, because on the Pi the cited part was often
+wrong (the HD7546 fuse "is a small interlock mechanism"); its line reads *CHECK: cited text,
+then says the sources lack the rest* so you can read the answer and judge.
 
 ```python
 from core.librarian.answer import answer
