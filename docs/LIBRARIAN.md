@@ -332,7 +332,11 @@ appear together to pass the relevance gate), so it ends as an honest "not found"
 testing the model. Entries with `"checked": true` use titles seen on the Pi; the other
 in-scope titles are guesses at Restarters wiki pages, so run `--no-model` first and fix any
 `expect` that names an article your ZIM doesn't have. Pass another file as the first
-argument for a different ZIM (for example a Wikipedia set).
+argument for a different ZIM. `core/librarian/benchmarks/wikipedia.json` is a broader set
+of 48 questions (electronics, first aid and survival, science, history, geography, plus 8 the
+sources shouldn't answer) for the Wikipedia ZIM (`wikipedia_en_all_nopic`). None of its titles
+are checked yet, so start with
+`~/cyberdeck-repo/deck bench core/librarian/benchmarks/wikipedia.json --no-model`.
 
 ### Baseline
 
