@@ -188,6 +188,77 @@ class FramebufferTest(unittest.TestCase):
                 fb.close()
 
 
+class HdmiFramebufferTest(unittest.TestCase):
+    def make(self, folder, width, height, depth):
+        base = Path(folder) / 'fb0'
+        base.mkdir()
+        (base / 'name').write_text('vc4drmfb\n')
+        (base / 'virtual_size').write_text(f'{width},{height}\n')
+        (base / 'bits_per_pixel').write_text(f'{depth}\n')
+        (base / 'stride').write_text(f'{width*depth//8}\n')
+        device = Path(folder) / 'dev'
+        device.write_bytes(b'\x55' * (width*depth//8*height))  # Old console text.
+        return app.Framebuffer(base, device), device
+
+    def screen(self, fb, device, width, height):
+        if fb.map is not None:
+            fb.map.flush()
+        return np.frombuffer(device.read_bytes(), np.uint8).reshape(height, width, 4)
+
+    def test_800x480_shows_the_panel_twice_as_big_and_centred(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fb, device = self.make(folder, 800, 480, 32)
+            try:
+                self.assertEqual((fb.scale, fb.size, fb.left, fb.top), (2, (640, 480), 80, 0))
+                image = Image.new('RGB', (320, 240), (10, 20, 30))
+                image.putpixel((0, 0), (255, 0, 0))
+                fb.show(image)
+                pixels = self.screen(fb, device, 800, 480)
+                self.assertEqual(pixels[0, 0].tolist(), [0, 0, 0, 0])      # Black border.
+                self.assertEqual(pixels[479, 799].tolist(), [0, 0, 0, 0])
+                self.assertEqual(pixels[1, 81].tolist(), [0, 0, 255, 0])   # Red, 2x2, as BGRX.
+                self.assertEqual(pixels[2, 82].tolist(), [30, 20, 10, 0])
+                changed = image.copy()
+                changed.paste((255, 255, 255), (300, 100, 320, 102))
+                fb.show(changed)
+                self.assertEqual(fb.rows_sent, 242)  # Only the two changed panel rows.
+                pixels = self.screen(fb, device, 800, 480)
+                self.assertEqual(pixels[203, 719].tolist(), [255, 255, 255, 0])
+                self.assertEqual(pixels[204, 719].tolist(), [30, 20, 10, 0])
+                self.assertEqual(pixels[203, 720].tolist(), [0, 0, 0, 0])
+            finally:
+                fb.close()
+
+    def test_portrait_on_hdmi_and_16_bit_screens(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fb, device = self.make(folder, 1024, 600, 16)
+            try:
+                # 2.5x fills the height: 800x600 with 112 px black bars left and right.
+                self.assertEqual((fb.scale, fb.size, fb.left, fb.top), (2.5, (800, 600), 112, 0))
+                app.set_rotation(90)
+                logical = Image.new('RGB', (240, 320), 'black')
+                logical.putpixel((0, 0), (255, 255, 255))
+                fb.show(logical)
+                if fb.map is not None:
+                    fb.map.flush()
+                pixels = np.frombuffer(device.read_bytes(), '<u2').reshape(600, 1024)
+                self.assertEqual(int(pixels[0, 112+799]), 0xFFFF)  # Panel top-right, scaled.
+                self.assertEqual(int(pixels[1, 112+799]), 0xFFFF)
+                self.assertEqual(int(pixels[0, 112+800]), 0)       # Border.
+                self.assertEqual(int(pixels[4, 112+799]), 0)
+                logical.putpixel((100, 200), (255, 255, 255))
+                fb.show(logical)
+                self.assertEqual(fb.rows_sent, 241)  # One changed panel row.
+            finally:
+                app.set_rotation(0)
+                fb.close()
+
+    def test_refuses_screens_it_cannot_drive(self):
+        for size, depth in (((300, 200), 32), ((800, 480), 24)):
+            with tempfile.TemporaryDirectory() as folder, self.assertRaises(RuntimeError):
+                self.make(folder, *size, depth)
+
+
 class CameraIdleTest(unittest.TestCase):
     def test_sensor_stops_when_unwatched_and_restarts_for_preview_and_photos(self):
         events = []
