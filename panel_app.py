@@ -314,11 +314,12 @@ class Framebuffer:
         self.stride = int((base / 'stride').read_text())
         if self.stride < width * self.depth // 8:
             raise RuntimeError('Unexpected framebuffer stride.')
-        # A bigger screen shows the 320x240 canvas at the largest whole-number scale, centred,
-        # so text stays sharp and every layout keeps working; the rest of the screen is black.
-        self.scale = min(width // PW, height // PH)
-        self.left = (width - PW*self.scale) // 2
-        self.top = (height - PH*self.scale) // 2
+        # A bigger screen shows the 320x240 canvas as large as fits, centred, so every layout
+        # keeps working; the rest of the screen is black. 1024x600 gets 2.5x (800x600).
+        self.scale = min(width / PW, height / PH)
+        self.size = (min(width, round(PW*self.scale)), min(height, round(PH*self.scale)))
+        self.left = (width - self.size[0]) // 2
+        self.top = (height - self.size[1]) // 2
         self.base = base
         self.file = open(device or Path('/dev') / base.name, 'r+b', buffering=0)
         self.map = None
@@ -337,11 +338,18 @@ class Framebuffer:
         self.pixel_level = 100
         self.rows_sent = 0  # Diagnostic/test counter, in panel rows.
 
+    def scaled(self, image):
+        """The panel image at screen size. Whole-number scales copy pixels, so text stays
+        sharp; others go up to the next whole number and back down, which keeps edges crisp
+        with a little smoothing instead of uneven 2- and 3-pixel-wide strokes."""
+        if self.size == image.size:
+            return image
+        whole = math.ceil(self.scale - 1e-9)
+        image = image.resize((image.width*whole, image.height*whole), Image.NEAREST)
+        return image if image.size == self.size else image.resize(self.size, Image.BOX)
+
     def pixels(self, image):
-        """Screen bytes for `image` (already panel-shaped), scaled and padded to full rows."""
-        scale = self.scale
-        if scale > 1:
-            image = image.resize((image.width*scale, image.height*scale), Image.NEAREST)
+        """Screen bytes for `image` (already screen-sized), padded to full rows."""
         if self.depth == 16:
             data = np.frombuffer(rgb565(image), dtype=np.uint8).reshape(image.height, image.width*2)
         else:  # 32-bit framebuffers are B, G, R, unused in memory.
@@ -384,8 +392,13 @@ class Framebuffer:
             first, end = int(changed[0]), int(changed[-1]) + 1
         else:
             self.refreshed = now
-        chunk = self.pixels(image.crop((0, first, PW, end))).tobytes()
-        self.write((self.top + first*self.scale) * self.stride, chunk)
+        # Screen rows covering the changed panel rows, plus one either side for smoothing.
+        top = max(0, math.floor(first*self.scale) - 1)
+        bottom = min(self.size[1], math.ceil(end*self.scale) + 1)
+        if self.size == (PW, PH):
+            top, bottom = first, end
+        chunk = self.pixels(self.scaled(image).crop((0, top, self.size[0], bottom))).tobytes()
+        self.write((self.top + top) * self.stride, chunk)
         self.last = small
         self.rows_sent += end - first
 

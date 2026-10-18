@@ -209,7 +209,7 @@ class HdmiFramebufferTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             fb, device = self.make(folder, 800, 480, 32)
             try:
-                self.assertEqual((fb.scale, fb.left, fb.top), (2, 80, 0))
+                self.assertEqual((fb.scale, fb.size, fb.left, fb.top), (2, (640, 480), 80, 0))
                 image = Image.new('RGB', (320, 240), (10, 20, 30))
                 image.putpixel((0, 0), (255, 0, 0))
                 fb.show(image)
@@ -233,7 +233,8 @@ class HdmiFramebufferTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             fb, device = self.make(folder, 1024, 600, 16)
             try:
-                self.assertEqual((fb.scale, fb.left, fb.top), (2, 192, 60))
+                # 2.5x fills the height: 800x600 with 112 px black bars left and right.
+                self.assertEqual((fb.scale, fb.size, fb.left, fb.top), (2.5, (800, 600), 112, 0))
                 app.set_rotation(90)
                 logical = Image.new('RGB', (240, 320), 'black')
                 logical.putpixel((0, 0), (255, 255, 255))
@@ -241,8 +242,13 @@ class HdmiFramebufferTest(unittest.TestCase):
                 if fb.map is not None:
                     fb.map.flush()
                 pixels = np.frombuffer(device.read_bytes(), '<u2').reshape(600, 1024)
-                self.assertEqual(int(pixels[60, 192+638]), 0xFFFF)  # Panel top-right, scaled.
-                self.assertEqual(int(pixels[59, 192+638]), 0)
+                self.assertEqual(int(pixels[0, 112+799]), 0xFFFF)  # Panel top-right, scaled.
+                self.assertEqual(int(pixels[1, 112+799]), 0xFFFF)
+                self.assertEqual(int(pixels[0, 112+800]), 0)       # Border.
+                self.assertEqual(int(pixels[4, 112+799]), 0)
+                logical.putpixel((100, 200), (255, 255, 255))
+                fb.show(logical)
+                self.assertEqual(fb.rows_sent, 241)  # One changed panel row.
             finally:
                 app.set_rotation(0)
                 fb.close()

@@ -5,17 +5,18 @@ the 2.8" SPI panel. Every page, game and app works the same way on both.
 
 ## How it looks
 
-The app still lays out a 320x240 page (240x320 in portrait) and shows it at the largest
-whole-number scale that fits, centred, so text stays sharp:
+The app still lays out a 320x240 page (240x320 in portrait) and shows it as large as it
+fits, centred. Whole-number scales copy pixels exactly; others are scaled up to the next
+whole number and back down, so edges stay crisp with slight smoothing:
 
 | Screen | Scale | Page size on screen | Black border |
 | --- | --- | --- | --- |
-| 800x480 (most 5" screens) | 2x | 640x480 | 80 px left and right |
-| 1024x600 (some 7" screens) | 2x | 640x480 | 192 px each side, 60 px top and bottom |
+| 1024x600 (the deck's 5" QDtech screen) | 2.5x | 800x600 | 112 px left and right |
+| 800x480 | 2x | 640x480 | 80 px left and right |
 | 320x240 (the 2.8" panel) | 1x | full screen | none |
 
-Buttons are twice as big on a 5" screen, so they are easier to hit. Portrait
-(**OPTIONS → Screen**) works too; the page is then 480 px tall with wider borders.
+Buttons are 2.5 times bigger on the 5" screen, so they are easier to hit. Portrait
+(**OPTIONS → Screen**) works too; the page is then the full height with wider borders.
 
 ## Which screen and touch device it uses
 
@@ -48,8 +49,8 @@ To boot to the console instead of the desktop: `sudo raspi-config`, then
 
 ## Checks
 
-- **Tests:** `tests/test_power.py` draws on fake 800x480 32-bit and 1024x600 16-bit
-  framebuffers (scaling, centring, borders, changed-rows-only updates, portrait), and
+- **Tests:** `tests/test_power.py` draws on fake 800x480 32-bit (2x) and 1024x600 16-bit
+  (2.5x, portrait) framebuffers: scaling, centring, borders and changed-rows-only updates;
   `tests/test_panel_app.py` covers choosing the screen and the touch device.
 - **On the Pi:** the page fills the middle of the screen, taps land where you touch after
   calibration, and closing the app gives the console back.
