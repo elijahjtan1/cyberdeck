@@ -128,8 +128,13 @@ def plan(kiwix, sources, dest):
     manifest = Manifest(dest)
     rows = []
     for source in sources:
-        latest = kiwix.latest(source)
         installed = manifest.installed(source['prefix'])
+        try:
+            latest = kiwix.latest(source)
+        except ContentError as error:  # Report every bad name in one run, not just the first.
+            rows.append({'prefix': source['prefix'], 'state': 'NOT FOUND', 'file': str(error),
+                         'url': '', 'size': 0, 'sha256': '', 'installed': installed, 'need': 0})
+            continue
         if latest['file'] in installed:
             state = 'installed'
         else:
@@ -205,6 +210,9 @@ def fetch(kiwix, sources, dest, out=sys.stdout):
     failed = []
     old = []
     for row in rows:
+        if row['state'] == 'NOT FOUND':
+            failed.append(row['file'])
+            continue
         if row['state'] != 'installed':
             try:
                 download(kiwix, row, dest, out)
@@ -269,8 +277,7 @@ def main(argv=None, opener=None, out=sys.stdout):
             problem = space_problem(rows, args.dest)
             if problem:
                 out.write(problem + '\n')
-                return 1
-            return 0
+            return 1 if problem or any(row['state'] == 'NOT FOUND' for row in rows) else 0
         fetch(kiwix, sources, args.dest, out)
         return 0
     except ContentError as error:

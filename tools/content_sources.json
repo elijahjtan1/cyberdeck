@@ -15,7 +15,7 @@
   {"prefix": "zimgit-water_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
   {"prefix": "zimgit-food-preparation_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
   {"prefix": "zimgit-knots_en", "dir": "other", "tiers": [0, 1, 2, 3, 4]},
-  {"prefix": "ifixit_en_all_maxi", "dir": "ifixit", "tiers": [1, 2, 3, 4]},
+  {"prefix": "ifixit_en_all", "dir": "ifixit", "tiers": [1, 2, 3, 4]},
   {"prefix": "medlineplus.gov_en_all", "dir": "zimit", "tiers": [1, 2, 3, 4], "medical": true},
   {"prefix": "appropedia_en_all_maxi", "dir": "other", "tiers": [1, 2, 3, 4]},
   {"prefix": "energypedia_en_all_maxi", "dir": "other", "tiers": [1, 2, 3, 4]},
