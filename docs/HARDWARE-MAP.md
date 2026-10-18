@@ -21,15 +21,15 @@ it there and in this page.
 
 | Part | Model | Connects by | Notes |
 | --- | --- | --- | --- |
-| 2.8" TFT and touch | ILI9341 + XPT2046 | SPI0 CE0 and CE1 | Installed. DC, RESET and touch IRQ pins come from `config.txt` |
+| 2.8" TFT and touch | ILI9341 + XPT2046 | SPI0 CE0 and CE1 | **Disconnected for now.** Its pins stay reserved so it can come back without rewiring anything else. DC, RESET and touch IRQ pins come from `config.txt` |
 | Backlight | - | GPIO18, PWM0 channel 0 | Installed if `setup_backlight.py` was run |
-| GNSS | BZGNSS BZ-251 (u-blox M10) | UART0, GPIO14/15 | Powered from 5 V. Whether this board has a compass is not confirmed yet |
-| Compass | QMC5883L, if present | I2C1 0x0D | An HMC5883L would be 0x1E |
+| GNSS | BZGNSS BZ-251 (u-blox M10) | UART0, GPIO14/15, or a CP2102 for testing | Powered from 5 V. Its lead has a 1.0 mm 6-pin plug on both ends: cut one off and join Dupont jumpers, in label order |
+| Compass | On the BZ-251 board | I2C1 0x0D (assumed QMC5883L) | Confirmed: the board's 6-pin lead is TX, RX, GND, 5V, SCL, SDA. An HMC5883L chip would be 0x1E; `i2cdetect -y 1` will tell |
 | Radar A | HLK-LD2450 | UART3, GPIO4/5 | 256000 baud, powered from 5 V. Tracks up to 3 moving targets (x, y, speed) |
 | Radar B | HLK-LD2450 | CP2102 USB-serial adapter | No spare GPIO UART left without losing PWM or the HAT ID pins |
 | SDR | RTL-SDR Blog V4 | USB 2 port | Receive only |
-| 7" screen | 1024x600 IPS, capacitive | HDMI0 + USB (touch and power) | |
-| 5" screen | 1024x600, capacitive | HDMI1 + USB (touch and power) | Check whether it mounts on the pin header (see Open questions) |
+| 7" screen | 1024x600 IPS, capacitive | HDMI1 + USB (touch and power) | |
+| 5" screen | 1024x600, capacitive | HDMI0 + USB (touch and power) | **The main screen now.** Use HDMI0, the micro-HDMI port next to USB-C, which the Pi boots to. Touch shows up as a USB input device, so no pins or `config.txt` lines are needed |
 | Keyboard | iPazzPort 2.4 GHz | USB dongle | |
 | ESP32 | - | USB serial + GPIO26 power-off signal | Roadmap 5.4, see [ESP32-PROTOCOL.md](ESP32-PROTOCOL.md) |
 | SSD | - | USB 3 port | Roadmap 6.2 |
@@ -146,8 +146,7 @@ later step.
 
 ## Open questions
 
-- The DC, RESET and touch IRQ pins of the 2.8" panel: read from `config.txt`.
-- Whether the BZ-251 has a compass, and whether it breaks out PPS.
-- Whether the 5" screen mounts on the pin header. If it does, it covers the header and the
+- Whether the BZ-251 breaks out PPS (its 6-pin lead doesn't, but the board has a PPS LED).
+- Whether the 5" screen mounts on the pin header (some 5" boards take 5 V from it). If it does, it covers the header and the
   radar and GNSS wiring has to go through a stacking header or a ribbon.
 - The battery system and its sensors (Power & Thermal design).
