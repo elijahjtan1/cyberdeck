@@ -34,6 +34,10 @@ class ContentError(Exception):
     pass
 
 
+class NotFound(ContentError):
+    """The name isn't on the server; other errors (network, metalink) stop the run."""
+
+
 def load_sources(path=SOURCES):
     return json.loads(Path(path).read_text())
 
@@ -89,7 +93,7 @@ class Kiwix:
                 url = self.base + folder + '/' + name
                 size, sha256 = self.metalink(url)
                 return {'file': name, 'url': url, 'size': size, 'sha256': sha256}
-        raise ContentError('%s not found on %s' % (source['prefix'], self.base))
+        raise NotFound('%s not found on %s' % (source['prefix'], self.base))
 
     def metalink(self, url):
         root = ElementTree.fromstring(self.read(url + '.meta4'))
@@ -131,7 +135,7 @@ def plan(kiwix, sources, dest):
         installed = manifest.installed(source['prefix'])
         try:
             latest = kiwix.latest(source)
-        except ContentError as error:  # Report every bad name in one run, not just the first.
+        except NotFound as error:  # Report every bad name in one run, not just the first.
             rows.append({'prefix': source['prefix'], 'state': 'NOT FOUND', 'file': str(error),
                          'url': '', 'size': 0, 'sha256': '', 'installed': installed, 'need': 0})
             continue
