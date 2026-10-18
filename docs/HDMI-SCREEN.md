@@ -37,7 +37,9 @@ A USB or wireless keyboard types in **READER**, **ASK** and **PLANNER** as well 
 on-screen keys. Plug it in or switch it on at any time; the panel finds it within a few
 seconds. The keys are read with python3-evdev, like the touchscreen, and the layout is
 US English. While the panel runs it has the keyboard to itself, so typing doesn't reach
-the console behind it. **Ctrl+C** still stops the panel.
+the console behind it. **Ctrl+C** stops the panel when you started it from a terminal;
+under the boot service it only opens the EXIT page, so a stray Ctrl+C can't leave the
+panel off until the next reboot.
 
 | Key | READER | ASK | PLANNER |
 | --- | --- | --- | --- |
@@ -77,4 +79,5 @@ To boot to the console instead of the desktop: `sudo raspi-config`, then
   READER, ASK and PLANNER.
 - **On the Pi:** the page fills the middle of the screen, taps land where you touch after
   calibration, and closing the app gives the console back. Type a search in READER on the
-  wireless keyboard and press Enter; Ctrl+C stops the panel.
+  wireless keyboard and press Enter; Ctrl+C stops a terminal run (under the boot service
+  it opens EXIT instead).

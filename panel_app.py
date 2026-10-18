@@ -4678,13 +4678,20 @@ def main():
             if not running:
                 break
             for key in keyboard.poll():
-                if key == 'quit':  # Ctrl+C: the keyboard is grabbed, so the shell can't see it.
-                    raise KeyboardInterrupt
+                if key == 'quit' and not service:
+                    raise KeyboardInterrupt  # Ctrl+C: the keyboard is grabbed, so the shell can't see it.
                 last_touch = now
                 next_draw = 0
                 if active_saver is not None:  # A key wakes the panel, like a tap.
                     active_saver.close()
                     active_saver = None
+                    break
+                if key == 'quit':
+                    # Under the boot service a clean exit isn't restarted, so Ctrl+C only
+                    # opens the EXIT page; stopping there is a deliberate tap.
+                    if page not in ('exit', 'shutdown'):
+                        exit_return_page = page
+                    page = 'exit'
                     break
                 if page in apps and hasattr(apps[page], 'key'):
                     if apps[page].key(key, now) == 'exit':

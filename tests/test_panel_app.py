@@ -1,4 +1,5 @@
 """Hardware-free tests. Run: python3 -m unittest discover -s tests -v"""
+import os
 import json
 import builtins
 import sys
@@ -706,6 +707,18 @@ class MainLoopTest(unittest.TestCase):
             self.run_app([(.5, 136, 222), (.9, x, y)], options={'start_page': 'camera'}, keys=keys)
         self.assertEqual(searched, ['ohm'])
         self.assertTrue(FakeCamera.instances[0].closed)
+
+    def test_keyboard_ctrl_c_under_the_boot_service_only_opens_exit(self):
+        # A clean exit isn't restarted by systemd, so Ctrl+C must not end the service.
+        pages = []
+        original = app.render
+        def observed(page, *args, **kwargs):
+            pages.append(page)
+            return original(page, *args, **kwargs)
+        with mock.patch.object(app, 'render', side_effect=observed), \
+                mock.patch.dict(os.environ, {'INVOCATION_ID': 'test'}):
+            self.run_app([(1.5, 160, 150)], keys=[(.8, 'quit')])  # Then EXIT's stop button.
+        self.assertIn('exit', pages)
 
     def test_tools_timelapse_runs_after_leaving_its_page(self):
         data, _ = self.run_app([(.5, 136, 222), (1.1, 56, 142), # HOME > TOOLS
