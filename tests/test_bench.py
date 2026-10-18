@@ -82,7 +82,13 @@ class BenchTest(unittest.TestCase):
         partial = bench.run_one('q', [], FakeRetriever([passage('Toasters')]),
                                 FakeClient('Check the element [1]. Not found in the offline sources.'),
                                 clock=Clock())
-        self.assertEqual((partial.found, partial.honest), (True, True))
+        # From the Pi (HD7546 fuse): a wrong cited answer that ends with "not found" is no
+        # longer counted as honest; it is flagged to read instead.
+        self.assertEqual((partial.found, partial.partial, partial.honest), (True, True, False))
+        out = io.StringIO()
+        bench.show_result(3, partial, out)
+        self.assertIn('3. CHECK: cited text, then says the sources lack the rest', out.getvalue())
+        self.assertEqual(bench.summarize([r, partial])['honest_not_found_rate'], 0.5)
 
     def test_answers_that_paste_the_sources_back_are_marked_copied(self):
         source = Passage('Seals can leak, and this is often more problematic than a worn hose.',
