@@ -186,6 +186,24 @@ class ContentTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('No manifest.json', self.out.getvalue())
 
+    def test_unknown_name_is_reported_and_others_still_fetch(self):
+        fake = FakeKiwix({'zimgit-water_en_2025-03.zim': b'water'})
+        bad = {'prefix': 'nosuch_en_all', 'dir': 'other', 'tiers': [0]}
+        rows = content.plan(self.kiwix(fake), [bad, SOURCE], self.dest)
+        self.assertEqual([row['state'] for row in rows], ['NOT FOUND', 'missing'])
+        with self.assertRaises(content.ContentError):
+            content.fetch(self.kiwix(fake), [bad, SOURCE], self.dest, self.out)
+        self.assertTrue((self.dest / 'zimgit-water_en_2025-03.zim').exists())
+        self.assertIn('nosuch_en_all not found', self.out.getvalue())
+
+    def test_unreachable_server_stops_plan_instead_of_not_found(self):
+        def refuse(request, timeout=None):
+            raise OSError('no route')
+        with self.assertRaises(content.ContentError) as caught:
+            content.plan(content.Kiwix(opener=mock.Mock(open=refuse)), [SOURCE, SOURCE], self.dest)
+        self.assertNotIsInstance(caught.exception, content.NotFound)
+        self.assertIn('Could not reach', str(caught.exception))
+
     def test_refuses_when_disk_would_be_too_full(self):
         fake = FakeKiwix({'zimgit-water_en_2025-03.zim': b'x' * 100})
         with mock.patch.object(content.shutil, 'disk_usage', return_value=Usage(1000, 850, 150)):
