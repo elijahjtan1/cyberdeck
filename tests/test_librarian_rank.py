@@ -56,6 +56,15 @@ class RankTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             rank_passages('x', rows, -1)
 
+    def test_words_in_every_passage_still_count(self):
+        # Every article Kiwix returned for "Morse code" has the words in its title.
+        rows = [Passage(f'Telegraph operators sent news across the country, part {n}.', 'Morse code', '/morse', 'kiwix', order=n)
+                for n in range(100)]
+        rows.append(Passage('Morse code encodes letters as dots and dashes.', 'Morse code',
+                            '/morse', 'kiwix', order=100))
+        results = rank_passages('What is Morse code?', rows)
+        self.assertTrue(any('dots and dashes' in p.text for p in results))
+
 
 if __name__ == '__main__':
     unittest.main()
