@@ -156,8 +156,9 @@ the other.
 sudo python3 ~/cyberdeck-repo/setup_main_service.py --console-boot --now
 ```
 
-`--console-boot` makes the Pi boot to the console instead of the desktop; without it the desktop
-still starts at boot and covers the main app. `--now` also starts it straight away.
+`--console-boot` makes the Pi boot to the console instead of the desktop. Without it both are
+queued at boot and only one of them starts, so either may win; use `--console-boot`. `--now`
+also starts it straight away.
 
 | To | Run |
 | --- | --- |
@@ -165,8 +166,9 @@ still starts at boot and covers the main app. `--now` also starts it straight aw
 | Go back to the main app | `sudo systemctl start cyberdeck-main` (stops the desktop) |
 | Watch its log | `journalctl -u cyberdeck-main -f` |
 | Remove it | `sudo python3 ~/cyberdeck-repo/setup_main_service.py --undo` |
+| Start the quick panel at boot again | `sudo systemctl enable cyberdeck-panel` (after removing it) |
 | Boot to the desktop again | `sudo systemctl set-default graphical.target` |
 
 Under the service Ctrl+C goes back to home, because a clean exit isn't restarted. CLOSE is the
-deliberate way out; `sudo systemctl start cyberdeck-main` brings it back. Don't turn on the quick
-panel's OPTIONS → Start at boot while this service is enabled, or both try to start at boot.
+deliberate way out; `sudo systemctl start cyberdeck-main` brings it back. While this service is
+enabled, the quick panel's OPTIONS shows **Start at boot: Main** and won't turn on its own boot service.

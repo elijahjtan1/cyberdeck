@@ -3432,17 +3432,24 @@ def preview_area():
     return (26, min(180, W*3//4)) if portrait() else (25, 132)
 
 
-BOOT_LABEL = ['?']  # 'On' / 'Off' / '?': boot-service state, refreshed by main().
+BOOT_LABEL = ['?']  # 'On' / 'Off' / 'Main' / '?': boot-service state, refreshed by main().
+MAIN_SERVICE = 'cyberdeck-main'  # setup_main_service.py: the main app owns boot instead.
 
 
-def boot_service_enabled(run=subprocess.run):
-    """True/False for the systemd boot service, None if it cannot be checked."""
+def boot_service_enabled(run=subprocess.run, name=SERVICE):
+    """True/False for a systemd boot service, None if it cannot be checked."""
     try:
-        result = run(['systemctl', 'is-enabled', 'cyberdeck-panel.service'],
+        result = run(['systemctl', 'is-enabled', f'{name}.service'],
                      capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip() == 'enabled'
+
+
+def boot_label(state, run=subprocess.run):
+    if state is False and boot_service_enabled(run, MAIN_SERVICE):
+        return 'Main'
+    return '?' if state is None else 'On' if state else 'Off'
 
 
 def set_boot_service(enabled, app_path, data, run=subprocess.run):
@@ -3451,6 +3458,9 @@ def set_boot_service(enabled, app_path, data, run=subprocess.run):
     if getattr(os, 'geteuid', lambda: 0)() != 0:
         return 'Needs sudo: run the app with sudo to change this'
     try:
+        if enabled and boot_service_enabled(run, MAIN_SERVICE):
+            # Both enabled would conflict at boot, and systemd would drop one of them.
+            return 'The main app starts at boot; undo setup_main_service.py first'
         if enabled:
             import setup_panel_service
             uid, gid = desktop_user()
@@ -3706,7 +3716,7 @@ def render_page(page, frame, paused, fps, rows, message, history=(), now=None,
             centred(d, top+23, message, SMALL, WARN)
         if service:
             centred(d, top+50, 'Restart it from a terminal, or reboot:', SMALL, MUTED)
-            centred(d, top+73, f'sudo systemctl start {SERVICE}', SMALL, ACCENT)
+            centred(d, top+73, f'sudo systemctl start {MAIN_SERVICE if MAIN_APP[0] else SERVICE}', SMALL, ACCENT)
         else:
             centred(d, top+50, 'Restart from your VNC terminal.', SMALL, MUTED)
             centred(d, top+73, 'sudo python3 ~/panel_app.py', SMALL, ACCENT)
@@ -4461,7 +4471,7 @@ def main():
             'sudoku': f"Best time: {clock_text(apps['sudoku'].best) if apps['sudoku'].best else '--'}"})
 
         state = boot_service_enabled()
-        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
+        BOOT_LABEL[0] = boot_label(state)
         print('Ready. Tap buttons or press Ctrl+C to exit. Photos:', photos, flush=True)
         while running:
             now = time.monotonic()
@@ -4584,7 +4594,7 @@ def main():
                     elif index == 2:
                         option_message = set_boot_service(BOOT_LABEL[0] != 'On', __file__, data)
                         state = boot_service_enabled()
-                        BOOT_LABEL[0] = '?' if state is None else 'On' if state else 'Off'
+                        BOOT_LABEL[0] = boot_label(state)
                     elif index == 3:
                         page = 'colours'
                     elif index == 4:

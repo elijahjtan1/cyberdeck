@@ -13,7 +13,8 @@ app (Q) and hands the screen back, inside the same service.
 The unit conflicts with the desktop (lightdm): `sudo systemctl start lightdm` stops the main
 app and starts the desktop (for SDR++), and `sudo systemctl start cyberdeck-main` goes back.
 --console-boot also makes the Pi boot to the console (multi-user.target) instead of the
-desktop; without it the desktop still starts at boot and wins the screen.
+desktop. Without it both are queued at boot and systemd starts only one of them, so either
+may win the screen.
 
 CLOSE exits cleanly and is not restarted; crashes restart after 5 s.
 """
@@ -115,6 +116,7 @@ def main():
         undo()
         print('Main app boot service removed.')
         print('To boot to the desktop again: sudo systemctl set-default graphical.target')
+        print(f'To start the quick panel at boot again: sudo systemctl enable {PANEL_NAME}')
         return
     app = (Path(__file__).resolve().parent / 'main_app.py').resolve()
     if not app.is_file():
@@ -126,7 +128,7 @@ def main():
     install(app, uid, gid, start=args.now, data=data, console=args.console_boot)
     print(f'Installed and enabled {NAME} for {app}.')
     if not args.console_boot:
-        print('The desktop still starts at boot and covers the main app; add --console-boot to change that.')
+        print('The desktop is still queued at boot, so only one of them starts; add --console-boot.')
     print('Desktop for SDR++: sudo systemctl start lightdm (stops the main app).')
     print('Back to the main app: sudo systemctl start cyberdeck-main (stops the desktop).')
     print('Logs: journalctl -u cyberdeck-main -f')
