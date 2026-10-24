@@ -319,6 +319,32 @@ class CoreServiceSetupTest(unittest.TestCase):
             self.assertEqual(setup_core_service.saved_settings(path), {})
             self.assertNotIn('KIWIX', path.read_text())
 
+    def test_radar_setting_is_kept_apart_from_kiwix(self):
+        spec = 'serial:/dev/serial/by-id/usb-Silicon_Labs_CP2102-if00-port0'
+        with tempfile.TemporaryDirectory() as folder:
+            root, commands = Path(folder), []
+            kiwix = setup_core_service.kiwix_settings('http://127.0.0.1:8080', 'book')
+            path = setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                              run=commands.append, kiwix=kiwix)
+            radar = setup_core_service.radar_settings(spec)
+            setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                       run=commands.append, radar=radar)
+            self.assertIn(f'Environment=CYBERDECK_RADAR={spec}\n', path.read_text())
+            self.assertEqual(setup_core_service.saved_settings(path), {**kiwix, **radar})
+            setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                       run=commands.append, kiwix={})
+            self.assertEqual(setup_core_service.saved_settings(path), radar)
+            setup_core_service.install(Path('/r'), 'eli', Path('/d'), root=root,
+                                       run=commands.append, radar={})
+            self.assertEqual(setup_core_service.saved_settings(path), {})
+
+    def test_radar_setting_is_checked(self):
+        self.assertEqual(setup_core_service.radar_settings(), {})
+        for bad in ('ttyUSB0', 'serial:/tmp/x', 'serial:/dev/ttyUSB0:0', 'serial:/dev/my port',
+                    'replay:/home/eli/$x'):
+            with self.assertRaises(RuntimeError, msg=bad):
+                setup_core_service.radar_settings(bad)
+
 
 if __name__ == '__main__':
     unittest.main()
