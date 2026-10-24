@@ -33,6 +33,11 @@ def chunks(text, max_chars=1600):
 
 
 TITLE_WEIGHT = 3  # A title word counts like this many mentions in the text.
+# BM25 gives a word in every passage almost no weight. When every fetched article is on
+# the topic ("Morse code", "American Morse code", ...), every passage has the question's
+# words, so the best ones scored near zero and missed the threshold. Floor each word's
+# weight at that of a word found in half the passages.
+MIN_IDF = math.log(2)
 
 
 def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
@@ -81,7 +86,7 @@ def rank_passages(question, passages, budget_tokens=1400, threshold=0.25,
         for term in terms:
             tf = count[term]
             df = frequencies[term]
-            idf = math.log(1 + (len(counts) - df + 0.5) / (df + 0.5))
+            idf = max(MIN_IDF, math.log(1 + (len(counts) - df + 0.5) / (df + 0.5)))
             score += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * length / average))
         if score > threshold:
             scored.append(replace(passage, score=score))
