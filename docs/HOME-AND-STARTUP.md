@@ -41,6 +41,7 @@ The app ships with a systemd service that starts it when the Pi powers on and re
 - **Install:** the first time, this writes and enables the `cyberdeck-panel` service for this copy of the app and your data folder.
 - **Needs sudo:** the app must have been started with `sudo`, which it always is.
 - **Takes effect next boot:** the switch never starts or stops the copy that's running now. Close any copy you started by hand before rebooting, or you'll have two.
+- **Main: the main app owns boot.** When `cyberdeck-main` is enabled ([MAIN-APP.md](MAIN-APP.md#starting-at-boot)), the switch reads **Main** and won't turn the quick panel's own boot service on, because only one of them can start.
 - **Turning it off** disables the service for future boots but leaves the running app alone.
 
 ### From a terminal

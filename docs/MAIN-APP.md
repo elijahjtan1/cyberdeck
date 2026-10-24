@@ -15,7 +15,8 @@ The Pi must boot to the console, as for the quick panel on HDMI (see [HDMI-SCREE
 sudo python3 ~/cyberdeck-repo/main_app.py
 ```
 
-It isn't a boot service yet. Ctrl+C on the keyboard closes it, and so does the CLOSE tile.
+Run by hand like this, Ctrl+C on the keyboard closes it, and so does the CLOSE tile. To start
+it at boot instead, see [Starting at boot](#starting-at-boot).
 
 The main app and the quick panel can't run at the same time, because they share the screen,
 touch and keys. If the quick panel is running as the boot service, stop it first with
@@ -31,7 +32,7 @@ running.
 | `R` | Open RADAR |
 | `Q` | Open the quick panel |
 | Esc | Back to home |
-| Ctrl+C | Close the main app |
+| Ctrl+C | Close the main app (under the boot service: back to home) |
 
 Touch works on every tile. It uses the quick panel's calibration (`~/cyberdeck-data/touch.json`).
 If the quick panel hasn't calibrated this touch device yet, the main app says so. Press `Q`,
@@ -143,3 +144,31 @@ arcs at 2, 4 and 6 m. A sweep crosses the fan once a second.
   - WIKIPEDIA finds and opens an article, and the pages turn.
   - RADAR (`R`), with cyberdeck-core started with `--radar`, shows a pulsing dot that
     follows you as you walk in front of the radar, and NO SIGNAL when the radar is unplugged.
+
+## Starting at boot
+
+`setup_main_service.py` installs `cyberdeck-main.service`, which starts the main app on the 5"
+screen at boot and restarts it 5 s after a crash. It disables the quick panel's boot service
+(the quick panel still opens with `Q`), and it conflicts with the desktop: starting one stops
+the other.
+
+```sh
+sudo python3 ~/cyberdeck-repo/setup_main_service.py --console-boot --now
+```
+
+`--console-boot` makes the Pi boot to the console instead of the desktop. Without it both are
+queued at boot and only one of them starts, so either may win; use `--console-boot`. `--now`
+also starts it straight away.
+
+| To | Run |
+| --- | --- |
+| Use the desktop (SDR++) | `sudo systemctl start lightdm` (stops the main app) |
+| Go back to the main app | `sudo systemctl start cyberdeck-main` (stops the desktop) |
+| Watch its log | `journalctl -u cyberdeck-main -f` |
+| Remove it | `sudo python3 ~/cyberdeck-repo/setup_main_service.py --undo` |
+| Start the quick panel at boot again | `sudo systemctl enable cyberdeck-panel` (after removing it) |
+| Boot to the desktop again | `sudo systemctl set-default graphical.target` |
+
+Under the service Ctrl+C goes back to home, because a clean exit isn't restarted. CLOSE is the
+deliberate way out; `sudo systemctl start cyberdeck-main` brings it back. While this service is
+enabled, the quick panel's OPTIONS shows **Start at boot: Main** and won't turn on its own boot service.
