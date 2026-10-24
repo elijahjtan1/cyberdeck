@@ -4,9 +4,8 @@
 It draws straight to the framebuffer like the quick panel (panel_app.py), with no desktop,
 so Ollama keeps the memory. While both share one screen only one runs at a time: QUICK PANEL
 hands the screen to the quick panel, and its EXIT page's MAIN APP button hands it back
-(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py), and so is
-RADAR (panel_tools/radar_page.py, the R key); apps not moved here yet open in the quick
-panel."""
+(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py); apps
+not moved here yet open in the quick panel."""
 import argparse
 import json
 import os
