@@ -28,6 +28,7 @@ running.
 | --- | --- |
 | `1` to `9`, `0` | Open that tile |
 | Arrows, then Enter | Pick a tile and open it |
+| `R` | Open RADAR |
 | `Q` | Open the quick panel |
 | Esc | Back to home |
 | Ctrl+C | Close the main app |
@@ -99,15 +100,46 @@ are read on the Pi, the same way the quick panel reads them. It also shows wheth
 (`cyberdeck-core`) is running and what it is busy with. Health alerts (low voltage, heat,
 throttling) show in the header on every page.
 
+## Radar
+
+![Radar in the main app (sample contacts, labelled SIMULATED)](previews/main-app-radar-preview.png)
+
+**RADAR** (`R` from home) shows an HLK-LD2450 radar like a heartbeat sensor. You're at the
+bottom centre, and the fan covers what the radar sees: 6 m ahead and 60° to each side, with
+arcs at 2, 4 and 6 m. A sweep crosses the fan once a second.
+
+- Each contact is a red dot where the radar puts it. A moving contact pulses with a double
+  heartbeat; a still one is dimmer. A dot fades out over about a second when the radar stops
+  reporting it.
+- The top left lists up to three contacts: distance, bearing (degrees left or right, or
+  ahead) and whether it is approaching or moving away.
+- The radar reports movement and position, not who or what is moving, so the page says
+  "contact", never "person".
+- **NO SIGNAL** means the radar has gone quiet for 2 s (wiring or power). The page never shows
+  an empty "all clear" fan when it has no data. **No movement** means fresh data with nothing
+  moving.
+- A recording played back (`--radar replay:...`) says **SIMULATED** in large orange letters the
+  whole time.
+- **NO RADAR** means cyberdeck-core was started without `--radar`; see
+  [CORE.md](CORE.md#radar). **RADAR OFFLINE** means the backend isn't running, and
+  **NO RADAR SUPPORT** means its version is too old for `/api/radar`.
+- Esc, `Q` or **HOME** goes back. The page asks the backend about 5 times a second while it is
+  open, and not at all once you leave.
+
 ## Checks
 
 - **Tests:** `tests/test_main_pages.py` covers asking, the notes and buttons, and searching,
   opening and paging an article, with a fake backend. `tests/test_main_app.py` covers the tile layout at 1024x600 and 800x480, the
   arrow keys, the hand-off arguments, drawing on a fake 1024x600 16-bit screen (only changed
   rows are sent), and mapping calibrated taps.
+  `tests/test_radar_page.py` covers every radar state (offline, no radar, NO SIGNAL,
+  waiting, no movement, contacts), the SIMULATED label, dots gliding and fading, and polling
+  only while the page is open.
 - **On the Pi:**
   - The home fills the screen with sharp text.
   - Each tile opens with its number key and by touch, and taps land where you touch.
   - `Q` opens the quick panel, and EXIT → MAIN APP comes back.
   - ASK answers a question, and the text is easy to read from arm's length.
   - WIKIPEDIA finds and opens an article, and the pages turn.
+  - RADAR (`R`), with cyberdeck-core started with `--radar`, shows a pulsing dot that
+    follows you as you walk in front of the radar, and NO SIGNAL when the radar is unplugged.
