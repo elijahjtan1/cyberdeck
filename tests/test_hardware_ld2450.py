@@ -210,5 +210,31 @@ class RadarTest(unittest.TestCase):
         self.assertIn('SIMULATED movement', out.getvalue())
 
 
+try:
+    from core.server import create_app
+except ImportError:  # Flask is only needed for the backend.
+    create_app = None
+
+
+@unittest.skipIf(create_app is None, 'Flask not installed (sudo apt install python3-flask)')
+class RadarApiTest(unittest.TestCase):
+    def test_api_without_and_with_a_source(self):
+        from core.telemetry import Telemetry, TelemetryStore
+        from tests.test_core import FakeSampler
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        telemetry = Telemetry(TelemetryStore(Path(tmp.name) / 't.sqlite3'), FakeSampler())
+        self.addCleanup(telemetry.store.close)
+        data = create_app(telemetry).test_client().get('/api/radar').get_json()
+        self.assertEqual((data['configured'], data['targets']), (False, []))
+        self.assertEqual((data['range_m'], data['fov_deg']), (6.0, 120))
+        radar = ld2450.Radar(ld2450.ReplaySource('unused'))
+        radar.feed(MANUAL_FRAME)
+        data = create_app(telemetry, radar=radar).test_client().get('/api/radar').get_json()
+        self.assertEqual((data['simulated'], data['label'], data['movement']),
+                         (True, 'SIMULATED', True))
+        self.assertEqual(data['targets'][0]['y_mm'], 1713)
+
+
 if __name__ == '__main__':
     unittest.main()
