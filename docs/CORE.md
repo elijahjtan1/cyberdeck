@@ -31,6 +31,7 @@ new code: `sudo systemctl restart cyberdeck-panel`.
 | Logs | `journalctl -u cyberdeck-core -f` |
 | Restart after `git pull` | `sudo systemctl restart cyberdeck-core` |
 | Turn on offline search | `sudo python3 setup_core_service.py --now --kiwix-url http://127.0.0.1:8080 --kiwix-book <book>` (see [LIBRARIAN.md](LIBRARIAN.md#backend-configuration)) |
+| Read the radar at boot | `sudo python3 setup_core_service.py --now --radar serial:/dev/serial/by-id/<adapter>` (see [Radar](#radar)); `--no-radar` turns it off |
 | Remove | `sudo python3 setup_core_service.py --undo` |
 | Run by hand instead | `python3 -m core` (Ctrl+C stops it and saves the buffer) |
 
@@ -123,7 +124,22 @@ curl http://127.0.0.1:8766/api/radar
 
 Targets older than 2 seconds are dropped and `stale` turns true: a silent sensor reads as "no
 data", never as "no movement". A bad `--radar` value turns the radar off with a message
-instead of stopping the backend. The systemd unit doesn't pass a radar setting yet.
+instead of stopping the backend.
+
+To read the radar at boot, give the service installer the same value. Use the adapter's
+`/dev/serial/by-id/` name rather than `/dev/ttyUSB0`, because `ttyUSB0` can change when a
+second USB serial adapter (the GPS on a CP2102) is plugged in:
+
+```bash
+ls /dev/serial/by-id/
+cd ~/cyberdeck-repo && sudo python3 setup_core_service.py --now --radar serial:/dev/serial/by-id/usb-Silicon_Labs_CP2102_...-port0
+```
+
+Two identical adapters can share one `by-id` name; then use the `/dev/serial/by-path/` name
+instead, which stays the same as long as the radar stays in the same USB port.
+
+Re-running the installer keeps the radar setting, and `--no-radar` removes it. Your user
+must be in the `dialout` group; the installer warns if it isn't.
 
 ## API
 

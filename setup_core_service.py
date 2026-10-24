@@ -9,6 +9,9 @@ Offline search: add --kiwix-url http://127.0.0.1:8080 --kiwix-book <book key> to
 service the librarian's Kiwix settings. Re-running the installer keeps the saved settings;
 --no-kiwix removes them.
 
+Radar: add --radar serial:/dev/serial/by-id/<adapter> to read an LD2450 at boot
+(docs/CORE.md#radar); --no-radar removes it.
+
 Needs Flask: sudo apt install python3-flask
 Installs cyberdeck-core.service, which runs `python3 -m core` from this folder as your
 normal user (not root), listening on 127.0.0.1 only. Crashes restart after 5 s.
@@ -19,6 +22,7 @@ import subprocess
 from pathlib import Path
 
 from core import DEFAULT_PORT
+from core.hardware.ld2450 import source_from_spec
 from core.librarian.kiwix import KiwixClient
 from setup_panel_service import default_data
 
@@ -26,6 +30,8 @@ NAME = 'cyberdeck-core.service'
 MARK = '# Managed by setup_core_service.py'
 # Librarian settings the unit forwards to the backend as environment variables.
 KIWIX_KEYS = ('CYBERDECK_KIWIX_URL', 'CYBERDECK_KIWIX_BOOK', 'CYBERDECK_KIWIX_BOOK_PARAMETER')
+RADAR_KEY = 'CYBERDECK_RADAR'
+ENV_KEYS = KIWIX_KEYS + (RADAR_KEY,)
 
 
 def unit_path(root=Path('/')):
@@ -44,21 +50,39 @@ def kiwix_settings(url='', book='', book_parameter=''):
         raise RuntimeError(str(exc)) from exc
     settings = {'CYBERDECK_KIWIX_URL': url, 'CYBERDECK_KIWIX_BOOK': book,
                 'CYBERDECK_KIWIX_BOOK_PARAMETER': book_parameter}
+    check_words(settings)
+    return {k: v for k, v in settings.items() if v}
+
+
+def check_words(settings):
     for key, value in settings.items():
         # One unquoted Environment= word each: refuse anything systemd would split or expand.
         if any(c.isspace() or not c.isprintable() for c in value) or any(c in value for c in '%"\'\\$'):
             raise RuntimeError(f'{key} must not contain spaces, quotes, %, $ or backslashes')
-    return {k: v for k, v in settings.items() if v}
+
+
+def radar_settings(spec=''):
+    """Validated environment for the radar, or {} when it's off."""
+    if not spec:
+        return {}
+    try:
+        source_from_spec(spec)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    settings = {RADAR_KEY: spec}
+    check_words(settings)
+    return settings
 
 
 def saved_settings(path):
-    """Kiwix settings in an installed unit, so a re-install without options keeps them."""
+    """Kiwix and radar settings in an installed unit, so a re-install without options keeps
+    them."""
     if path.is_symlink() or not path.exists():
         return {}
     settings = {}
     for line in path.read_text().splitlines():
         key, _, value = line.removeprefix('Environment=').partition('=')
-        if line.startswith('Environment=') and key in KIWIX_KEYS:
+        if line.startswith('Environment=') and key in ENV_KEYS:
             settings[key] = value
     return settings
 
@@ -67,7 +91,7 @@ def unit_text(repo, user, data, port=DEFAULT_PORT, env=None):
     for path in (repo, data):
         if any(c.isspace() for c in str(path)) or any(c in str(path) for c in '%"'):
             raise RuntimeError(f'Use a path without spaces, quotes or %: {path}')
-    extra = ''.join(f'Environment={k}={env[k]}\n' for k in KIWIX_KEYS if (env or {}).get(k))
+    extra = ''.join(f'Environment={k}={env[k]}\n' for k in ENV_KEYS if (env or {}).get(k))
     return f'''{MARK}
 [Unit]
 Description=Cyberdeck core backend (telemetry log and local API)
@@ -101,14 +125,18 @@ def check_ours(path):
 
 
 def install(repo, user, data, root=Path('/'), run=None, start=False, port=DEFAULT_PORT,
-            kiwix=None):
-    """kiwix: settings from kiwix_settings(); None keeps whatever the unit already has."""
+            kiwix=None, radar=None):
+    """kiwix and radar: settings from kiwix_settings() and radar_settings(); None keeps
+    whatever the unit already has."""
     run = run or (lambda cmd: subprocess.run(cmd, check=True))
     path = unit_path(root)
     check_ours(path)
-    if kiwix is None:
-        kiwix = saved_settings(path)
-    content = unit_text(repo, user, data, port, kiwix)
+    env = saved_settings(path)
+    for keys, new in ((KIWIX_KEYS, kiwix), ((RADAR_KEY,), radar)):
+        if new is not None:
+            env = {k: v for k, v in env.items() if k not in keys}
+            env.update(new)
+    content = unit_text(repo, user, data, port, env)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
     temporary.write_text(content)
@@ -154,9 +182,14 @@ def main():
     parser.add_argument('--kiwix-book-parameter', default='', choices=('books.name', 'content'),
                         help='search parameter for the book (default books.name)')
     parser.add_argument('--no-kiwix', action='store_true', help='remove saved Kiwix settings')
+    parser.add_argument('--radar', help='LD2450 radar source, e.g. '
+                        'serial:/dev/serial/by-id/usb-Silicon_Labs_CP2102...-port0')
+    parser.add_argument('--no-radar', action='store_true', help='remove the saved radar setting')
     args = parser.parse_args()
     if args.no_kiwix and (args.kiwix_url or args.kiwix_book or args.kiwix_book_parameter):
         raise RuntimeError('Use either --no-kiwix or the --kiwix-* options, not both.')
+    if args.no_radar and args.radar:
+        raise RuntimeError('Use either --no-radar or --radar, not both.')
     if not hasattr(os, 'geteuid') or os.geteuid() != 0:
         raise RuntimeError('Run this on the Pi using sudo.')
     if args.undo:
@@ -177,9 +210,17 @@ def main():
         kiwix = {}
     elif args.kiwix_url or args.kiwix_book or args.kiwix_book_parameter:
         kiwix = kiwix_settings(args.kiwix_url or '', args.kiwix_book, args.kiwix_book_parameter)
-    path = install(repo, account.pw_name, data, start=args.now, port=args.port, kiwix=kiwix)
+    radar = {} if args.no_radar else radar_settings(args.radar) if args.radar else None
+    path = install(repo, account.pw_name, data, start=args.now, port=args.port, kiwix=kiwix,
+                   radar=radar)
     print(f'Installed and enabled {NAME} (runs as {account.pw_name}).')
     saved = saved_settings(path)
+    print(f'Radar: {saved[RADAR_KEY]}.' if RADAR_KEY in saved else
+          'Radar: off. Add --radar serial:/dev/... to read an LD2450 at boot.')
+    if RADAR_KEY in saved and not in_group(account, 'dialout'):
+        print(f'Note: {account.pw_name} is not in the dialout group, so the radar port won\'t '
+              f'open. Fix: sudo usermod -aG dialout {account.pw_name}')
+    saved = {k: v for k, v in saved.items() if k in KIWIX_KEYS}
     print('Offline search: Kiwix at %s, book %s.' % (saved['CYBERDECK_KIWIX_URL'],
           saved.get('CYBERDECK_KIWIX_BOOK', '(all)')) if saved else
           'Offline search: Kiwix is off. Add --kiwix-url (see docs/LIBRARIAN.md) to turn it on.')
