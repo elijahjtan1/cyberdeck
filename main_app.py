@@ -23,7 +23,7 @@ from panel_app import ACCENT, BG, BLUE, CYAN, DANGER, GREEN, MUTED, ORANGE, PURP
 from panel_tools.backend import Backend
 from panel_tools.keyboard import Keyboard
 from panel_tools.main_pages import AskPage, WikiPage
-from panel_tools.radar_page import RadarPage
+from panel_tools.radar_page import FAN, RadarPage
 from panel_tools.runtime import data_home
 
 HERE = Path(__file__).resolve().parent
@@ -33,19 +33,21 @@ FOOTER = 34
 TITLE, LABEL, BODY, SMALL = font(26, bold=True), font(28, bold=True), font(20), font(16)
 BIG = font(40, bold=True)
 READ, READ_LINE, SMALL_BOLD = font(22), 31, font(18, bold=True)  # Article and answer text.
-TILE_FONTS = (LABEL, TITLE, font(22, bold=True))
+TILE_FONTS = (LABEL, TITLE, font(22, bold=True), SMALL_BOLD)
 # (label, key, colour, where): where is 'here' for a page drawn by this app, or the quick
 # panel page that opens it until it moves here.
 TILES = (('ASK', 'ask', '#ff8fb8', 'here'), ('WIKIPEDIA', 'wiki', ACCENT, 'here'),
          ('PLANNER', 'planner', BLUE, 'planner'), ('TOOLS', 'tools', GREEN, 'tools'),
          ('GAMES', 'games', YELLOW, 'games'), ('CAMERA', 'camera', CYAN, 'camera'),
          ('PHOTOS', 'photos', PURPLE, 'photos'), ('STATUS', 'status', ORANGE, 'here'),
-         ('QUICK PANEL', 'quick', MUTED, 'home'), ('CLOSE', 'close', RED, 'here'))
-TILE_KEYS = '1234567890'
+         ('QUICK PANEL', 'quick', MUTED, 'home'), ('CLOSE', 'close', RED, 'here'),
+         ('RADAR', 'radar', FAN, 'here'))
+TILE_KEYS = '1234567890R'  # R is also handled on its own, so lower-case r works too.
 NOTES = {'ask': 'Questions answered from the offline library', 'wiki': 'Search and read offline articles',
          'status': 'Temperature, memory, disk', 'quick': 'The small panel: camera, savers',
-         'close': 'Back to the console'}
+         'close': 'Back to the console', 'radar': 'Movement around the deck'}
 LATER = 'In the quick panel for now'
+COLS = 4
 
 
 class Screen(panel.Framebuffer):
@@ -84,14 +86,14 @@ class Screen(panel.Framebuffer):
 
 
 def tile_rects(width, height):
-    """Five columns by two rows under the header."""
-    margin, gap, cols, rows = 20, 14, 5, 2
+    """Four columns by three rows under the header, one rect per tile (the last cell stays empty)."""
+    margin, gap, cols, rows = 20, 14, COLS, 3
     top, bottom = HEADER + 16, height - FOOTER - 8
     w = (width - 2*margin - (cols-1)*gap) / cols
     h = (bottom - top - (rows-1)*gap) / rows
     return [(round(margin + c*(w+gap)), round(top + r*(h+gap)),
              round(margin + c*(w+gap) + w), round(top + r*(h+gap) + h))
-            for r in range(rows) for c in range(cols)]
+            for r in range(rows) for c in range(cols)][:len(TILES)]
 
 
 def wrap(d, text, width, chosen):
@@ -185,10 +187,11 @@ def tile_at(size, x, y):
     return None
 
 
-def move(selected, key, count=len(TILES), cols=5):
+def move(selected, key, count=len(TILES), cols=None):
     """Arrow keys walk the tile grid; the first arrow press just shows the highlight."""
     if selected is None:
         return 0
+    cols = cols or COLS
     step = {'left': -1, 'right': 1, 'up': -cols, 'down': cols}[key]
     target = selected + step
     return target if 0 <= target < count else selected

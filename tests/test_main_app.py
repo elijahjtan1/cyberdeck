@@ -34,6 +34,21 @@ class LayoutTest(unittest.TestCase):
                     self.assertTrue(a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
             self.assertEqual(main_app.tile_at(size, *rects[7][:2]), 7)
             self.assertIsNone(main_app.tile_at(size, 2, 2))
+            empty = rects[main_app.COLS - 1][0] + 5, rects[-1][1] + 5  # The 12th cell has no tile.
+            self.assertIsNone(main_app.tile_at(size, *empty))
+
+    def test_tile_labels_fit_their_tiles(self):
+        from PIL import Image, ImageDraw
+        d = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+        for size in ((1024, 600), (800, 480)):
+            for rect, (label, *_) in zip(main_app.tile_rects(*size), main_app.TILES):
+                self.assertTrue(any(d.textlength(label, font=f) < rect[2]-rect[0]-20 for f in main_app.TILE_FONTS),
+                                (size, label))
+
+    def test_radar_is_the_eleventh_tile(self):
+        self.assertEqual(len(main_app.TILE_KEYS), len(main_app.TILES))
+        self.assertEqual(main_app.TILES[main_app.TILE_KEYS.index('R')][1], 'radar')
+        self.assertEqual(main_app.TILE_KEYS[:10], '1234567890')
 
     def test_pages_render_at_screen_size(self):
         state = {'stats': {'temp': '48.0 C', 'cpu': 12.0, 'ram': '1.2/3.7 GiB'}, 'backend': False,
@@ -46,8 +61,11 @@ class LayoutTest(unittest.TestCase):
     def test_arrows_walk_the_grid(self):
         self.assertEqual(main_app.move(None, 'right'), 0)  # First press shows the highlight.
         self.assertEqual(main_app.move(0, 'right'), 1)
-        self.assertEqual(main_app.move(1, 'down'), 6)
-        self.assertEqual(main_app.move(6, 'down'), 6)  # Stays on the grid.
+        self.assertEqual(main_app.move(1, 'down'), 5)
+        self.assertEqual(main_app.move(9, 'down'), 9)  # Stays on the grid.
+        self.assertEqual(main_app.move(7, 'down'), 7)  # The empty 12th cell is skipped.
+        self.assertEqual(main_app.move(10, 'right'), 10)
+        self.assertEqual(main_app.move(6, 'down'), 10)
         self.assertEqual(main_app.move(0, 'left'), 0)
 
     def test_quick_panel_handoff_opens_the_page_and_comes_back(self):
