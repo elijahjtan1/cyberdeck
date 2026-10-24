@@ -94,7 +94,7 @@ undervoltage to load, the fix is the power supply (official 5.1 V 3 A, short cab
 | 4.2 | Camera: video recording (H.264 to .mp4) with a length cap and low-storage stop; optional timestamp on stills | - | todo | RECORD on the panel |
 | 4.3 | Investigate tearing: compare partial vs whole-frame framebuffer writes | - | blocked | Waiting on 0.2 |
 | 4.4 | Camera service in the backend as the single owner; panel and browser as clients | - | todo | Only when the browser needs live video |
-| 4.5 | Main app (`main_app.py`) at the 5" screen's full 1024x600 on the framebuffer, keyboard first, with Ask, Wikipedia, Planner, Photos, Tools, Games and Status; `panel_app.py` trimmed to a 320x240 quick panel; a tile in each switches to the other | Claude | in progress | MP1; requested by Eli. Plan in five steps, one PR each, starting with the shell, home, Status and the switch |
+| 4.5 | Main app (`main_app.py`) at the 5" screen's full 1024x600 on the framebuffer, keyboard first, with Ask, Wikipedia, Planner, Photos, Tools, Games and Status; `panel_app.py` trimmed to a 320x240 quick panel; a tile in each switches to the other | Claude | in progress | MP1; requested by Eli. Plan in five steps, one PR each, starting with the shell, home, Status and the switch. Steps 1 and 2 merged in [#69](https://github.com/elijahjtan1/cyberdeck/pull/69) and [#70](https://github.com/elijahjtan1/cyberdeck/pull/70) |
 
 ## Phase 5: simulated hardware
 
@@ -118,7 +118,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
 | 6.4 | Hardware map: pins, I2C addresses, UARTs, PWM and USB for the incoming radar, GNSS, SDR and screens, with a clash checker | Claude | done | Hardware Integrator: `docs/HARDWARE-MAP.md` and `python3 -m core.hardware`, merged in [#34](https://github.com/elijahjtan1/cyberdeck/pull/34) |
 | 6.5 | Radar: LD2450 driver with serial, record and replay; replay labelled SIMULATED | Claude | done | Hardware Integrator: `core/hardware/ld2450.py` merged in [#36](https://github.com/elijahjtan1/cyberdeck/pull/36). Read-only, off unless a source is given |
-| 6.6 | Radar feed and heartbeat screen: `/api/radar` in the backend, then a Modern Warfare-style blip page on the 5" main app | Claude | in progress | Hardware Integrator: backend feed. The page itself goes to QOL Programmer |
+| 6.6 | Radar feed and heartbeat screen: `/api/radar` in the backend, then a Modern Warfare-style blip page on the 5" main app | Claude | done | Hardware Integrator: feed in [#73](https://github.com/elijahjtan1/cyberdeck/pull/73), radar on boot via `setup_core_service.py --radar` in [#75](https://github.com/elijahjtan1/cyberdeck/pull/75). QOL Programmer: RADAR page (R key) in [#74](https://github.com/elijahjtan1/cyberdeck/pull/74). Check on the Pi still to do, including CPU use while the page is open |
 
 ## Phase 7: software for an offline world
 
