@@ -4,8 +4,9 @@
 It draws straight to the framebuffer like the quick panel (panel_app.py), with no desktop,
 so Ollama keeps the memory. While both share one screen only one runs at a time: QUICK PANEL
 hands the screen to the quick panel, and its EXIT page's MAIN APP button hands it back
-(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py); apps
-not moved here yet open in the quick panel."""
+(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py), and so is
+RADAR (panel_tools/radar_page.py, the R key); apps not moved here yet open in the quick
+panel."""
 import argparse
 import json
 import os
@@ -23,6 +24,7 @@ from panel_app import ACCENT, BG, BLUE, CYAN, DANGER, GREEN, MUTED, ORANGE, PURP
 from panel_tools.backend import Backend
 from panel_tools.keyboard import Keyboard
 from panel_tools.main_pages import AskPage, WikiPage
+from panel_tools.radar_page import RadarPage
 from panel_tools.runtime import data_home
 
 HERE = Path(__file__).resolve().parent
@@ -148,7 +150,7 @@ def render(page, size, state, now=None):
             d.text(((rect[0]+rect[2])//2, rect[1] + (rect[3]-rect[1])*.68 + n*20), line, font=SMALL,
                    fill=MUTED, anchor='mm')
     footer(d, width, height, state.get('message') or
-           'Keys 1-0 or arrows and Enter open a tile. Q: quick panel. Esc: home.')
+           'Keys 1-0 or arrows and Enter open a tile. R: radar. Q: quick panel. Esc: home.')
     return image
 
 
@@ -256,7 +258,8 @@ def main():
         page, state = 'home', {'selected': None, 'message': ''}
         base = backend.base if backend is not None else None
         apps = {'ask': AskPage(sys.modules[__name__], base, size=screen.size),
-                'wiki': WikiPage(sys.modules[__name__], base, size=screen.size)}
+                'wiki': WikiPage(sys.modules[__name__], base, size=screen.size),
+                'radar': RadarPage(sys.modules[__name__], base, size=screen.size)}
         if touch and matrix is None:
             state['message'] = 'Touch is not calibrated yet: press Q, then calibrate in the quick panel.'
         next_stats = 0
@@ -300,6 +303,8 @@ def main():
                     page, state['selected'] = 'home', None
                 elif page == 'status':
                     page = 'home'
+                elif key in ('r', 'R'):
+                    page = 'radar'
                 elif key in ('q', 'Q'):
                     handoff = quick_panel_command('home', args.display, args.data)
                     running = False
