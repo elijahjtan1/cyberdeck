@@ -28,7 +28,7 @@ running.
 | --- | --- |
 | `1` to `9`, `0` | Open that tile |
 | Arrows, then Enter | Pick a tile and open it |
-| `R` | Open RADAR |
+| `R` | Open RADAR (the 11th tile) |
 | `Q` | Open the quick panel |
 | Esc | Back to home |
 | Ctrl+C | Close the main app |
@@ -104,7 +104,7 @@ throttling) show in the header on every page.
 
 ![Radar in the main app (sample contacts, labelled SIMULATED)](previews/main-app-radar-preview.png)
 
-**RADAR** (`R` from home) shows an HLK-LD2450 radar like a heartbeat sensor. You're at the
+**RADAR** (its tile, or `R` from home) shows an HLK-LD2450 radar like a heartbeat sensor. You're at the
 bottom centre, and the fan covers what the radar sees: 6 m ahead and 60° to each side, with
 arcs at 2, 4 and 6 m. A sweep crosses the fan once a second.
 
