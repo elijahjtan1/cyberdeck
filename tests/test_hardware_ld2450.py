@@ -64,6 +64,10 @@ class SourceTest(unittest.TestCase):
         self.assertEqual(ld2450.source_from_spec('serial:/dev/ttyAMA3').baud, 256000)
         self.assertEqual(ld2450.source_from_spec('serial:/dev/ttyUSB0:115200').baud, 115200)
         self.assertTrue(ld2450.source_from_spec('replay:/x.bin').simulated)
+        by_path = '/dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.3:1.0-port0'
+        source = ld2450.source_from_spec(f'serial:{by_path}')
+        self.assertEqual((source.device, source.baud), (by_path, 256000))
+        self.assertEqual(ld2450.source_from_spec(f'serial:{by_path}:115200').baud, 115200)
         for bad in ('usb', 'serial:COM3', 'serial:/dev/x:fast', 'serial:/dev/x:0', 'replay:'):
             with self.assertRaises(ValueError, msg=bad):
                 ld2450.source_from_spec(bad)
