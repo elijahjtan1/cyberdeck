@@ -7,14 +7,16 @@ from . import VERSION
 from .sysinfo import decode_flags, health_alerts
 from .telemetry import ACTIVITY_KINDS
 from .gps import Gps
+from .hardware.ld2450 import Radar
 from .librarian.api import create_blueprint
 
 HISTORY_LIMIT = 7 * 86400
 
 
-def create_app(telemetry, started=None, gps=None):
+def create_app(telemetry, started=None, gps=None, radar=None):
     app = Flask('cyberdeck-core')
     gps = gps or Gps()
+    radar = radar or Radar()
     app.register_blueprint(create_blueprint(telemetry=telemetry))
     started = time.time() if started is None else started
 
@@ -49,6 +51,10 @@ def create_app(telemetry, started=None, gps=None):
     @app.get('/api/gps')
     def gps_now():
         return jsonify(gps.snapshot())
+
+    @app.get('/api/radar')
+    def radar_now():
+        return jsonify(radar.snapshot())
 
     def body():
         data = request.get_json(silent=True)

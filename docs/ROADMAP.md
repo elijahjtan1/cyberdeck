@@ -118,6 +118,7 @@ Hardware Eli has approved adding. Each module gets a real driver and a fake for 
 | 6.3 | Voltage and current sensor: INA219 or INA226 on the 5 V rail, sampled by telemetry, shown on STATUS and HISTORY next to the undervoltage flag | - | todo | About $5. Gives real volts and amps; groundwork for battery estimates and power profiles (7.6) |
 | 6.4 | Hardware map: pins, I2C addresses, UARTs, PWM and USB for the incoming radar, GNSS, SDR and screens, with a clash checker | Claude | done | Hardware Integrator: `docs/HARDWARE-MAP.md` and `python3 -m core.hardware`, merged in [#34](https://github.com/elijahjtan1/cyberdeck/pull/34) |
 | 6.5 | Radar: LD2450 driver with serial, record and replay; replay labelled SIMULATED | Claude | done | Hardware Integrator: `core/hardware/ld2450.py` merged in [#36](https://github.com/elijahjtan1/cyberdeck/pull/36). Read-only, off unless a source is given |
+| 6.6 | Radar feed and heartbeat screen: `/api/radar` in the backend, then a Modern Warfare-style blip page on the 5" main app | Claude | in progress | Hardware Integrator: backend feed. The page itself goes to QOL Programmer |
 
 ## Phase 7: software for an offline world
 

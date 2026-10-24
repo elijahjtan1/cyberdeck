@@ -3,7 +3,7 @@
 `cyberdeck-core` is a small Python web service that runs beside the touch panel. Right now it
 keeps a **telemetry log** (temperature, CPU, memory, undervoltage and throttling) and records
 **activity** (photos taken, searches and AI answers), runs the [librarian](LIBRARIAN.md),
-and reads a **GPS** receiver when one is set up. The ESP32 link from the
+and reads a **GPS** receiver and an **LD2450 radar** when they are set up. The ESP32 link from the
 [roadmap](ROADMAP.md) will be added to it.
 
 - **Local only:** it listens on `127.0.0.1:8765`, so only programs on the Pi can reach it.
@@ -102,6 +102,29 @@ error (unplugged receiver, gpsd stopped) the backend retries every 5 seconds. A 
 The systemd unit doesn't pass a GPS setting yet, and the panel's GNSS screen doesn't read
 this yet; both are follow-up tasks.
 
+## Radar
+
+The backend can read one HLK-LD2450 radar and serve its latest targets at `/api/radar`, for
+the heartbeat-style screen. With no source set it reports `configured: false` and no targets.
+The sensor reports movement and position, not who or what is moving.
+
+Choose the source with `--radar` when running by hand, or the `CYBERDECK_RADAR` environment
+variable:
+
+| Value | Source |
+| --- | --- |
+| `serial:/dev/ttyUSB0` | The radar on a USB serial adapter (or `/dev/ttyAMA3` on UART3), at 256000 baud |
+| `replay:/home/eli/cyberdeck-data/radar-test.bin` | A recording made with `python3 -m core.hardware.ld2450 ... --record`, played in a loop. Every reading is marked **SIMULATED** |
+
+```bash
+cd ~/cyberdeck-repo && python3 -m core --port 8766 --radar serial:/dev/ttyUSB0
+curl http://127.0.0.1:8766/api/radar
+```
+
+Targets older than 2 seconds are dropped and `stale` turns true: a silent sensor reads as "no
+data", never as "no movement". A bad `--radar` value turns the radar off with a message
+instead of stopping the backend. The systemd unit doesn't pass a radar setting yet.
+
 ## API
 
 All responses are JSON. Times are Unix seconds.
@@ -115,6 +138,7 @@ All responses are JSON. Times are Unix seconds.
 | `POST /api/activity/end` `{"id": n}` | End it |
 | `POST /api/activity/mark` `{"kind": "camera", "detail": "photo"}` | An instant event |
 | `GET /api/gps` | `configured`, `source` (`serial`, `gpsd`, `replay` or null), `simulated`, `fix`, `lat`, `lon`, `altitude_m`, `satellites`, `hdop`, `speed_kmh`, `course_deg`, `utc` (receiver time from the last RMC with a fix), `age_s`, `error`; plus `"label": "SIMULATED"` for replays. Position fields are null without a current fix, and `utc` is null once the receiver has been silent for 10 s. Dead-reckoned, manual and receiver-simulator fixes count as no fix |
+| `GET /api/radar` | `configured`, `source` (`serial`, `replay` or null), `simulated`, `targets` (up to 3, each `x_mm` (negative is left), `y_mm` (ahead), `speed_cms` (negative is approaching), `distance_m`, `angle_deg`, `moving`), `movement`, `stale`, `age_s`, `frames`, `range_m` and `fov_deg` (the sensor's 6 m, 120° view), `error`; plus `"label": "SIMULATED"` for replays |
 
 Librarian routes (`/api/search`, `/api/retrieve`, `/api/ask`, `/api/library/...`) are described
 in [LIBRARIAN.md](LIBRARIAN.md#api); `deck ask "..."` is the terminal front end for `/api/ask`.

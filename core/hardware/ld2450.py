@@ -30,6 +30,7 @@ STALE_S = 2.0  # Frames arrive every ~0.1 s; after this long the targets aren't 
 RETRY_S = 5  # Wait between reconnects, so an unplugged sensor doesn't spin the CPU.
 FRAME_S = 0.1  # Replay pace.
 RECORD_MAX = 50 * 1024 * 1024  # About two days of frames; recordings stop growing past this.
+RANGE_M, FOV_DEG = 6.0, 120  # What the sensor covers (datasheet), for drawing its view.
 
 
 class Target(namedtuple('Target', 'x_mm y_mm speed_cms resolution_mm')):
@@ -246,7 +247,7 @@ class Radar:
         and stale is True: a sensor that stopped sending is not "no movement"."""
         if not self.source:
             return {'configured': False, 'source': None, 'simulated': False, 'targets': [],
-                    'error': self.error}
+                    'range_m': RANGE_M, 'fov_deg': FOV_DEG, 'error': self.error}
         with self._lock:
             age = None if self.updated is None else self.clock() - self.updated
             stale = age is not None and age > STALE_S
@@ -255,7 +256,7 @@ class Radar:
                     'simulated': self.source.simulated, 'targets': targets, 'stale': stale,
                     'movement': any(t['moving'] for t in targets),
                     'age_s': None if age is None else round(age, 1), 'frames': self.frames,
-                    'error': self.error}
+                    'range_m': RANGE_M, 'fov_deg': FOV_DEG, 'error': self.error}
         if data['simulated']:
             data['label'] = 'SIMULATED'
         return data
