@@ -467,7 +467,7 @@ def history_screens(clock, rows):
 
 
 def main_app_screens(clock):
-    """The 1024x600 main app: home with WIKIPEDIA picked, Status, Ask, Wikipedia and Radar."""
+    """The 1024x600 main app: home with WIKIPEDIA picked, Status, Ask, Wikipedia, Planner and Radar."""
     import main_app
     stats = {'temp': '48.2 C', 'cpu': 14.0, 'ram': '1.1/3.7 GiB', 'disk_free': '18.4 GiB',
              'freq': '1500 MHz', 'uptime': '2h 16m'}
@@ -493,6 +493,17 @@ def main_app_screens(clock):
     for page, name in ((ask, 'main-app-ask-preview.png'), (wiki, 'main-app-wikipedia-preview.png')):
         out = ROOT / 'docs/previews' / name
         page.render(0, clock, []).save(out, optimize=True)
+        print(out)
+    import tempfile
+    from datetime import timedelta
+    from panel_tools.planner_page import PlannerPage
+    with tempfile.TemporaryDirectory() as folder:  # Sample entries, not the user's planner.
+        planner = PlannerPage(main_app, Path(folder), lambda: 'Synchronized')
+        planner.planner.add(clock.date(), 'Charge the radio batteries', '18:00')
+        planner.planner.add(clock.date() + timedelta(days=2), 'Fix the porch light', '10:30')
+        planner.planner.add(clock.date() + timedelta(days=2), 'Water filter swap', '')
+        out = ROOT / 'docs/previews' / 'main-app-planner-preview.png'
+        planner.render(0, clock, []).save(out, optimize=True)
         print(out)
     from panel_tools.radar_page import RadarPage
     radar = RadarPage(main_app, None)  # Sample contacts set by hand: nothing is fetched.

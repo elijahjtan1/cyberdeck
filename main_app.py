@@ -4,8 +4,8 @@
 It draws straight to the framebuffer like the quick panel (panel_app.py), with no desktop,
 so Ollama keeps the memory. While both share one screen only one runs at a time: QUICK PANEL
 hands the screen to the quick panel, and its EXIT page's MAIN APP button hands it back
-(docs/MAIN-APP.md). ASK and WIKIPEDIA are drawn here (panel_tools/main_pages.py); apps
-not moved here yet open in the quick panel."""
+(docs/MAIN-APP.md). ASK, WIKIPEDIA, PLANNER and RADAR are drawn here (panel_tools/main_pages.py,
+planner_page.py, radar_page.py); apps not moved here yet open in the quick panel."""
 import argparse
 import json
 import os
@@ -23,6 +23,7 @@ from panel_app import ACCENT, BG, BLUE, CYAN, DANGER, GREEN, MUTED, ORANGE, PURP
 from panel_tools.backend import Backend
 from panel_tools.keyboard import Keyboard
 from panel_tools.main_pages import AskPage, WikiPage
+from panel_tools.planner_page import PlannerPage
 from panel_tools.radar_page import FAN, RadarPage
 from panel_tools.runtime import data_home
 
@@ -37,14 +38,14 @@ TILE_FONTS = (LABEL, TITLE, font(22, bold=True), SMALL_BOLD)
 # (label, key, colour, where): where is 'here' for a page drawn by this app, or the quick
 # panel page that opens it until it moves here.
 TILES = (('ASK', 'ask', '#ff8fb8', 'here'), ('WIKIPEDIA', 'wiki', ACCENT, 'here'),
-         ('PLANNER', 'planner', BLUE, 'planner'), ('TOOLS', 'tools', GREEN, 'tools'),
+         ('PLANNER', 'planner', BLUE, 'here'), ('TOOLS', 'tools', GREEN, 'tools'),
          ('GAMES', 'games', YELLOW, 'games'), ('CAMERA', 'camera', CYAN, 'camera'),
          ('PHOTOS', 'photos', PURPLE, 'photos'), ('STATUS', 'status', ORANGE, 'here'),
          ('QUICK PANEL', 'quick', MUTED, 'home'), ('CLOSE', 'close', RED, 'here'),
          ('RADAR', 'radar', FAN, 'here'))
 TILE_KEYS = '1234567890R'  # R is also handled on its own, so lower-case r works too.
 NOTES = {'ask': 'Questions answered from the offline library', 'wiki': 'Search and read offline articles',
-         'status': 'Temperature, memory, disk', 'quick': 'The small panel: camera, savers',
+         'status': 'Temperature, memory, disk', 'planner': 'Calendar and day plans', 'quick': 'The small panel: camera, savers',
          'close': 'Back to the console', 'radar': 'Movement around the deck'}
 LATER = 'In the quick panel for now'
 COLS = 4
@@ -261,7 +262,10 @@ def main():
         base = backend.base if backend is not None else None
         apps = {'ask': AskPage(sys.modules[__name__], base, size=screen.size),
                 'wiki': WikiPage(sys.modules[__name__], base, size=screen.size),
-                'radar': RadarPage(sys.modules[__name__], base, size=screen.size)}
+                'radar': RadarPage(sys.modules[__name__], base, size=screen.size),
+                'planner': PlannerPage(sys.modules[__name__], data,
+                                       lambda: (state.get('stats') or {}).get('sync', 'Unknown'),
+                                       panel.user_owns, size=screen.size)}
         if touch and matrix is None:
             state['message'] = 'Touch is not calibrated yet: press Q, then calibrate in the quick panel.'
         next_stats = 0
