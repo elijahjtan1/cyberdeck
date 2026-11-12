@@ -111,7 +111,7 @@ throttling) show in the header on every page.
 - The month shows how many entries each day has. Tap a day to open it, or use **TODAY**.
   Left and right arrows change month, Enter opens today, Esc goes home.
 - A day lists its entries by time. Left and right change day. Tap an entry, then **DELETE**
-  (or Del), to remove it. A day holds up to 20 entries.
+  (or Backspace), to remove it. A day holds up to 20 entries.
 - To add one, tap **ADD** or just start typing on the day, then Enter. Pick the time with the
   buttons, the up and down arrows (15 minutes) or Page Up and Page Down (an hour), or choose
   **ALL DAY**, then Enter or **SAVE**. Entries are typed on the keyboard; the main app has no

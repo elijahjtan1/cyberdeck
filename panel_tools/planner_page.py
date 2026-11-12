@@ -142,9 +142,11 @@ class PlannerPage(PlannerApp):
 
     def draw_day(self, d, wall_time):
         ui = self.ui
-        label = self.day.strftime('%A %d %B %Y')
-        if self.day == wall_time.date():
-            label += ' (today)'
+        today = ' (today)' if self.day == wall_time.date() else ''
+        label = self.day.strftime('%A %d %B %Y') + today
+        room = self.size[0] - 2*MARGIN - 24 - d.textlength(self.clock_note() or '', font=ui.BODY)
+        if d.textlength(label, font=ui.TITLE) > room:  # Keep "(today)" beside the clock warning.
+            label = self.day.strftime('%a %d %b %Y') + today
         self.subtitle(d, label)
         entries = self.planner.entries(self.day)
         self.clamp_first(len(entries))
@@ -169,7 +171,7 @@ class PlannerPage(PlannerApp):
             d.text(((rect[0]+rect[2])//2, (rect[1]+rect[3])//2), label, font=ui.SMALL_BOLD,
                    fill=ui.TEXT if more else ui.MUTED, anchor='mm')
         if self.selected is not None:
-            self.line(d, 'Delete this entry? Del or DELETE removes it.', ui.WARN)
+            self.line(d, 'Delete this entry? Backspace or DELETE removes it.', ui.WARN)
             draw_buttons(ui, d, self.size, ('CANCEL', '', 'DELETE', ''), danger=('DELETE',))
             return
         if self.message:
