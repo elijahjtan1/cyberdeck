@@ -1,7 +1,11 @@
+import builtins
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 from PIL import Image
@@ -95,6 +99,67 @@ class ScreenTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(RuntimeError):
                 main_app.Screen(*make_screen(folder, 320, 240, name='fb_ili9341'))
+
+
+
+class FakeScreen:
+    def __init__(self, display='hdmi'):
+        self.size, self.frames = (1024, 600), 0
+
+    def show(self, image):
+        self.frames += 1
+
+    def close(self):
+        pass
+
+
+class FakeKeys:
+    """Scripted (seconds, key) presses; records which ones were read."""
+    script, read = [], []
+
+    def __init__(self, skip=()):
+        self.start, self.devices, self.pending = time.monotonic(), [], list(FakeKeys.script)
+
+    def poll(self):
+        if time.monotonic() - self.start > 10:
+            raise RuntimeError('main app did not exit')
+        keys = []
+        while self.pending and time.monotonic() - self.start >= self.pending[0][0]:
+            keys.append(self.pending.pop(0)[1])
+        FakeKeys.read += keys
+        return keys
+
+    def close(self):
+        pass
+
+
+class MainLoopTest(unittest.TestCase):
+    def run_main(self, keys, env):
+        FakeKeys.script, FakeKeys.read = keys, []
+        real_open = builtins.open
+        with tempfile.TemporaryDirectory() as folder:
+            def local_lock(path, *args, **kwargs):
+                if path == '/run/lock/cyberdeck-camera-monitor.lock':
+                    path = Path(folder) / 'test.lock'
+                return real_open(path, *args, **kwargs)
+            stats = mock.Mock()
+            stats.read.return_value = {}
+            with mock.patch.object(main_app, 'Screen', FakeScreen), \
+                    mock.patch.object(main_app, 'Keyboard', FakeKeys), \
+                    mock.patch.object(panel_app, 'Touch', side_effect=RuntimeError('no touch')), \
+                    mock.patch.object(panel_app, 'Stats', return_value=stats), \
+                    mock.patch('builtins.open', side_effect=local_lock), \
+                    mock.patch.dict(os.environ, env), \
+                    mock.patch.object(sys, 'argv', ['main_app.py', '--backend', 'off', '--data', folder]):
+                if 'INVOCATION_ID' not in env:
+                    os.environ.pop('INVOCATION_ID', None)
+                main_app.main()
+        return FakeKeys.read
+
+    def test_ctrl_c_closes_a_terminal_run_but_not_the_boot_service(self):
+        keys = [(.1, 'quit'), (2.5, '0')]  # Ctrl+C, then the CLOSE tile (home waits 1 s a loop).
+        self.assertEqual(self.run_main(keys, {}), ['quit'])
+        self.assertEqual(self.run_main(keys, {'INVOCATION_ID': 'test'}), ['quit', '0'])
 
 
 if __name__ == '__main__':

@@ -31,6 +31,7 @@ Install, update and run options: [INSTALL-AND-UPDATE.md](docs/INSTALL-AND-UPDATE
 - `python3 -m core.hardware`: checks the wiring plan for the incoming hardware against `config.txt` (pin, I2C address, UART, PWM and USB clashes). See [HARDWARE-MAP.md](docs/HARDWARE-MAP.md).
 - `deck`: terminal commands; `deck ask "..."` answers from the offline sources and `deck bench` measures the librarian. See [LIBRARIAN.md](docs/LIBRARIAN.md#asking-questions).
 - `setup_panel_service.py`: start at boot with crash restart (`sudo python3 ~/cyberdeck-repo/setup_panel_service.py --now`), or use OPTIONS → Start at boot. See [HOME-AND-STARTUP.md](docs/HOME-AND-STARTUP.md).
+- `setup_main_service.py`: start the main app on the 5" screen at boot instead of the desktop (`sudo python3 ~/cyberdeck-repo/setup_main_service.py --console-boot --now`). See [MAIN-APP.md](docs/MAIN-APP.md#starting-at-boot).
 - `setup_panel_touch.py`: keeps the TFT touch from clicking the desktop.
 - `setup_backlight.py`: optional PWM backlight (real dimming, Black saver switches the backlight off). See [BACKLIGHT-PWM.md](docs/BACKLIGHT-PWM.md).
 - `cyberdeck.py`: older first version, kept as a fallback ([SETUP.md](docs/SETUP.md)).

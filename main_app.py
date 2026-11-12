@@ -232,7 +232,7 @@ def main():
     except BlockingIOError:
         lock.close()
         raise RuntimeError('The quick panel or the main app is already running. Stop it first '
-                           f'(boot service: sudo systemctl stop {panel.SERVICE}).')
+                           f'(boot services: sudo systemctl stop {panel.SERVICE} cyberdeck-main).')
     data = data_home(args.data, panel.__file__)
 
     def terminate(signum, frame):
@@ -294,7 +294,12 @@ def main():
             for key in keyboard.poll():
                 app = apps.get(page)
                 if key == 'quit':
-                    running = False
+                    # Under the boot service a clean exit isn't restarted, so Ctrl+C only
+                    # goes home there; CLOSE is the deliberate way out.
+                    if 'INVOCATION_ID' in os.environ:
+                        page, state['selected'] = 'home', None
+                    else:
+                        running = False
                 elif app is not None:
                     if app.key(key, time.monotonic()) == 'exit':
                         page = 'home'

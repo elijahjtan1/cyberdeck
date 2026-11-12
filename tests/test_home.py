@@ -69,7 +69,8 @@ class BootSwitchTest(unittest.TestCase):
                 mock.patch('setup_panel_service.unit_path',
                            return_value=Path(folder) / 'cyberdeck-panel.service'):
             message = app.set_boot_service(True, ROOT / 'panel_app.py', Path(folder),
-                                           run=lambda cmd, **k: calls.append(cmd))
+                                           run=lambda cmd, **k: calls.append(cmd) or
+                                           subprocess.CompletedProcess(cmd, 1, stdout='disabled\n'))
             unit = (Path(folder) / 'cyberdeck-panel.service').read_text()
         self.assertIn('Will start at boot', message)
         self.assertIn(['systemctl', 'enable', 'cyberdeck-panel.service'], calls)
@@ -83,6 +84,19 @@ class BootSwitchTest(unittest.TestCase):
                                            run=lambda cmd, **k: calls.append(cmd))
         self.assertEqual(calls, [['systemctl', 'disable', 'cyberdeck-panel.service']])
         self.assertIn('not start', message)
+
+    def test_main_app_service_owns_boot(self):
+        calls = []
+        def run(cmd, **k):
+            calls.append(cmd)
+            enabled = cmd[-1] == 'cyberdeck-main.service'
+            return subprocess.CompletedProcess(cmd, 0, stdout='enabled\n' if enabled else 'disabled\n')
+        with mock.patch.object(app.os, 'geteuid', return_value=0, create=True):
+            message = app.set_boot_service(True, ROOT / 'panel_app.py', ROOT, run=run)
+        self.assertIn('main app', message)
+        self.assertFalse(any('enable' in c for c in calls))  # Only is-enabled checks.
+        self.assertEqual(app.boot_label(False, run), 'Main')
+        self.assertEqual(app.boot_label(True, run), 'On')
 
     def test_needs_root(self):
         with mock.patch.object(app.os, 'geteuid', return_value=1000, create=True):
