@@ -185,7 +185,10 @@ def source_from_spec(spec, record=None):
         return None
     kind, _, rest = spec.partition(':')
     if kind == 'serial':
-        device, _, baud = rest.partition(':')
+        device, _, baud = rest.rpartition(':')
+        if not device or any(c in baud for c in './-'):
+            # No baud, or a /dev/serial/by-path/ name, whose colons are part of the path.
+            device, baud = rest, ''
         if baud and (not baud.isdigit() or int(baud) == 0):
             raise ValueError('radar baud rate must be a positive number')
         return SerialSource(device, int(baud or BAUD), record)
