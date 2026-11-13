@@ -4,8 +4,8 @@
 It draws straight to the framebuffer like the quick panel (panel_app.py), with no desktop,
 so Ollama keeps the memory. While both share one screen only one runs at a time: QUICK PANEL
 hands the screen to the quick panel, and its EXIT page's MAIN APP button hands it back
-(docs/MAIN-APP.md). ASK, WIKIPEDIA, PLANNER and RADAR are drawn here (panel_tools/main_pages.py,
-planner_page.py, radar_page.py); apps not moved here yet open in the quick panel."""
+(docs/MAIN-APP.md). ASK, WIKIPEDIA, PLANNER, TOOLS and RADAR are drawn here (panel_tools/main_pages.py,
+planner_page.py, tools_page.py, radar_page.py); apps not moved here yet open in the quick panel."""
 import argparse
 import json
 import os
@@ -26,6 +26,7 @@ from panel_tools.main_pages import AskPage, WikiPage
 from panel_tools.planner_page import PlannerPage
 from panel_tools.radar_page import FAN, RadarPage
 from panel_tools.runtime import data_home
+from panel_tools.tools_page import ToolsPage
 
 HERE = Path(__file__).resolve().parent
 MIN_SIZE = (640, 400)  # Smaller screens get the quick panel instead.
@@ -38,14 +39,14 @@ TILE_FONTS = (LABEL, TITLE, font(22, bold=True), SMALL_BOLD)
 # (label, key, colour, where): where is 'here' for a page drawn by this app, or the quick
 # panel page that opens it until it moves here.
 TILES = (('ASK', 'ask', '#ff8fb8', 'here'), ('WIKIPEDIA', 'wiki', ACCENT, 'here'),
-         ('PLANNER', 'planner', BLUE, 'here'), ('TOOLS', 'tools', GREEN, 'tools'),
+         ('PLANNER', 'planner', BLUE, 'here'), ('TOOLS', 'tools', GREEN, 'here'),
          ('GAMES', 'games', YELLOW, 'games'), ('CAMERA', 'camera', CYAN, 'camera'),
          ('PHOTOS', 'photos', PURPLE, 'photos'), ('STATUS', 'status', ORANGE, 'here'),
          ('QUICK PANEL', 'quick', MUTED, 'home'), ('CLOSE', 'close', RED, 'here'),
          ('RADAR', 'radar', FAN, 'here'))
 TILE_KEYS = '1234567890R'  # R is also handled on its own, so lower-case r works too.
 NOTES = {'ask': 'Questions answered from the offline library', 'wiki': 'Search and read offline articles',
-         'status': 'Temperature, memory, disk', 'planner': 'Calendar and day plans', 'quick': 'The small panel: camera, savers',
+         'status': 'Temperature, memory, disk', 'planner': 'Calendar and day plans', 'tools': 'Timers, network, sun and moon', 'quick': 'The small panel: camera, savers',
          'close': 'Back to the console', 'radar': 'Movement around the deck'}
 LATER = 'In the quick panel for now'
 COLS = 4
@@ -265,7 +266,9 @@ def main():
                 'radar': RadarPage(sys.modules[__name__], base, size=screen.size),
                 'planner': PlannerPage(sys.modules[__name__], data,
                                        lambda: (state.get('stats') or {}).get('sync', 'Unknown'),
-                                       panel.user_owns, size=screen.size)}
+                                       panel.user_owns, size=screen.size),
+                'tools': ToolsPage(sys.modules[__name__], data, lambda: state.get('stats') or {},
+                                   size=screen.size)}
         if touch and matrix is None:
             state['message'] = 'Touch is not calibrated yet: press Q, then calibrate in the quick panel.'
         next_stats = 0
@@ -282,6 +285,17 @@ def main():
                 return False
             return True
 
+        def leave(result):
+            """What a page's key or tap asked for: 'exit' goes home, 'quick:PAGE' hands the
+            screen to the quick panel on that page. False when the main app should stop."""
+            nonlocal page, handoff
+            if result == 'exit':
+                page = 'home'
+            elif result and result.startswith('quick:'):
+                handoff = quick_panel_command(result[6:], args.display, args.data)
+                return False
+            return True
+
         running = True
         while running:
             now = time.monotonic()
@@ -291,11 +305,13 @@ def main():
                 state['alerts'] = panel.health_alerts(state['stats'])
                 state['busy'] = backend.busy if backend is not None else []
                 next_stats = now + 5
+            apps['tools'].tick(now)  # Its countdown and traffic history run on every page.
+            alerts = apps['tools'].alerts() + state['alerts']
             app = apps.get(page)
             if app is not None:
-                screen.show(app.render(now, datetime.now(), state['alerts']))
+                screen.show(app.render(now, datetime.now(), alerts))
             else:
-                screen.show(render(page, screen.size, state))
+                screen.show(render(page, screen.size, dict(state, alerts=alerts)))
             waiting = [touch.device] if touch else []
             panel.select.select(waiting + keyboard.devices, [], [], app.delay if app else 1.)
             for key in keyboard.poll():
@@ -308,8 +324,7 @@ def main():
                     else:
                         running = False
                 elif app is not None:
-                    if app.key(key, time.monotonic()) == 'exit':
-                        page = 'home'
+                    running = leave(app.key(key, time.monotonic())) and running
                 elif key == 'esc':
                     page, state['selected'] = 'home', None
                 elif page == 'status':
@@ -331,8 +346,7 @@ def main():
                 px, py = np.append(raw, 1) @ matrix
                 x, y = screen.from_panel(px, py)
                 if page in apps:
-                    if apps[page].tap(x, y, time.monotonic()) == 'exit':
-                        page = 'home'
+                    running = leave(apps[page].tap(x, y, time.monotonic())) and running
                     continue
                 if page == 'status':
                     page = 'home'

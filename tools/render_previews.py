@@ -467,7 +467,7 @@ def history_screens(clock, rows):
 
 
 def main_app_screens(clock):
-    """The 1024x600 main app: home with WIKIPEDIA picked, Status, Ask, Wikipedia, Planner and Radar."""
+    """The 1024x600 main app: home with WIKIPEDIA picked, Status, Ask, Wikipedia, Planner, Tools and Radar."""
     import main_app
     stats = {'temp': '48.2 C', 'cpu': 14.0, 'ram': '1.1/3.7 GiB', 'disk_free': '18.4 GiB',
              'freq': '1500 MHz', 'uptime': '2h 16m'}
@@ -505,6 +505,14 @@ def main_app_screens(clock):
         out = ROOT / 'docs/previews' / 'main-app-planner-preview.png'
         planner.render(0, clock, []).save(out, optimize=True)
         print(out)
+        from panel_tools.tools_page import ToolsPage
+        tools = ToolsPage(main_app, Path(folder), lambda: {'sync': 'Synchronized'})
+        tools.clocks.started, tools.clocks.deadline = 0, 75.3 + 224
+        for name, moment in (('main-app-tools-preview.png', 0), ('main-app-timers-preview.png', 75.3)):
+            tools.page = 'timers' if moment else 'menu'
+            out = ROOT / 'docs/previews' / name
+            tools.render(moment, clock, []).save(out, optimize=True)
+            print(out)
     from panel_tools.radar_page import RadarPage
     radar = RadarPage(main_app, None)  # Sample contacts set by hand: nothing is fetched.
     radar.data = {'configured': True, 'simulated': True, 'label': 'SIMULATED', 'stale': False,
