@@ -315,6 +315,8 @@ def main():
             waiting = [touch.device] if touch else []
             panel.select.select(waiting + keyboard.devices, [], [], app.delay if app else 1.)
             for key in keyboard.poll():
+                if not running:
+                    break  # Keys typed after Ctrl+C or a hand-off must not reopen anything.
                 app = apps.get(page)
                 if key == 'quit':
                     # Under the boot service a clean exit isn't restarted, so Ctrl+C only
@@ -335,13 +337,13 @@ def main():
                     handoff = quick_panel_command('home', args.display, args.data)
                     running = False
                 elif key in TILE_KEYS:
-                    running = open_tile(TILE_KEYS.index(key))
+                    running = open_tile(TILE_KEYS.index(key)) and running
                 elif key in ('left', 'right', 'up', 'down'):
                     state['selected'] = move(state['selected'], key)
                 elif key == 'enter' and state['selected'] is not None:
-                    running = open_tile(state['selected'])
+                    running = open_tile(state['selected']) and running
             for raw in (touch.poll() if touch else []):
-                if matrix is None:
+                if matrix is None or not running:
                     continue
                 px, py = np.append(raw, 1) @ matrix
                 x, y = screen.from_panel(px, py)
