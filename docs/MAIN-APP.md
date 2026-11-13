@@ -45,7 +45,7 @@ While both share the 5" screen, only one runs at a time:
 - **QUICK PANEL** (or `Q`) closes the main app and starts the quick panel in its place.
 - The quick panel's **EXIT** page then shows **MAIN APP** instead of CLOSE APP, which hands the
   screen back.
-- Tiles for apps that haven't moved here yet (Planner, Tools, Games, Camera, Photos) open the
+- Tiles for apps that haven't moved here yet (Tools, Games, Camera, Photos) open the
   quick panel straight on that app. Leaving it through EXIT → MAIN APP returns
   here.
 
@@ -54,8 +54,8 @@ The quick panel takes these options for this:
 - `--open PAGE` starts it on `ask`, `reader`, `planner`, `tools`, `games`, `camera` or `photos`.
 - `--main-app` makes its EXIT page hand the screen back.
 
-The plan is for the apps to move into the main app one at a time. Ask and Wikipedia have moved
-already. Later, the 2.8" screen can run the quick panel full time beside the main
+The plan is for the apps to move into the main app one at a time. Ask, Wikipedia and Planner
+have moved already. Later, the 2.8" screen can run the quick panel full time beside the main
 app on the 5".
 
 ## Ask
@@ -100,6 +100,24 @@ Typing needs the keyboard here. The quick panel's READER still has an on-screen 
 are read on the Pi, the same way the quick panel reads them. It also shows whether the backend
 (`cyberdeck-core`) is running and what it is busy with. Health alerts (low voltage, heat,
 throttling) show in the header on every page.
+
+## Planner
+
+![Planner in the main app (sample entries)](previews/main-app-planner-preview.png)
+
+**PLANNER** (`3`) is the quick panel's planner at full size: the same entries, saved in
+`~/cyberdeck-data/planner.json`, so a plan added in either app shows in both.
+
+- The month shows how many entries each day has. Tap a day to open it, or use **TODAY**.
+  Left and right arrows change month, Enter opens today, Esc goes home.
+- A day lists its entries by time. Left and right change day. Tap an entry, then **DELETE**
+  (or Backspace), to remove it. A day holds up to 20 entries.
+- To add one, tap **ADD** or just start typing on the day, then Enter. Pick the time with the
+  buttons, the up and down arrows (15 minutes) or Page Up and Page Down (an hour), or choose
+  **ALL DAY**, then Enter or **SAVE**. Entries are typed on the keyboard; the main app has no
+  on-screen keyboard.
+- "Today" comes from the Pi's clock. When the clock isn't synced (no internet or GPS time),
+  the page says so in orange, because the date could be wrong.
 
 ## Radar
 
