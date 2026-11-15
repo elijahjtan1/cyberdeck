@@ -46,7 +46,7 @@ TILES = (('ASK', 'ask', '#ff8fb8', 'here'), ('WIKIPEDIA', 'wiki', ACCENT, 'here'
          ('RADAR', 'radar', FAN, 'here'))
 TILE_KEYS = '1234567890R'  # R is also handled on its own, so lower-case r works too.
 NOTES = {'ask': 'Questions answered from the offline library', 'wiki': 'Search and read offline articles',
-         'status': 'Temperature, memory, disk', 'planner': 'Calendar and day plans', 'tools': 'Timers, network, sun and moon', 'quick': 'The small panel: camera, savers',
+         'status': 'Temperature, memory, disk', 'planner': 'Calendar and day plans', 'tools': 'Timers, network, sky, GNSS, updates', 'quick': 'The small panel: camera, savers',
          'close': 'Back to the console', 'radar': 'Movement around the deck'}
 LATER = 'In the quick panel for now'
 COLS = 4
@@ -268,7 +268,7 @@ def main():
                                        lambda: (state.get('stats') or {}).get('sync', 'Unknown'),
                                        panel.user_owns, size=screen.size),
                 'tools': ToolsPage(sys.modules[__name__], data, lambda: state.get('stats') or {},
-                                   size=screen.size)}
+                                   size=screen.size, base_url=base, repo=HERE, owns=panel.user_owns)}
         if touch and matrix is None:
             state['message'] = 'Touch is not calibrated yet: press Q, then calibrate in the quick panel.'
         next_stats = 0
@@ -287,10 +287,14 @@ def main():
 
         def leave(result):
             """What a page's key or tap asked for: 'exit' goes home, 'quick:PAGE' hands the
-            screen to the quick panel on that page. False when the main app should stop."""
+            screen to the quick panel on that page, 'restart' starts this app again. False
+            when the main app should stop."""
             nonlocal page, handoff
             if result == 'exit':
                 page = 'home'
+            elif result == 'restart':  # TOOLS > UPDATES: start again to load the new code.
+                handoff = [sys.executable, str(HERE / 'main_app.py'), *sys.argv[1:]]
+                return False
             elif result and result.startswith('quick:'):
                 handoff = quick_panel_command(result[6:], args.display, args.data)
                 return False
@@ -362,6 +366,8 @@ def main():
     finally:
         if apps.get('ask') is not None and apps['ask'].running:
             apps['ask'].stop()  # Drops the connection, which stops the model.
+        if apps.get('tools') is not None:
+            apps['tools'].close()  # Waits for a Git update to finish.
         for thing in (backend, stats, keyboard, touch, screen):
             if thing is not None:
                 try:
