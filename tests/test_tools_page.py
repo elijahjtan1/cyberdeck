@@ -167,6 +167,12 @@ class ToolsPageTest(unittest.TestCase):
             page.gps.fetch()
             self.assertEqual(page.gps.read(), (None, wanted))  # The old fix is dropped, not kept.
         self.assertEqual(GpsFeed(None).read(), (None, 'off'))
+        answers[0] = {'configured': True, 'fix': True, 'lat': 1., 'lon': 2., 'age_s': 0.}
+        ticks = iter((0, 0, 1, 99))  # Drawn at 0; one pass of the loop; then the page is long closed.
+        feed = GpsFeed('http://127.0.0.1:8765', opener, clock=lambda: next(ticks))
+        feed.drawn = 0
+        feed.poll_loop()
+        self.assertEqual(feed.read(), (None, None))  # A reopened page starts from "Asking...".
 
     def test_updates_ask_before_changing_anything(self):
         calls = []
@@ -198,8 +204,13 @@ class ToolsPageTest(unittest.TestCase):
         self.assertEqual(page.confirm, 'update')
         page.key('x', 0)  # Any key but Enter cancels.
         self.assertEqual((page.confirm, calls), (None, ['check']))
+        for slot in (1, 2, 3):  # A double tap on any asking button never confirms.
+            page.tap(*centre(button_rects(SIZE, 5)[slot]), 0)
+            self.assertEqual(page.tap(*centre(button_rects(SIZE, 5)[slot]), 0), None)
+            self.assertEqual((page.confirm, calls), (('update', 'restart', 'rollback')[slot-1], ['check']))
+            page.key('x', 0)
         page.key('u', 0)
-        page.tap(*centre(button_rects(SIZE, 5)[3]), 0)  # CONFIRM.
+        page.tap(*centre(button_rects(SIZE, 5)[4]), 0)  # CONFIRM.
         finish()
         self.assertEqual((calls, page.message), (['check', 'apply'], 'Update installed. Restart to load it.'))
         page.key('b', 0)

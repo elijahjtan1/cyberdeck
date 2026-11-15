@@ -76,6 +76,8 @@ class GpsFeed:
             started = self.clock()
             self.fetch()
             time.sleep(max(0., GPS_POLL_S - (self.clock() - started)))
+        with self.lock:  # Nobody is looking: reopening the page must not show this reading.
+            self.data = None
 
     def keep_polling(self):
         self.drawn = self.clock()
@@ -208,14 +210,16 @@ class ToolsPage:
 
     def update_labels(self):
         if self.confirm:
-            return ('CANCEL', '', '', 'CONFIRM', '')
+            # CONFIRM sits under BACK, the one button that never asks, so a double tap on
+            # UPDATE, RESTART or ROLL BACK can't land on it.
+            return ('CANCEL', '', '', '', 'CONFIRM')
         return ('CHECK', 'UPDATE', 'RESTART', 'ROLL BACK', 'BACK')  # The last three ask first.
 
     def update_button(self, index):
         """UPDATES buttons. Changing the checkout or restarting asks first; 'restart' is
         returned to the main app, which starts itself again."""
         if self.confirm:
-            if index not in (0, 3):
+            if index not in (0, 4):
                 return None  # The blank buttons between CANCEL and CONFIRM do nothing.
             action, self.confirm = self.confirm, None
             if index == 0:
@@ -280,7 +284,7 @@ class ToolsPage:
 
     def key(self, key, now):
         if self.page == 'updates' and self.confirm:
-            return self.update_button(3 if key == 'enter' else 0)
+            return self.update_button(4 if key == 'enter' else 0)
         if key == 'esc':
             if self.page == 'menu':
                 return 'exit'
