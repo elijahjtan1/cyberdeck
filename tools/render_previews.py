@@ -513,6 +513,14 @@ def main_app_screens(clock):
             out = ROOT / 'docs/previews' / name
             tools.render(moment, clock, []).save(out, optimize=True)
             print(out)
+        tools.page, tools.gps.keep_polling = 'gnss', lambda: None  # Sample fix set by hand.
+        tools.gps.data = {'configured': True, 'source': 'replay', 'simulated': True, 'label': 'SIMULATED',
+                          'fix': True, 'lat': 44.64876, 'lon': -63.57524, 'altitude_m': 31.2, 'satellites': 9,
+                          'hdop': .9, 'speed_kmh': .4, 'course_deg': 212., 'utc': '2026-10-09T22:24:02Z',
+                          'age_s': .4, 'error': None}
+        out = ROOT / 'docs/previews' / 'main-app-gnss-preview.png'
+        tools.render(0, clock, []).save(out, optimize=True)
+        print(out)
     from panel_tools.radar_page import RadarPage
     radar = RadarPage(main_app, None)  # Sample contacts set by hand: nothing is fetched.
     radar.data = {'configured': True, 'simulated': True, 'label': 'SIMULATED', 'stale': False,

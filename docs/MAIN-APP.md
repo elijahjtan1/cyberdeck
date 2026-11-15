@@ -140,9 +140,33 @@ Esc or **BACK** returns to this menu, and Esc again goes home.
 - **SUN & MOON** (`3`): sunrise, sunset and daylight for the position saved in
   `~/cyberdeck-data/location.json`, and the moon's phase. Without a saved position it says
   so and shows the moon only. When the clock isn't synced it warns that the date may be wrong.
-- **QUICK PANEL TOOLS** (`4`) opens the quick panel's Tools page for the rest: timelapse,
-  photo sharing, presets, quick controls, updates and recovery. Most of these use the camera
-  or the small panel's settings, so they stay there.
+- **GNSS** (`4`): the position from the GPS receiver, as read by the backend
+  ([CORE.md](CORE.md#gps)).
+
+  ![GNSS in the main app (sample fix, labelled SIMULATED)](previews/main-app-gnss-preview.png)
+
+  With a fix it shows latitude and longitude, altitude, speed, course, satellites, HDOP and
+  the receiver's UTC time. Otherwise it says why there is no position, and never shows an
+  old one:
+  - **NO FIX**: the receiver is talking but hasn't found enough satellites.
+  - **NO SIGNAL**: the receiver has sent nothing for 10 s (wiring or power).
+  - **NO RECEIVER**: the backend has no GPS source set.
+  - **GPS OFFLINE**: the backend isn't running.
+  - **SIMULATED**, in large orange letters, when the backend is replaying a recorded track.
+
+  The page asks the backend once a second while it is open.
+- **UPDATES** (`5`): the same explicit updater as the quick panel. Nothing updates by itself.
+  - **CHECK** (`C`) asks GitHub whether the branch has new commits; it needs the internet.
+  - **UPDATE** (`U`) installs what CHECK found, **ROLL BACK** (`B`) returns to the revision
+    before the last update, and **RESTART** (`R`) starts the main app again to load new
+    code. Each of the three asks first: Enter or **CONFIRM** goes ahead, any other key
+    cancels.
+  - RESTART reloads the main app only. After an update that changes the backend, also run
+    `sudo systemctl restart cyberdeck-core`.
+  - Running timers stop on a restart.
+- **QUICK PANEL TOOLS** (`6`) opens the quick panel's Tools page for the rest: timelapse,
+  photo sharing, presets, quick controls and recovery. These use the camera or the small
+  panel's settings, so they stay there.
 
 ## Radar
 
