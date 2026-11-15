@@ -45,7 +45,7 @@ While both share the 5" screen, only one runs at a time:
 - **QUICK PANEL** (or `Q`) closes the main app and starts the quick panel in its place.
 - The quick panel's **EXIT** page then shows **MAIN APP** instead of CLOSE APP, which hands the
   screen back.
-- Tiles for apps that haven't moved here yet (Tools, Games, Camera, Photos) open the
+- Tiles for apps that haven't moved here yet (Games, Camera, Photos) open the
   quick panel straight on that app. Leaving it through EXIT → MAIN APP returns
   here.
 
@@ -54,8 +54,8 @@ The quick panel takes these options for this:
 - `--open PAGE` starts it on `ask`, `reader`, `planner`, `tools`, `games`, `camera` or `photos`.
 - `--main-app` makes its EXIT page hand the screen back.
 
-The plan is for the apps to move into the main app one at a time. Ask, Wikipedia and Planner
-have moved already. Later, the 2.8" screen can run the quick panel full time beside the main
+The plan is for the apps to move into the main app one at a time. Ask, Wikipedia, Planner and
+part of Tools have moved already. Later, the 2.8" screen can run the quick panel full time beside the main
 app on the 5".
 
 ## Ask
@@ -118,6 +118,31 @@ throttling) show in the header on every page.
   on-screen keyboard.
 - "Today" comes from the Pi's clock. When the clock isn't synced (no internet or GPS time),
   the page says so in orange, because the date could be wrong.
+
+## Tools
+
+![Tools in the main app](previews/main-app-tools-preview.png)
+
+**TOOLS** (`4`) has the tools that don't need the camera. Pick one with its tile or number;
+Esc or **BACK** returns to this menu, and Esc again goes home.
+
+- **TIMERS** (`1`): a stopwatch and a countdown.
+
+  ![Timers in the main app](previews/main-app-timers-preview.png)
+
+  `S` or Space starts and pauses the stopwatch, `R` resets it. `L` steps the countdown length
+  through 1, 5, 10, 25 and 60 minutes, and `T` starts or stops it. When the countdown ends,
+  **TIMER DONE** shows in the header on every page until you open Timers and press `T` or
+  **DISMISS**. There is no sound. Timers live in the main app only: they stop when it closes
+  or hands the screen to the quick panel.
+- **NETWORK** (`2`): the Pi's address, the Wi-Fi network and signal, and two graphs of the
+  last two minutes: traffic (green down, orange up) and Wi-Fi signal.
+- **SUN & MOON** (`3`): sunrise, sunset and daylight for the position saved in
+  `~/cyberdeck-data/location.json`, and the moon's phase. Without a saved position it says
+  so and shows the moon only. When the clock isn't synced it warns that the date may be wrong.
+- **QUICK PANEL TOOLS** (`4`) opens the quick panel's Tools page for the rest: timelapse,
+  photo sharing, presets, quick controls, updates and recovery. Most of these use the camera
+  or the small panel's settings, so they stay there.
 
 ## Radar
 
