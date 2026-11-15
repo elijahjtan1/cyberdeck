@@ -77,7 +77,7 @@ class GpsFeed:
             self.fetch()
             time.sleep(max(0., GPS_POLL_S - (self.clock() - started)))
         with self.lock:  # Nobody is looking: reopening the page must not show this reading.
-            self.data = None
+            self.data = self.problem = None
 
     def keep_polling(self):
         self.drawn = self.clock()
